@@ -1,4 +1,8 @@
 import { initLocale } from "./utils/locale";
+import {
+  closeTimelineTab,
+  registerTimelineMenu,
+} from "./modules/timeline/timelineTab";
 import { createZToolkit } from "./utils/ztoolkit";
 
 async function onStartup() {
@@ -9,6 +13,8 @@ async function onStartup() {
   ]);
 
   initLocale();
+
+  registerTimelineMenu();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -33,6 +39,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 function onShutdown(): void {
+  closeTimelineTab();
   ztoolkit.unregisterAll();
   // Remove addon object
   addon.data.alive = false;

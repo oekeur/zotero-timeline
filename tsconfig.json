@@ -1,5 +1,28 @@
 {
   "extends": "zotero-types/entries/sandbox/",
   "include": ["src", "typings"],
-  "exclude": ["build", "addon"]
+  "exclude": ["build", "addon"],
+  "compilerOptions": {
+    // vis-timeline 8.5.4 misroutes its own types. Every subpath in its
+    // `exports` map, "./standalone" included, points `types` at
+    // declarations/index.d.ts, which imports DataSet from vis-data and uses it
+    // only inside the DataSetDataItem/DataSetDataGroup aliases, never
+    // exporting it as a value. The standalone runtime bundle does export
+    // DataSet, so `import { Timeline, DataSet }` works but fails tsc with
+    // TS2459.
+    //
+    // entry-standalone.d.ts, shipped in the same package, re-exports DataSet
+    // correctly and is what the subpath should have pointed at. Map onto it
+    // rather than hand-writing an augmentation, so the types stay upstream's.
+    //
+    // Deliberately NOT solved by depending on vis-data directly: the
+    // standalone bundle embeds its own copy, and a DataSet built from a second
+    // installed copy is a different class that vis-timeline's instanceof
+    // checks would not recognise.
+    "paths": {
+      "vis-timeline/standalone": [
+        "./node_modules/vis-timeline/declarations/entry-standalone.d.ts"
+      ]
+    }
+  }
 }
