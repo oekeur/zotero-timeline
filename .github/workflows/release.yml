@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - v**
+      - v*
 
 permissions:
   contents: write
@@ -13,9 +13,8 @@ permissions:
 jobs:
   create-release:
     uses: zotero-plugin-dev/workflows/.github/workflows/release-plugin.yml@main
-    # You can customize any of the inputs here.
-    # If you omit an input, its default value will be used.
+    # The build runs inside `npm run release` via `release.bumpp.execute`
+    # in zotero-plugin.config.ts, so no separate build command here.
     with:
-      build: "npm run build"
       release: "npm run release"
     secrets: inherit

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://oekeur.github.io/zotero-timeline/
+    about: Getting started, the user guide, and the internals. Check here before filing.
+  - name: My timelines disappeared
+    url: https://oekeur.github.io/zotero-timeline/user-guide/plugin-data-howto
+    about: Usually the plugin's container item landed in the trash. This walks through restoring it.
+  - name: Zotero itself is misbehaving
+    url: https://forums.zotero.org/
+    about: For problems that also happen with this plugin disabled, the Zotero forums are the right place.

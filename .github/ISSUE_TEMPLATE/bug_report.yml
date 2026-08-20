@@ -1,0 +1,98 @@
+name: Bug report
+description: Something in the plugin behaves differently than documented, or not at all.
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched the existing issues and this isn't already reported.
+          required: true
+        - label: I'm on the latest release, or the version below says which older one.
+          required: true
+        - label: '"Zotero Timeline" appears under Tools -> Plugins. A plugin that fails to load does so quietly, with no error dialog, so this rules out the most common non-bug.'
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Number the steps from a fresh Zotero start. If it only happens with particular events, dates, or one particular timeline, say so.
+      placeholder: |
+        1. Open the timeline tab for "..."
+        2. Drag the event "..." to ...
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happens
+      options:
+        - Timeline tab (rendering, zooming, dragging events)
+        - Creating or editing an event
+        - Event dates (EDTF, uncertain or approximate dates)
+        - Linking an event to a source item
+        - Link types
+        - Combined view (several timelines at once)
+        - Creating, renaming or deleting a timeline
+        - Preferences
+        - Plugin data items or syncing
+        - Somewhere else, or not sure
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Tools -> Plugins, next to "Zotero Timeline".
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: zotero-version
+    attributes:
+      label: Zotero version
+      description: Help -> About Zotero.
+      placeholder: 7.0.32
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug-output
+    attributes:
+      label: Error output
+      description: |
+        Help -> Report Errors… - it opens without sending anything. Copy the text from its first page and paste it here; don't click through to submit it to Zotero.
+        This works even if you never turned on debug logging: plugin failures are logged in a way that survives to that panel regardless. Debug Output Logging (Help -> Debug Output Logging -> Enable, then reproduce and View Output) still helps for anything that isn't a hard failure, e.g. a step that silently did the wrong thing - paste that here too if you have it.
+      render: text
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Screenshots, other plugins installed, whether the library syncs, whether the problem survives a restart.
