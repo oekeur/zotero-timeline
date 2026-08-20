@@ -34,23 +34,68 @@ function defineFromHost(name: string, read: (win: Window) => unknown): void {
  * `document.head.appendChild(...)` unconditionally on init, which throws
  * against a XUL document. Shim a `<head>` in so that does not happen.
  */
-export function ensureDocumentHead(doc: Document): void {
-  if (doc.head) {
+function ensureDocumentPart(doc: Document, part: "head" | "body"): void {
+  if ((doc as any)[part]) {
     return;
   }
-  const head = doc.createElementNS(
-    "http://www.w3.org/1999/xhtml",
-    "head",
-  ) as unknown as HTMLHeadElement;
-  doc.documentElement?.appendChild(head as unknown as Node);
-  Object.defineProperty(doc, "head", { value: head, configurable: true });
+  const element = doc.createElementNS("http://www.w3.org/1999/xhtml", part);
+  doc.documentElement?.appendChild(element as unknown as Node);
+  Object.defineProperty(doc, part, { value: element, configurable: true });
+}
+
+/**
+ * Zotero's main chrome window is a XUL document, which has neither a `<head>`
+ * nor a `<body>`. Library code assumes both exist:
+ *
+ *   - stylesheet injection does `document.head.appendChild(...)` on init
+ *   - vis-timeline's getScrollBarWidth measures by appending a probe element
+ *     to `document.body`, then removing it
+ *
+ * Both are unconditional, so both throw against a XUL document rather than
+ * degrading. Shim the two elements in.
+ */
+export function ensureDocumentHead(doc: Document): void {
+  ensureDocumentPart(doc, "head");
+  ensureDocumentPart(doc, "body");
 }
 
 export function ensureWindowGlobals(win: Window): void {
   hostWindow = win;
+  // `window` itself. Bundles reach for it bare, and a ReferenceError here
+  // aborts the caller mid-build: the tab is already added by then, so the
+  // symptom is an empty tab rather than an error the user can see.
+  defineFromHost("window", (w) => w);
   defineFromHost("document", (w) => w.document);
   defineFromHost("Image", (w) => (w as any).Image);
   defineFromHost("ResizeObserver", (w) => (w as any).ResizeObserver);
   defineFromHost("MutationObserver", (w) => (w as any).MutationObserver);
   defineFromHost("getComputedStyle", (w) => (w as any).getComputedStyle);
+  defineFromHost("navigator", (w) => (w as any).navigator);
+  defineFromHost("location", (w) => (w as any).location);
+  defineFromHost("requestAnimationFrame", (w) =>
+    (w as any).requestAnimationFrame?.bind(w),
+  );
+  defineFromHost("cancelAnimationFrame", (w) =>
+    (w as any).cancelAnimationFrame?.bind(w),
+  );
+
+  // DOM interface constructors, used bare in `instanceof` checks. vis-timeline
+  // does `content instanceof Element` when setting group content, which is a
+  // ReferenceError here rather than a false. They must come from the host
+  // window: an instance created in that window is only `instanceof` that
+  // window's constructor, so a copy from anywhere else would silently compare
+  // false and take the wrong branch.
+  for (const name of [
+    "Element",
+    "Node",
+    "HTMLElement",
+    "SVGElement",
+    "DocumentFragment",
+    "Event",
+    "CustomEvent",
+    "KeyboardEvent",
+    "MouseEvent",
+  ]) {
+    defineFromHost(name, (w) => (w as any)[name]);
+  }
 }
