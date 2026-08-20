@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PreToolUse gate for `git merge` (see .claude/settings.json's `if` filter,
 # which only invokes this for Bash(git merge *) commands). Blocks a merge into
-# main unless the full `npm test` suite passes on the MERGE RESULT.
+# main unless build, lint and the full `npm test` suite all pass on the MERGE
+# RESULT.
 #
 # Testing main's pre-merge working tree instead would gate the state being
 # left rather than the state being created: a branch whose whole purpose is
@@ -152,6 +153,24 @@ gate_zotero_children() {
     done
   done
 }
+
+# Static stages first, and they are the reason this exists: the gate used to run
+# `npm test` alone, which never type-checks src/. A commit failing
+# `tsc --noEmit` passed the gate and landed on main red, caught only by CI's
+# separate build job afterwards.
+#
+# `scripts/verify.sh --no-test` is exactly the build-and-lint pair, so this
+# reuses verify.sh's definition of the static stages rather than restating it.
+# The test stage is deliberately NOT delegated to verify.sh: the machinery below
+# owns killing the live Zotero it starts, and nesting that inside verify.sh's own
+# test runner would leave two kill mechanisms racing.
+static_log="$tmp/verify-static.log"
+if ! ( cd "$work" && ./scripts/verify.sh --no-test >"$static_log" 2>&1 ); then
+  keep=$(mktemp /tmp/zoterotimeline-premerge-static.XXXXXX.log)
+  cp "$static_log" "$keep" 2>/dev/null
+  failed_stages=$(grep -E "^◆ FAILED:" "$static_log" | tail -1)
+  block "build or lint failed on the result of merging '$ref' into main: ${failed_stages:-see log}. Full log: $keep"
+fi
 
 ( cd "$work" && npm test >"$log" 2>&1 ) &
 test_pid=$!

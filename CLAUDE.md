@@ -236,6 +236,14 @@ to build.
   logic duplicated three or more times that the rule-of-three threshold missed
   in the moment. Report candidates rather than refactoring unprompted; this is
   a flag-for-review step, not a license to abstract on sight.
+- **Code copied from another repo gets read against its code, and its defects
+  get filed where they came from.** Most of this repo's tooling came from
+  zoteroMindmap. Copying carried across live bugs and comments describing
+  behaviour that had been deleted, none of which its own hand-off notes
+  mentioned, because those notes checked that a file names no plugin rather
+  than that it is correct. When a copied file turns out to be wrong, fix it here
+  and file a task in the source repo too; a fix that lands only here leaves the
+  other project running the bug.
 - **Version pins**: `zotero-plugin-toolkit`, `zotero-types`, `vis-timeline` and
   `edtf` are pinned exactly, without a caret. The upstream template's ranges
   resolve to newer betas with renamed exports, and `tsc --noEmit` then fails on
