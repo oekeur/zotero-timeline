@@ -1,0 +1,109 @@
+name: Deploy docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+# Allow GITHUB_TOKEN to deploy to GitHub Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. Queued runs wait rather than cancel, so a merge that
+# lands mid-deploy still publishes.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # lastUpdated in the VitePress config reads git history for each page.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build site
+        run: npm run docs:build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # A green deploy step only proves the artifact uploaded. This fetches what
+  # GitHub Pages actually serves and fails if the page is not there, or is
+  # there but rendered as an empty shell.
+  #
+  # It checks a content page rather than the site root: the root uses the home
+  # layout, which has no sidebar, so asserting on sidebar markup there would
+  # fail against a perfectly good site.
+  #
+  # The local-search assertion looks for the search UI, not for the index
+  # chunk. VitePress emits the index as assets/chunks/@localSearchIndexroot.*.js
+  # and imports it dynamically at runtime, so it is named in no served HTML and
+  # in no statically-linked chunk. `id="local-search"` and VPNavBarSearch are
+  # rendered only when search.provider is "local", which is the thing worth
+  # proving survived the build.
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the published site and assert it rendered
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ needs.deploy.outputs.page_url }}"
+          base="${base:-https://oekeur.github.io/zotero-timeline/}"
+          base="${base%/}"
+
+          fetch() {
+            local url="$1" out="$2" code=""
+            # Pages can serve a stale 404 for a few seconds after deploy-pages
+            # reports success, so retry rather than failing on the first miss.
+            for attempt in 1 2 3 4 5; do
+              code=$(curl -sL -o "$out" -w '%{http_code}' "$url" || true)
+              [ "$code" = "200" ] && return 0
+              echo "attempt $attempt: $url returned HTTP $code, retrying in 10s"
+              sleep 10
+            done
+            echo "$url returned HTTP $code after 5 attempts"
+            return 1
+          }
+
+          fetch "$base/" /tmp/home.html
+          fetch "$base/user-guide/getting-started" /tmp/page.html
+
+          grep -q 'VPSidebar' /tmp/page.html \
+            || { echo "served content page has no VitePress sidebar markup"; exit 1; }
+          grep -q 'id="local-search"' /tmp/page.html \
+            || { echo "served HTML has no local-search box; search.provider did not survive the build"; exit 1; }
+          grep -q 'VPNavBarSearch' /tmp/page.html \
+            || { echo "served HTML has no nav-bar search component"; exit 1; }
+
+          echo "published site is live, with sidebar markup and the local-search UI"
