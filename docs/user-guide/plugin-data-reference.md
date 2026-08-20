@@ -72,6 +72,21 @@ The alternative is worse. Storage is last-write-wins, so a partial parse
 followed by a save would silently erase whatever the newer version added, on a
 machine nobody was watching.
 
+## How large a timeline can get
+
+Each timeline is one Zotero note, and Zotero's sync server refuses a note over
+500,000 characters. That is roughly a thousand events with full descriptions
+and sources, so an ordinary chronology will not come close.
+
+The limit applies to each timeline separately, not to your library, so splitting
+a very large chronology across two timelines doubles the room.
+
+Nothing checks this while you work, only when your library syncs. If a timeline
+did grow past it you would see a Zotero sync error naming the note, and that
+timeline would stop syncing while everything else carried on. The plugin warns
+you well before that point rather than letting the sync failure be the first
+you hear of it.
+
 ## What this costs you
 
 Events are invisible to Zotero's own search, tag selector and saved searches,

@@ -63,6 +63,58 @@ timeline. Deleting a type leaves the links that used it holding an id that
 resolves to nothing, rendered as unknown, because a vocabulary edit must not
 destroy authored work.
 
+## The note size ceiling
+
+Measured 2026-08-20 against `api.zotero.org` and bisected to the boundary. A
+note of **500,000 units is accepted and 500,001 is rejected**, with HTTP code
+`413` and the message `Note '...' too long`.
+
+The unit is **UTF-16 code units**, which is JavaScript string length. Not bytes
+and not codepoints. Three probes pin that down:
+
+| Payload                     | UTF-16 units | UTF-8 bytes | Result   |
+| --------------------------- | ------------ | ----------- | -------- |
+| 500,000 two-byte characters | 500,000      | 1,000,000   | accepted |
+| 500,001 two-byte characters | 500,001      | 1,000,002   | rejected |
+| 250,000 astral emoji        | 500,000      | 1,000,000   | accepted |
+
+So a megabyte of UTF-8 is fine, and a surrogate pair costs two.
+
+Figures of 200,000 and 250,000 circulate on the Zotero forums and are stale.
+The limit has been raised more than once. Re-measure rather than trust a quoted
+number.
+
+### Where it is enforced is the part that matters
+
+**There is no client-side limit at all.** Nothing in the Zotero client caps note
+length, and no such constant exists; `xpcom/sync/syncRunner.js` only
+pattern-matches an error the server returned.
+
+An oversized document therefore writes locally without complaint, and fails
+only when it syncs, on whichever machine syncs first. The user gets a sync
+error naming the note; the note stays unsynced. On a second machine the
+timeline is simply missing its latest state, with nothing to explain why.
+
+That is the silent failure this whole storage design exists to avoid, so the
+plugin does not rely on Zotero to enforce it. **It budgets under the ceiling
+and warns as a document approaches it**, rather than letting a sync failure be
+the first signal.
+
+One wrinkle if you go looking for the user-facing string: the client matches
+`/^Note '.*' too long for item/`, while the API returns `Note '...' too long`
+with no `for item` suffix. The friendly "too long to sync" message is not
+guaranteed to appear.
+
+### What the number buys
+
+A verbose event, with a long title, a sentence of description, two typed
+sources and two tags, is about 454 characters of compact JSON. That is roughly
+**1,100 events in one timeline document**, and more for terser events.
+
+Comfortable for a chronology, reachable by a very large one. The limit is per
+note, so one document per timeline already divides the problem: the ceiling
+applies to each timeline separately rather than to the library.
+
 ## References into the library
 
 A source reference is `{kind, libraryID, key}`. Numeric item ids are
