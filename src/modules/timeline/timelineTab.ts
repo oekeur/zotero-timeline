@@ -22,6 +22,13 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
+// Exposed for the live-Zotero suite, which needs to drive selection before it
+// can drive a drag.
+let currentTimeline: ReturnType<typeof renderFixture> | undefined;
+
+export function getCurrentTimeline() {
+  return currentTimeline;
+}
 
 const STYLESHEET_ID = "zoterotimeline-vis-stylesheet";
 const STYLESHEET_URL = "chrome://zoterotimeline/content/vis-timeline.css";
@@ -77,6 +84,7 @@ export function openTimelineTab(): void {
       timelineTabID = undefined;
       teardownTimeline?.();
       teardownTimeline = undefined;
+      currentTimeline = undefined;
     },
   });
   timelineTabID = id;
@@ -128,6 +136,7 @@ export function openTimelineTab(): void {
   // immediately, and a detached element measures zero, which renders as a
   // blank tab rather than an error.
   const timeline = renderFixture(canvas as unknown as HTMLElement);
+  currentTimeline = timeline;
   teardownTimeline = () => {
     try {
       timeline.destroy();

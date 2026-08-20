@@ -1,9 +1,11 @@
 import { initLocale } from "./utils/locale";
 import {
   closeTimelineTab,
+  getCurrentTimeline,
   openTimelineTab,
   registerTimelineMenu,
 } from "./modules/timeline/timelineTab";
+import { getLastMovePayload } from "./modules/timeline/fixture";
 import { createZToolkit } from "./utils/ztoolkit";
 
 async function onStartup() {
@@ -19,7 +21,7 @@ async function onStartup() {
 
   // Exposed so the live-Zotero suite can drive the same instance the plugin
   // registered, rather than a second copy bundled into the test.
-  addon.api = { openTimelineTab };
+  addon.api = { openTimelineTab, getLastMovePayload, getCurrentTimeline };
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),

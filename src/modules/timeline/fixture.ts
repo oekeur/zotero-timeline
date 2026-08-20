@@ -62,6 +62,15 @@ function visItemId(documentId: string, eventId: string): string {
   return `${documentId}:${eventId}`;
 }
 
+// Last payload onMove received, so a test can assert the drag path actually
+// ran rather than inferring it from a DOM that deliberately does not change
+// (onMove refuses the edit).
+let lastMovePayload: Record<string, unknown> | undefined;
+
+export function getLastMovePayload(): Record<string, unknown> | undefined {
+  return lastMovePayload;
+}
+
 export function parseVisItemId(id: string): {
   documentId: string;
   eventId: string;
@@ -126,6 +135,17 @@ export function renderFixture(container: HTMLElement): Timeline {
     // stays put across drags.
     onMove(item: any, callback: (item: any | null) => void) {
       const derived = parseVisItemId(String(item.id));
+      lastMovePayload = {
+        id: item.id,
+        content: item.content,
+        start: item.start,
+        end: item.end ?? null,
+        hasEnd: item.end !== undefined,
+        group: item.group ?? null,
+        hasGroup: "group" in item && item.group !== undefined,
+        derivedDocumentId: derived.documentId,
+        derivedEventId: derived.eventId,
+      };
       Zotero.debug(
         `[ZoteroTimeline] onMove payload: ${JSON.stringify({
           id: item.id,
