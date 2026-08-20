@@ -39,11 +39,11 @@ collapsing still matters underneath: it is what makes the hiding one row to
 suppress rather than one per timeline, and the link-picker behaviour does not
 depend on the preference.
 
-**Notes are told apart by tag, not by order or position.** The timeline
-documents carry a storage tag; the vocabulary note carries a different one.
-Listing timelines filters on the storage tag, so the vocabulary can never be
-parsed as a timeline and a new note kind can be added later without changing
-the read path.
+**Items are told apart by tag, not by order or position.** The container
+carries a container tag, the timeline documents a storage tag, and the
+vocabulary note a third. Listing timelines filters on the storage tag, so the
+vocabulary can never be parsed as a timeline, the container can never list as
+one, and a new note kind can be added later without changing the read path.
 
 ## Consequences of last-write-wins
 

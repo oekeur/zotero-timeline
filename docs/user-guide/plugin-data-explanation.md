@@ -36,8 +36,11 @@ several events, so this blocks the many-to-many structure before it starts.
 ## What is left
 
 Note content is a native item field. It rides Zotero's existing item sync with
-no configuration, no size cap worth worrying about, and no second sync channel
-to fail independently.
+no configuration and no second sync channel to fail independently. There is a
+cap on how large one note can be, and at roughly a thousand events per timeline
+an ordinary chronology stays well under it;
+[the reference](/user-guide/plugin-data-reference) has the number, and the
+plugin warns you before a timeline approaches it.
 
 So each timeline is one JSON document in one note. The container item exists to
 keep those notes out of the way: any number of them collapse into a single

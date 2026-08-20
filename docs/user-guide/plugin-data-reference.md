@@ -47,7 +47,9 @@ metadata, and its events. Each event has:
 
 A source reference identifies its target as `{kind, libraryID, key}`. Keys are
 what Zotero syncs by; the numeric item ids you may see elsewhere are local to
-one machine, so all three fields are needed to identify an item.
+one machine, so all three fields are needed to identify an item. `kind` says
+whether the target is a regular item or one of your own notes, both of which
+can be sources; an attachment is cited through the item that owns it.
 
 A link stores the type's `id` and never its label. Renaming a link type
 therefore needs no pass over your timelines, and deleting a type leaves the
