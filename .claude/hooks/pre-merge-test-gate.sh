@@ -15,8 +15,9 @@
 # "Test run completed" appears in its own output. Because of that, this script
 # does not trust `npm test`'s exit code (a killed process reports an exit code
 # reflecting the kill, not the actual outcome) -- it parses the printed summary
-# line directly instead. Only Zotero processes this script started are killed;
-# a dev instance from `npm start` is left alone.
+# line directly instead. Only this run's own Zoteros are killed, identified by
+# the temp worktree path in their arguments rather than by when they appeared,
+# so any other Zotero on the machine survives whenever it started.
 
 set -u
 
@@ -78,6 +79,11 @@ log="$tmp/test.log"
 cleanup() {
   git worktree remove --force "$work" >/dev/null 2>&1
   git worktree prune >/dev/null 2>&1
+  # Remove the mktemp dir itself, not just the worktree inside it. Without this
+  # every gated merge leaves /tmp/zoterotimeline-premerge.XXXXXX behind holding
+  # test.log. The guard is against an unset $tmp turning this into `rm -rf /`;
+  # the kept log on a failure path lives outside $tmp and survives.
+  [ -n "${tmp:-}" ] && [ -d "$tmp" ] && rm -rf "$tmp"
 }
 trap cleanup EXIT
 
@@ -100,9 +106,52 @@ if [ -f "$repo_root/.env" ]; then
       "$repo_root/.env" > "$work/.env"
 fi
 
-# Zotero processes already running (a dev instance from `npm start`) must
-# survive this run, so record them and kill only what appears afterwards.
-before=$(pgrep -f zotero-bin 2>/dev/null | sort -u)
+# Zotero processes belonging to THIS run, identified by path rather than by a
+# time window. The scaffold resolves the test profile and data dir relative to
+# CWD, so both land under $work and appear in the process's own arguments:
+#
+#   zotero-bin ... -profile $work/.scaffold/test/profile --dataDir $work/...
+#
+# $work is a fresh mktemp path, so nothing outside this run can name it. The
+# previous approach diffed `pgrep -f zotero-bin` before and after and killed
+# the difference, which killed any Zotero that happened to start while the
+# gate was running, including one launched by hand.
+#
+# Two things this deliberately does not do. It does not match `pgrep -f`
+# alone, because any command line merely mentioning zotero-bin matches itself.
+# And it does not expect content processes to carry the path: they are spawned
+# as `-contentproc ... -parentPid <pid>` with no profile argument, so they are
+# swept separately below, after their parents are gone.
+gate_zotero_pids() {
+  local pid args
+  ps -ww -e -o pid=,args= 2>/dev/null | while read -r pid args; do
+    case "$args" in
+      *"$work"*) ;;
+      *) continue ;;
+    esac
+    case "$args" in
+      */zotero-bin\ * | */zotero\ * | */zotero-bin | */zotero) printf '%s\n' "$pid" ;;
+    esac
+  done
+}
+
+# Content processes of the pids just killed. They exit with their parent, but
+# sweep any that outlive it rather than leaving orphans holding the profile.
+gate_zotero_children() {
+  local parents="$1" pid args
+  [ -n "$parents" ] || return 0
+  ps -ww -e -o pid=,args= 2>/dev/null | while read -r pid args; do
+    case "$args" in
+      *-contentproc*) ;;
+      *) continue ;;
+    esac
+    for parent in $parents; do
+      case "$args" in
+        *"-parentPid $parent "* | *"-parentPid $parent") printf '%s\n' "$pid" ;;
+      esac
+    done
+  done
+}
 
 ( cd "$work" && npm test >"$log" 2>&1 ) &
 test_pid=$!
@@ -123,8 +172,11 @@ while [ "$elapsed" -lt 720 ]; do
   elapsed=$((elapsed + 2))
 done
 
-after=$(pgrep -f zotero-bin 2>/dev/null | sort -u)
-for pid in $(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after")); do
+mine=$(gate_zotero_pids | sort -u)
+for pid in $mine; do
+  kill -9 "$pid" >/dev/null 2>&1
+done
+for pid in $(gate_zotero_children "$mine" | sort -u); do
   kill -9 "$pid" >/dev/null 2>&1
 done
 pkill -9 -P "$test_pid" >/dev/null 2>&1
