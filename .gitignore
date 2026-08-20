@@ -1,3 +1,39 @@
 # separate nested git repo for PM (Backlog.md), never published with source
 # no trailing slash: matches the symlink worktrees use to reach the shared checkout, not just a real dir
 /project
+
+# vendored third-party reference docs, not project source
+/zotero-plugin-docs
+/zotero-plugin-toolkit-docs
+
+# scaffold's template example code, kept as a reference, not project source
+/zotero-plugin-template-examples
+
+# Node.js
+/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-lock.yaml
+yarn.lock
+/.pnp
+.pnp.js
+
+# zotero-plugin-template / scaffold
+.DS_Store
+.env
+.scaffold
+build
+logs
+tsconfig.tsbuildinfo
+
+# VitePress build output and dev cache; the site is rebuilt in CI on every deploy
+/docs/.vitepress/dist
+/docs/.vitepress/cache
+
+# JetBrains personal IDE state, not shared project config
+/.idea
+
+# transient Claude Code worktree checkouts; settings.json and hooks/ stay
+# tracked so the pre-merge test gate travels with the repo
+/.claude/worktrees
