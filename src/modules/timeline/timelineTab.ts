@@ -14,7 +14,6 @@ import {
   ensureDocumentHead,
   ensureWindowGlobals,
 } from "../../utils/windowGlobals";
-import { renderFixture } from "./fixture";
 
 const TAB_TYPE = "zoterotimeline-timeline";
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
@@ -24,9 +23,23 @@ let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
 // Exposed for the live-Zotero suite, which needs to drive selection before it
 // can drive a drag.
-let currentTimeline: ReturnType<typeof renderFixture> | undefined;
+let currentTimeline: unknown;
+let moduleEvalEnv: unknown;
+let fixtureModule: unknown;
 
-export function getCurrentTimeline() {
+export function getModuleEvalEnv(): any {
+  return moduleEvalEnv;
+}
+
+// Re-exported through the lazily loaded module rather than imported at the top
+// of this file. A single static import of ./fixture anywhere in the bundle
+// makes esbuild evaluate it at load, which defeats the deferral below and
+// leaves Hammer frozen with no window.
+export function getLastMovePayload(): any {
+  return (fixtureModule as any)?.getLastMovePayload?.();
+}
+
+export function getCurrentTimeline(): any {
   return currentTimeline;
 }
 
@@ -64,7 +77,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
   ) as unknown as HTMLElementTagNameMap[K];
 }
 
-export function openTimelineTab(): void {
+export async function openTimelineTab(): Promise<void> {
   const Zotero_Tabs = ztoolkit.getGlobal("Zotero_Tabs");
 
   if (
@@ -132,6 +145,32 @@ export function openTimelineTab(): void {
     "flex: 1 1 0; min-height: 0; position: relative; overflow: hidden;";
   body.appendChild(canvas as unknown as Node);
 
+  // Imported HERE, not at the top of the file, and this is load-bearing.
+  //
+  // Hammer, which vis-timeline uses for every pointer gesture, resolves its
+  // window once at module scope:
+  //
+  //   var win; if (typeof window === "undefined") { win = {} } else { win = window }
+  //   var TEST_ELEMENT = typeof document === "undefined" ? {style:{}} : ...
+  //
+  // In Zotero's bootstrap scope neither global exists when the plugin bundle
+  // loads, so a static import freezes win = {} and a fake TEST_ELEMENT. Its
+  // feature detection is then permanently wrong and no gesture is ever
+  // recognised: clicking does not select and dragging does nothing, with no
+  // error anywhere. Shimming the globals at tab-open is too late, because the
+  // module has already evaluated.
+  //
+  // A dynamic import defers evaluation until after ensureWindowGlobals above,
+  // so Hammer sees the real window. esbuild keeps it lazy rather than hoisting
+  // it back to load time.
+  const mod = await import("./fixture");
+  const { renderFixture } = mod;
+  fixtureModule = mod;
+  moduleEvalEnv = mod.MODULE_EVAL_ENV;
+  Zotero.debug(
+    `[ZoteroTimeline] vis module evaluated with ${JSON.stringify(moduleEvalEnv)}`,
+  );
+
   // After the container is in the document. vis-timeline measures its parent
   // immediately, and a detached element measures zero, which renders as a
   // blank tab rather than an error.
@@ -156,7 +195,13 @@ export function registerTimelineMenu(): void {
     id: MENU_ID,
     label: getString("timeline-tab-label"),
     commandListener: () => {
-      openTimelineTab();
+      // Nothing catches for us here, and the tab is added before the body is
+      // built, so an unhandled rejection would leave an empty tab and no clue.
+      void openTimelineTab().catch((err) => {
+        Zotero.debug(
+          `[ZoteroTimeline] openTimelineTab failed: ${err?.stack ?? String(err)}`,
+        );
+      });
     },
   });
 }

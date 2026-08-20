@@ -19,7 +19,7 @@ describe("timeline drag", function () {
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document;
 
-    api.openTimelineTab();
+    await api.openTimelineTab();
     await Zotero.Promise.delay(1500);
 
     const errors: string[] = [];
@@ -33,6 +33,50 @@ describe("timeline drag", function () {
     const timeline = api.getCurrentTimeline();
     assert.ok(timeline, "no timeline instance exposed");
 
+    // Did the deferred import actually defer? If the vis module evaluated with
+    // no window, Hammer froze win = {} and no gesture can ever be recognised.
+    const evalEnv = api.getModuleEvalEnv?.();
+    assert.deepEqual(
+      evalEnv,
+      { hasWindow: true, hasDocument: true },
+      `the vis module evaluated without the shimmed globals: ${JSON.stringify(evalEnv)}`,
+    );
+
+    // Does a click select? This is what Hammer's gesture recognition buys us,
+    // and it only works if Hammer resolved a real window at module scope.
+    const item = doc.querySelector(".vis-item") as any;
+    assert.ok(item, "no .vis-item present");
+    const r = item.getBoundingClientRect();
+    const cx = Math.round(r.left + r.width / 2);
+    const cy = Math.round(r.top + r.height / 2);
+    const PE = win.PointerEvent;
+    for (const type of ["pointerdown", "pointerup"]) {
+      item.dispatchEvent(
+        new PE(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: cx,
+          clientY: cy,
+          buttons: type === "pointerup" ? 0 : 1,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          view: win,
+        }),
+      );
+      await Zotero.Promise.delay(80);
+    }
+    await Zotero.Promise.delay(400);
+    const selectionAfterClick = timeline.getSelection();
+    Zotero.debug(
+      `[ZoteroTimeline][click] selection=${JSON.stringify(selectionAfterClick)}`,
+    );
+
+    // The click above selected an item, so clear it before measuring the
+    // select -> handle cycle from a known state.
+    timeline.setSelection([]);
+    await Zotero.Promise.delay(300);
     const before = doc.querySelectorAll(".vis-drag-center").length;
     timeline.setSelection(["doc-sources:ev-truce"]);
     await Zotero.Promise.delay(400);
@@ -44,10 +88,20 @@ describe("timeline drag", function () {
 
     win.removeEventListener("error", onError, true);
 
-    const report = { before, after, afterDeselect, errors };
+    const report = {
+      selectionAfterClick,
+      before,
+      after,
+      afterDeselect,
+      errors,
+    };
     Zotero.debug(`[ZoteroTimeline][drag] ${JSON.stringify(report)}`);
 
     assert.isEmpty(errors, `selecting threw: ${JSON.stringify(report)}`);
+    assert.isNotEmpty(
+      selectionAfterClick,
+      `a click did not select the item, so Hammer is not recognising gestures. ${JSON.stringify(report)}`,
+    );
     assert.equal(
       before,
       0,

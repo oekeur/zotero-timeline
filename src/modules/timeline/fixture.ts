@@ -1,3 +1,11 @@
+// Captured at module-evaluation time, before vis-timeline's own module body
+// runs, so it records exactly what Hammer's `typeof window === "undefined"`
+// check will see. If this reports false, the deferred import did not defer.
+export const MODULE_EVAL_ENV = {
+  hasWindow: typeof window !== "undefined",
+  hasDocument: typeof document !== "undefined",
+};
+
 import { Timeline, DataSet } from "vis-timeline/standalone";
 import { toTimelineRange } from "../../utils/edtfRange";
 

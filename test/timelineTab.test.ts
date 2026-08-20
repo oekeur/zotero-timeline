@@ -14,7 +14,7 @@ describe("timeline tab", function () {
 
     let threw: unknown;
     try {
-      (Zotero as any).ZoteroTimeline.api.openTimelineTab();
+      await (Zotero as any).ZoteroTimeline.api.openTimelineTab();
     } catch (err) {
       threw = err;
     }
