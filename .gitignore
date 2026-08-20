@@ -1,0 +1,3 @@
+# separate nested git repo for PM (Backlog.md), never published with source
+# no trailing slash: matches the symlink worktrees use to reach the shared checkout, not just a real dir
+/project
