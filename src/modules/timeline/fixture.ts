@@ -2,8 +2,11 @@
 // runs, so it records exactly what Hammer's `typeof window === "undefined"`
 // check will see. If this reports false, the deferred import did not defer.
 export const MODULE_EVAL_ENV = {
-  hasWindow: typeof window !== "undefined",
-  hasDocument: typeof document !== "undefined",
+  // Read off globalThis rather than as bare identifiers. This file compiles
+  // against the Zotero sandbox tsconfig, which has no DOM lib, so a bare
+  // `typeof window` is a tsc error (TS2552) even though it is legal JS.
+  hasWindow: typeof (globalThis as any).window !== "undefined",
+  hasDocument: typeof (globalThis as any).document !== "undefined",
 };
 
 import { Timeline, DataSet } from "vis-timeline/standalone";
