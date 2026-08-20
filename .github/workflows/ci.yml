@@ -70,12 +70,16 @@ jobs:
       matrix:
         include:
           - zotero: "7"
+            version: "7.0.32"
             url: "https://download.zotero.org/client/release/7.0.32/Zotero-7.0.32_linux-x86_64.tar.bz2"
           - zotero: "8"
+            version: "8.0.4"
             url: "https://download.zotero.org/client/release/8.0.4/Zotero-8.0.4_linux-x86_64.tar.xz"
           - zotero: "9"
+            version: "9.0.4"
             url: "https://download.zotero.org/client/release/9.0.4/Zotero-9.0.4_linux-x86_64.tar.xz"
           - zotero: "10"
+            version: "10.0"
             url: "https://download.zotero.org/client/release/10.0/Zotero-10.0_linux-x86_64.tar.xz"
     env:
       GITHUB_TOKEN: ${{ secrets.GitHub_TOKEN }}
@@ -109,6 +113,36 @@ jobs:
             rm "$zotero_dir/zotero.tar"
           fi
           echo "ZOTERO_PLUGIN_ZOTERO_BIN_PATH=$zotero_dir/Zotero_linux-x86_64/zotero" >> "$GITHUB_ENV"
+
+      # Pinning the URL is not the same as running the pinned build. A restored
+      # cache, a redirect, or an edited URL can all leave the job testing a
+      # different Zotero than the matrix claims, and a green run would then
+      # record a version it never exercised.
+      #
+      # On Linux the app version lives in <install>/app/application.ini. Match
+      # on prefix rather than equality: release builds report the bare version
+      # ("9.0.6"), while others append a build suffix
+      # ("10.0-beta.25+1dbaec65b"), and the matrix pins a major line rather
+      # than an exact build for 10.0.
+      - name: Assert the extracted Zotero is the pinned version
+        shell: bash
+        run: |
+          set -euo pipefail
+          ini="${{ runner.temp }}/zotero-${{ matrix.zotero }}/Zotero_linux-x86_64/app/application.ini"
+          if [ ! -f "$ini" ]; then
+            echo "no application.ini at $ini; the archive layout changed"
+            exit 1
+          fi
+          actual=$(sed -n 's/^Version=//p' "$ini" | head -1)
+          expected="${{ matrix.version }}"
+          echo "application.ini reports Version=$actual; matrix pins $expected"
+          case "$actual" in
+            "$expected" | "$expected".* | "$expected"-* | "$expected"+*) ;;
+            *)
+              echo "version mismatch: expected $expected, got $actual"
+              exit 1
+              ;;
+          esac
 
       - name: Run tests
         run: npm run test
