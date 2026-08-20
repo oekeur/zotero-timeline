@@ -2,16 +2,11 @@
 
 ## Project status
 
-Pre-release, at version 0.1.0, with no release cut and no feature implemented.
-The repository holds a loadable plugin skeleton, the build, lint, test and
-release tooling, the docs site, and the design documents.
-
-What exists and works: the plugin loads into Zotero 7 through 10 and registers
-itself as `Zotero.ZoteroTimeline`; `npm run build` produces an .xpi plus update
-JSON; the test suite runs against a live Zotero; the docs site builds and
-deploys. What does not exist yet: events, storage, source links, the timeline
-tab. `src/` holds the lifecycle hooks, shared utilities, and the EDTF date
-mapping, nothing more.
+There is deliberately no status summary in this file. Read it from the sources
+that move on their own: `scripts/backlog.sh task list --plain` for what is done
+and what is open, `git tag` and the GitHub releases for what has shipped, and
+`src/` for what exists. A prose summary here drifts the moment a task lands,
+and a stale one has already sent a planning pass down the wrong path.
 
 Planning lives in the nested tracker at `project/`. Read `project/PRODUCT.md`
 for the product charter and `project/data-model.md` for the stored shapes
@@ -193,8 +188,7 @@ to build.
      placeholder value breaks install with no build-time signal) and
      `strict_max_version` in `addon/manifest.json` (blocks loading with no
      console output).
-  9. Applies once this plugin registers a custom tab type, which it does not
-     yet: a custom `Zotero_Tabs` tab type persists into `<profile>/session.json`
+  9. A custom `Zotero_Tabs` tab type persists into `<profile>/session.json`
      across restarts. `prestart` clears this plugin's own entries (step 4), but
      a tab type renamed mid-session leaves an entry under the old name that
      nothing strips. If startup breaks with core `tabs.js` or `itemTree.js`
