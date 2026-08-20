@@ -236,6 +236,18 @@ to build.
   logic duplicated three or more times that the rule-of-three threshold missed
   in the moment. Report candidates rather than refactoring unprompted; this is
   a flag-for-review step, not a license to abstract on sight.
+- **zoteroMindmap is this plugin's reference implementation, and its source is
+  the authority.** `/home/oscar/projects/zoteroMindmap` is a shipped Zotero 7-10
+  plugin by the same author, for the same user, on the same platform, with the
+  same storage and sync design. Most of what is left to build here already works
+  there: the item-pane section, the library context menu, the tab shell, the
+  render path, the authoring form, the vocabulary editor. Before writing a
+  module, read the corresponding one; `project/mindmap-reference-map.md` maps
+  every module to every milestone, and each m-1 task carries a pointer to the
+  file it should be read against. Read the _source_, not its `CLAUDE.md`,
+  `CONTRIBUTING.md` or project memory: all three lag its code, in at least two
+  places where the code is right. A deviation is allowed and needs a reason;
+  two are already decided and recorded in the map.
 - **Code copied from another repo gets read against its code, and its defects
   get filed where they came from.** Most of this repo's tooling came from
   zoteroMindmap. Copying carried across live bugs and comments describing
