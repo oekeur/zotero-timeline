@@ -1,0 +1,87 @@
+{
+  "name": "zotero-timeline",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Zotero 7-10 plugin for authoring event timelines whose events cite sources from your own library.",
+  "config": {
+    "addonName": "Zotero Timeline",
+    "addonID": "zoterotimeline@oekeur.github.io",
+    "addonRef": "zoterotimeline",
+    "addonInstance": "ZoteroTimeline",
+    "prefsPrefix": "extensions.zotero.zoterotimeline"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oekeur/zotero-timeline.git"
+  },
+  "homepage": "https://github.com/oekeur/zotero-timeline",
+  "bugs": {
+    "url": "https://github.com/oekeur/zotero-timeline/issues"
+  },
+  "author": "Oscar Keur",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "prepare": "husky",
+    "clean:profile": "node scripts/clean-dev-profile.mjs",
+    "prestart": "node scripts/clean-dev-profile.mjs",
+    "start": "zotero-plugin serve",
+    "build": "zotero-plugin build && tsc --noEmit",
+    "lint:check": "prettier --check . && eslint .",
+    "lint:fix": "prettier --write . && eslint . --fix",
+    "release": "zotero-plugin release",
+    "test": "zotero-plugin test",
+    "test:fast": "node scripts/run-tests.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "update-deps": "npm update --save"
+  },
+  "dependencies": {
+    "edtf": "4.11.1",
+    "vis-timeline": "8.5.4",
+    "zotero-plugin-toolkit": "5.1.0-beta.13"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.10.0",
+    "@zotero-plugin/eslint-config": "^0.6.7",
+    "chai": "^6.2.1",
+    "eslint": "^9.39.2",
+    "globals": "^14.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
+    "mocha": "^11.7.5",
+    "prettier": "^3.7.4",
+    "typescript": "^5.9.3",
+    "vitepress": "^1.6.4",
+    "zotero-plugin-scaffold": "^0.8.2",
+    "zotero-types": "4.1.0-beta.4"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix"
+    ],
+    "*.{ts,tsx,js,mjs,cjs,json,md,css,xhtml}": [
+      "prettier --write"
+    ]
+  },
+  "prettier": {
+    "printWidth": 80,
+    "tabWidth": 2,
+    "endOfLine": "lf",
+    "overrides": [
+      {
+        "files": [
+          "*.xhtml"
+        ],
+        "options": {
+          "htmlWhitespaceSensitivity": "css"
+        }
+      }
+    ]
+  },
+  "private": true
+}

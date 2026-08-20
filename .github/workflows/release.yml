@@ -1,0 +1,20 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  create-release:
+    uses: zotero-plugin-dev/workflows/.github/workflows/release-plugin.yml@main
+    # The build runs inside `npm run release` via `release.bumpp.execute`
+    # in zotero-plugin.config.ts, so no separate build command here.
+    with:
+      release: "npm run release"
+    secrets: inherit
