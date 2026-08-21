@@ -4,9 +4,9 @@
 // @ts-nocheck
 export type FluentMessageId =
   | 'container-trashed-now'
-  | 'pref-enable'
   | 'pref-help'
-  | 'pref-input'
+  | 'pref-hide-timeline-notes'
+  | 'pref-hide-timeline-notes-help'
   | 'pref-title'
   | 'timeline-approaching-size-limit'
   | 'timeline-menu-open'
