@@ -57,7 +57,10 @@ Per-worktree setup is not a project script: run
 `~/.claude/worktree-hooks/zoteroTimeline.sh`, repoints
 `ZOTERO_PLUGIN_PROFILE_PATH` and `ZOTERO_PLUGIN_DATA_DIR` in the worktree's
 `.env` at `.scaffold/dev-profile` and `.scaffold/dev-data`, so two worktrees
-can run `npm start` without colliding on one shared dev profile.
+can run `npm start` without colliding on one shared dev profile. It also
+installs the MCP observability bridge into that profile and writes a
+`ZOTERO_MCP_RDP_PORT` for the checkout, for the same reason: two bridges on one
+port collide silently.
 `~/.claude/scripts/worktree-teardown.sh` removes them again. The hook is
 matched by the checkout's **directory** name, `zoteroTimeline`, not by the
 repository name on the remote.
@@ -140,16 +143,25 @@ to build.
   `Plugin awaiting timeout` therefore means the plugin did not load, not that
   an assertion failed. Why almost nothing here is unit-testable outside Zotero
   is in `docs/contributing/testing-explanation.md`.
+- **Work out which MCP server is yours before you call anything.** There is one
+  registered server entry per RDP port, and calling the wrong one reads a
+  different Zotero while succeeding, which is the failure mode this whole
+  arrangement exists to prevent. Read `ZOTERO_MCP_RDP_PORT` from the `.env` of
+  the checkout you are working in: port 6100 is the main checkout and its tools
+  are `mcp__zotero-dev__*`; any other port `N` is a worktree and its tools are
+  `mcp__zotero-dev-N__*`. `worktree-init.sh` prints the name on its last line.
+  Never reach for the bare `zotero-dev` tools from a worktree just because they
+  are the ones you remember.
 - **Look at the running plugin yourself before reporting on it.** The MCP
-  observability rig (`zotero-dev`) drives the dev Zotero directly, so an agent
-  can read the error console, filter this plugin's debug output, and screenshot
-  the window without asking Oscar to look at anything. Set it up once per
-  worktree from `docs/contributing/mcp-observability-howto.md`, which also says
-  which call answers which question. Use it, in this order, whenever a change
-  touches the UI or the live Zotero API:
+  observability rig drives the dev Zotero directly, so an agent can read the
+  error console, filter this plugin's debug output, and screenshot the window
+  without asking Oscar to look at anything. `worktree-init.sh` sets it up; the
+  call-by-symptom table is in
+  `docs/contributing/mcp-observability-howto.md`. Use it, in this order,
+  whenever a change touches the UI or the live Zotero API:
   1. `zotero_ping`, and check the data directory it reports is this worktree's.
-     Two dev profiles on the default port make it answer from the wrong Zotero
-     without a word.
+     That is the check that catches a wrong server entry, and it is the reason
+     step 1 is a ping rather than the thing you actually wanted to ask.
   2. `zotero_read_errors` after any startup or hook change. It gives the real
      message and source behind "Error running bootstrap method", which is
      otherwise the entire signal.
@@ -177,9 +189,11 @@ to build.
      stdout entirely and never passes `-ZoteroDebugText`, so a failing test run,
      or Help > Debug Output for "Error running bootstrap method", is the only
      signal available _unless_ the observability rig above is running, which is
-     the reason to set it up. Its install is per worktree and its two
-     `server.prefs` entries are not wired up yet (TASK-20), so both are manual
-     steps for now rather than something `worktree-init.sh` does for you.
+     the reason to set it up. `worktree-init.sh` installs the bridge into this
+     worktree's dev profile and gives it its own RDP port, and
+     `zotero-plugin.config.ts` arms the debug buffer before every launch. The
+     one manual step left is registering an MCP client entry per port, and a
+     newly added entry connects at the next session start, not this one.
   3. Working in a worktree: run `~/.claude/scripts/worktree-init.sh` first,
      which gives that worktree its own dev profile. Without it two `npm start`
      instances attach to the same profile and collide: crashes, stale state,

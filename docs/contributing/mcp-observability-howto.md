@@ -6,64 +6,52 @@ for it whenever a failure is silent, which in this codebase is most of them.
 
 Why it was adopted, and what it cannot do, is in
 [Why the MCP observability rig was adopted](./mcp-observability-explanation).
-Wiring it into `worktree-init.sh` and `zotero-plugin.config.ts` is TASK-20 and
-has not landed, so the setup below is manual for now.
 
 ## Set it up in a worktree
 
 The install lives in the dev profile, and `worktree-init.sh` mints a fresh one
-per worktree, so this is once per worktree. It needs no file picker.
+per worktree, so this is once per worktree. Almost all of it is automatic.
 
-1. Download and unpack the bridge, pinned. The port preference does nothing
-   before `plugin-v1.0.5`.
+1. Run `~/.claude/scripts/worktree-init.sh`. Its hook downloads the pinned
+   bridge into `~/.cache/zotero-mcp-bridge/plugin-v1.0.5/` on first use,
+   installs it into this worktree's dev profile as a proxy file, assigns this
+   worktree an RDP port, and writes that port into `.env` as
+   `ZOTERO_MCP_RDP_PORT`. It prints the port and the `claude mcp add` line for
+   it.
 
-   ```sh
-   gh release download plugin-v1.0.5 --repo introfini/mcp-server-zotero-dev \
-     --dir /tmp/mcp-bridge
-   unzip -o -d .scaffold/mcp-bridge /tmp/mcp-bridge/zotero-mcp-bridge-1.0.5.xpi
-   ```
+   `zotero-plugin.config.ts` carries the other half: `server.prefs` writes
+   `extensions.mcp-rdp.port` from that variable and arms
+   `extensions.zotero.debug.store` before every launch. The arming is per
+   launch by necessity, because Zotero's `Debug.init` reads the preference once
+   and immediately clears it, and turning it on by hand later has already
+   missed every startup line.
 
-2. Point the dev profile at the unpacked directory with a proxy file whose
-   only content is that absolute path. The dev profile scaffold builds already
-   sets `extensions.autoDisableScopes: 0`, so nothing holds the plugin for
-   approval.
+   That clearing is also why `debug.store` is **not** in the profile's
+   `prefs.js` after a launch: setting a preference back to its default drops
+   the `user_pref` line entirely. Its absence there is the mechanism working,
+   not a failed write. `extensions.mcp-rdp.port` does stay, so that is the one
+   to grep for when checking the profile.
 
-   ```sh
-   mkdir -p .scaffold/dev-profile/extensions
-   echo "$PWD/.scaffold/mcp-bridge" \
-     > ".scaffold/dev-profile/extensions/mcp-rdp@zotero.org"
-   ```
+2. Nothing to register. The client side is single-valued, so each port needs
+   its own entry, and the whole pool is already registered in Oscar's user
+   config: `zotero-dev` on 6100 for the main checkout, and `zotero-dev-6101`
+   through `zotero-dev-6110` for worktrees. Pre-registering is not tidiness. A
+   newly added entry only connects at the **next** session start, so registering
+   one when a worktree appears leaves the session that needs the rig without it.
 
-3. Add the two preferences to `zotero-plugin.config.ts`. Scaffold writes
-   `server.prefs` into the profile before every launch, which is what makes
-   `debug.store` work at all: Zotero reads it once at startup and immediately
-   clears it, so it has to be re-armed per launch, and turning it on by hand
-   later misses every startup line.
+   The hook warns and prints the `claude mcp add` line if the pool ever has a
+   gap. If you run it yourself, do not use `npx install-mcp`: it can write a
+   config with neither `-y` nor a version, which then runs whatever `npx` has
+   cached.
 
-   ```ts
-   server: {
-     prefs: {
-       "extensions.mcp-rdp.port": Number(process.env.ZOTERO_MCP_RDP_PORT ?? 6100),
-       "extensions.zotero.debug.store": true,
-       "extensions.zotero.debug.log": true,
-     },
-   },
-   ```
+3. Call the entry that matches your port. Port 6100 means the `mcp__zotero-dev__*`
+   tools; port `N` means `mcp__zotero-dev-N__*`. Then run `npm start`, call
+   `zotero_ping`, and **read the data directory it reports back**. See the port
+   warning below for why that check is not optional.
 
-4. Register the MCP server in your own Claude Code config, pinned, with
-   `ZOTERO_RDP_PORT` matching the port above. Do not run `npx install-mcp`; it
-   can write a config with neither `-y` nor a version, which then runs whatever
-   `npx` has cached.
-
-   ```sh
-   claude mcp add zotero-dev --scope user \
-     --env ZOTERO_RDP_PORT=6100 \
-     -- npx -y @introfini/mcp-server-zotero-dev@1.1.3
-   ```
-
-5. Run `npm start`, then call `zotero_ping` and **read the data directory it
-   reports back**. See the port warning below for why that check is not
-   optional.
+The main checkout is set up the same way and always takes port 6100; running
+`worktree-init.sh` there installs the bridge without touching the shared dev
+profile paths.
 
 ## Which call answers which question
 
@@ -95,10 +83,12 @@ the second Zotero binds nothing, its window looks entirely normal, and the MCP
 client keeps answering from the **first** Zotero. `zotero_ping` still succeeds.
 It just describes the wrong instance.
 
-So give each worktree its own port through `ZOTERO_MCP_RDP_PORT` in its `.env`,
-register a second server entry against that port, and confirm after every
-`npm start` that the data directory `zotero_ping` reports is the worktree you
-are actually working in.
+Per-worktree ports are what prevent this, and are why `ZOTERO_MCP_RDP_PORT` is
+assigned by the hook rather than left to the bridge's default. The assignment
+is sticky: a checkout keeps the port already in its `.env`, so the client entry
+you registered against it does not quietly start pointing somewhere else. Still
+confirm after every `npm start` that the data directory `zotero_ping` reports
+is the worktree you are actually working in.
 
 ## What it will not tell you
 
