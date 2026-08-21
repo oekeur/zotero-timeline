@@ -8,3 +8,9 @@ pnpm-lock.yaml
 
 # vendored third-party stylesheet, kept byte-identical to the package copy
 addon/content/vis-timeline.css
+
+# Per-machine Claude Code state. settings.local.json is untracked and excluded
+# by a global gitignore, so it never reaches CI, but Prettier still reads the
+# working tree and failed lint:check for anyone who has one.
+.claude/settings.local.json
+.claude/worktrees
