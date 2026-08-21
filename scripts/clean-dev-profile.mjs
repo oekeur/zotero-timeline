@@ -92,10 +92,14 @@ const pkg = JSON.parse(
 const env = parseEnvFile(path.join(rootDir, ".env"));
 
 // Resolved the way the scaffold resolves it, so the string compared against
-// the running process's arguments is the same one it was launched with.
-const profilePath = env.ZOTERO_PLUGIN_PROFILE_PATH
-  ? path.resolve(env.ZOTERO_PLUGIN_PROFILE_PATH)
-  : null;
+// the running process's arguments is the same one it was launched with. The
+// scaffold reads process.env and lets c12 fill it from .env without overriding
+// what is already set, so an exported value wins over the file. Reading the
+// file alone made an env-overridden `npm start` kill the Zotero named in .env
+// rather than its own.
+const configuredProfile =
+  process.env.ZOTERO_PLUGIN_PROFILE_PATH || env.ZOTERO_PLUGIN_PROFILE_PATH;
+const profilePath = configuredProfile ? path.resolve(configuredProfile) : null;
 
 if (profilePath) {
   killDevZotero(profilePath);
@@ -104,6 +108,6 @@ if (profilePath) {
   // Without the profile path there is nothing to identify our own instance by,
   // so killing anything here would be a guess.
   console.warn(
-    "clean-dev-profile: ZOTERO_PLUGIN_PROFILE_PATH not set in .env, skipping the process check and session.json cleanup",
+    "clean-dev-profile: ZOTERO_PLUGIN_PROFILE_PATH not set in the environment or .env, skipping the process check and session.json cleanup",
   );
 }

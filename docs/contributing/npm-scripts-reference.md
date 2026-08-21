@@ -73,14 +73,19 @@ instance and your fix appears not to have worked.
 
 It identifies that instance by two conditions together: `argv[0]` ends in
 `/zotero` or `/zotero-bin`, **and** the remaining arguments contain the literal
-`-profile <resolved path>` from your `.env`. That pair is what keeps it from
-touching another worktree's dev Zotero or your own library.
+`-profile <resolved path>`. That pair is what keeps it from touching another
+worktree's dev Zotero or your own library.
+
+The path is resolved the way the scaffold resolves it: an exported
+`ZOTERO_PLUGIN_PROFILE_PATH` wins, and `.env` fills it in otherwise. Reading
+`.env` alone made `ZOTERO_PLUGIN_PROFILE_PATH=… npm start` kill the Zotero named
+in the file rather than its own.
 
 It also strips leftover custom-tab entries for this plugin from the profile's
 `session.json`. Zotero restores open tabs before plugins register their tab
 types, so a stale entry crashes startup.
 
-With no `ZOTERO_PLUGIN_PROFILE_PATH` in `.env` it does nothing and says so.
+With no `ZOTERO_PLUGIN_PROFILE_PATH` set anywhere it does nothing and says so.
 There is nothing to identify the right process by, and guessing means killing
 someone else's Zotero.
 
