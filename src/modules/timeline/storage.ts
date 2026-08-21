@@ -30,8 +30,12 @@ import { logFailure } from "../../utils/logging";
  * pref is device-local, and every synced device has to arrive at the same
  * container from library data alone.
  *
- * The leading underscore on all three tags hides them from Zotero's tag
- * selector.
+ * The leading underscore on all three tags is a convention inherited from
+ * mindmap on the belief that it hides them from Zotero's tag selector. It does
+ * not: measured 2026-08-21 against Zotero 10.0-beta.25, both tags are type 0
+ * and both are listed in the tag pane. The prefix is kept because the tags are
+ * already the carrier convention and renaming them is a stored-data change,
+ * but it buys nothing on its own and the clutter is real.
  *
  * The `-v1` suffix on all three versions the CARRIER convention: which item
  * kind holds the JSON and how it is wrapped. It does not version the document
