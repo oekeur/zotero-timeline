@@ -26,9 +26,61 @@ export type DateIssue = {
   message: string;
 };
 
+/**
+ * Why a parse failed, carried as a value rather than left to be recovered
+ * from the message. A version refusal has to reach the user with both numbers
+ * in it, and reconstructing them from an error string later is worse.
+ *
+ * Kept as a local union rather than imported from storage.ts, so this module
+ * stays free of anything that touches Zotero.
+ */
+export type ParseFailure = "invalid-schema" | "version-unsupported";
+
 export type ParseResult<T> =
   | { ok: true; doc: T; dateIssues: DateIssue[] }
-  | { ok: false; error: string; documentVersion?: unknown };
+  | {
+      ok: false;
+      reason: ParseFailure;
+      error: string;
+      documentVersion?: number;
+      knownVersion?: number;
+    };
+
+/**
+ * The version check both stored shapes share.
+ *
+ * Refuses on `!==` rather than `>`, matching mindmap. The honest wrinkle: a
+ * document at or below the known version is supposed to read normally, and
+ * `!==` also refuses a version 0. The two rules coincide today because 1 is
+ * the only version that has ever existed, so nothing can be below it. The day
+ * a version 2 exists this becomes a real decision rather than a formality:
+ * reading a v1 document from v2 code needs a migration path, and refusing it
+ * needs a reason. No migration path is built now, because there is nothing to
+ * migrate from.
+ */
+function refuseUnknownVersion(
+  version: unknown,
+  what: string,
+): {
+  ok: false;
+  reason: ParseFailure;
+  error: string;
+  documentVersion?: number;
+  knownVersion: number;
+} | null {
+  if (version === CURRENT_SCHEMA_VERSION) {
+    return null;
+  }
+  return {
+    ok: false,
+    reason: "version-unsupported",
+    error: `unsupported version: ${what} is version ${String(
+      version,
+    )}, this plugin reads version ${CURRENT_SCHEMA_VERSION}`,
+    ...(typeof version === "number" ? { documentVersion: version } : {}),
+    knownVersion: CURRENT_SCHEMA_VERSION,
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -160,30 +212,41 @@ export function parseTimelineDocument(
   data: unknown,
 ): ParseResult<TimelineDocument> {
   if (!isRecord(data)) {
-    return { ok: false, error: "document is not an object" };
-  }
-  if (data.version !== CURRENT_SCHEMA_VERSION) {
     return {
       ok: false,
-      error: `unsupported version: document is version ${String(
-        data.version,
-      )}, this plugin reads version ${CURRENT_SCHEMA_VERSION}`,
-      documentVersion: data.version,
+      reason: "invalid-schema",
+      error: "document is not an object",
     };
   }
+  const refused = refuseUnknownVersion(data.version, "document");
+  if (refused) {
+    return refused;
+  }
   if (typeof data.id !== "string" || data.id === "") {
-    return { ok: false, error: "missing or invalid id" };
+    return {
+      ok: false,
+      reason: "invalid-schema",
+      error: "missing or invalid id",
+    };
   }
   if (typeof data.name !== "string") {
-    return { ok: false, error: "missing or invalid name" };
+    return {
+      ok: false,
+      reason: "invalid-schema",
+      error: "missing or invalid name",
+    };
   }
   // Rejected rather than left to the timeline list, where a blank entry is
   // unpickable. Recorded in data-model.md alongside the shapes.
   if (data.name.trim() === "") {
-    return { ok: false, error: "name is empty" };
+    return { ok: false, reason: "invalid-schema", error: "name is empty" };
   }
   if (!Array.isArray(data.events) || !data.events.every(isEvent)) {
-    return { ok: false, error: "invalid events array" };
+    return {
+      ok: false,
+      reason: "invalid-schema",
+      error: "invalid events array",
+    };
   }
 
   const events = data.events.map(rebuildEvent);
@@ -206,19 +269,22 @@ export function parseTimelineDocument(
  */
 export function parseVocabulary(data: unknown): ParseResult<Vocabulary> {
   if (!isRecord(data)) {
-    return { ok: false, error: "vocabulary is not an object" };
-  }
-  if (data.version !== CURRENT_SCHEMA_VERSION) {
     return {
       ok: false,
-      error: `unsupported version: vocabulary is version ${String(
-        data.version,
-      )}, this plugin reads version ${CURRENT_SCHEMA_VERSION}`,
-      documentVersion: data.version,
+      reason: "invalid-schema",
+      error: "vocabulary is not an object",
     };
   }
+  const refused = refuseUnknownVersion(data.version, "vocabulary");
+  if (refused) {
+    return refused;
+  }
   if (!Array.isArray(data.types) || !data.types.every(isLinkType)) {
-    return { ok: false, error: "invalid types array" };
+    return {
+      ok: false,
+      reason: "invalid-schema",
+      error: "invalid types array",
+    };
   }
   return {
     ok: true,

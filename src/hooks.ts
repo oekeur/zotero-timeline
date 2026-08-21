@@ -8,6 +8,12 @@ import {
   registerTimelineMenu,
 } from "./modules/timeline/timelineTab";
 import { createZToolkit } from "./utils/ztoolkit";
+import {
+  registerContainerObserver,
+  unregisterContainerObserver,
+} from "./modules/timeline/containerGuard";
+
+let containerObserverID: string | null = null;
 
 async function onStartup() {
   await Promise.all([
@@ -45,9 +51,20 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-mainWindow.ftl`,
   );
+
+  // Registered once rather than per window: the observer watches the database,
+  // not a window. Leaving it registered across an unload would let the next
+  // load stack a second one on the first.
+  if (containerObserverID === null) {
+    containerObserverID = registerContainerObserver();
+  }
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
+  if (containerObserverID !== null) {
+    unregisterContainerObserver(containerObserverID);
+    containerObserverID = null;
+  }
   ztoolkit.unregisterAll();
 }
 

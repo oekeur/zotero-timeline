@@ -3,6 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 export type FluentMessageId =
+  | 'container-trashed-now'
   | 'pref-enable'
   | 'pref-help'
   | 'pref-input'
@@ -10,4 +11,6 @@ export type FluentMessageId =
   | 'timeline-menu-open'
   | 'timeline-spike-heading'
   | 'timeline-spike-note'
-  | 'timeline-tab-label';
+  | 'timeline-tab-label'
+  | 'timeline-trashed-now'
+  | 'timeline-trashed-now-unnamed';

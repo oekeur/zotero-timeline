@@ -6,6 +6,9 @@
  * Notes are found by tag rather than by content-sniffing, so a corrupted one
  * is still findable and still distinguishable from "no note yet".
  */
+import { serializeDocument, type TimelineDocument } from "./schema";
+import { parseTimelineDocument, type DateIssue } from "./validate";
+import { logFailure } from "../../utils/logging";
 
 /**
  * Marks the one item per library that every plugin note hangs off. Zotero's
@@ -67,11 +70,24 @@ export type StorageErrorReason =
 
 export class StorageError extends Error {
   reason: StorageErrorReason;
+  /** Both set only for a version refusal, which is the case that has to name them. */
+  documentVersion?: number;
+  knownVersion?: number;
 
-  constructor(reason: StorageErrorReason, message: string) {
+  constructor(
+    reason: StorageErrorReason,
+    message: string,
+    versions?: { documentVersion?: number; knownVersion?: number },
+  ) {
     super(message);
     this.name = "StorageError";
     this.reason = reason;
+    if (versions?.documentVersion !== undefined) {
+      this.documentVersion = versions.documentVersion;
+    }
+    if (versions?.knownVersion !== undefined) {
+      this.knownVersion = versions.knownVersion;
+    }
   }
 }
 
@@ -134,6 +150,162 @@ export async function findContainers(
   return [...items].sort((a, b) =>
     a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
   );
+}
+
+// Zotero re-serialises a note's HTML through its own ProseMirror schema after
+// save, wrapping the body in a data-schema-version div and dropping attributes
+// the schema does not know, including an id on our <pre>. That happens without
+// the user ever opening the note, so match the TAG only. Anchoring the parse on
+// an id broke silently in mindmap; do not add one back for clarity.
+const DATA_BLOCK_PATTERN = /<pre\b[^>]*>([\s\S]*?)<\/pre>/;
+const NOTE_WARNING =
+  "<p>This note stores structured data for the Zotero Timeline plugin. Editing it manually will corrupt your timeline.</p>";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/** The note body a document is stored in: a human-readable warning, then the JSON. */
+export function buildNoteHtml(doc: TimelineDocument): string {
+  return `${NOTE_WARNING}<pre>${escapeHtml(serializeDocument(doc))}</pre>`;
+}
+
+function extractDataBlock(html: string): string | null {
+  return DATA_BLOCK_PATTERN.exec(html)?.[1] ?? null;
+}
+
+/**
+ * Reloads a note's text from the database.
+ *
+ * Zotero reloads a saved object asynchronously, so an item's cached note text
+ * can lag its own committed write and hand back the document as it was before.
+ * Only paths that may be reading their own recent write pay for this;
+ * enumerating a library does not.
+ */
+export async function refreshNote(item: Zotero.Item): Promise<Zotero.Item> {
+  await item.reload(["note"], true);
+  return item;
+}
+
+/**
+ * Reads and validates the document a storage note holds.
+ *
+ * Throws StorageError rather than returning null, so a corrupt note stays
+ * distinguishable from an empty one at every call site. Parses the note as it
+ * currently stands; see refreshNote for when that has to be reconciled with
+ * the database first.
+ */
+export function readDocumentFromNote(item: Zotero.Item): {
+  doc: TimelineDocument;
+  dateIssues: DateIssue[];
+} {
+  assertNoteKind(item, STORAGE_TAG);
+  const block = extractDataBlock(item.getNote());
+  if (block === null) {
+    throw new StorageError(
+      "block-missing",
+      `note ${item.id} is missing its data block`,
+    );
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(unescapeHtml(block));
+  } catch (err) {
+    throw new StorageError(
+      "parse-failed",
+      `note ${item.id} contains invalid JSON: ${(err as Error).message}`,
+    );
+  }
+  const result = parseTimelineDocument(data);
+  if (!result.ok) {
+    throw new StorageError(result.reason, `note ${item.id}: ${result.error}`, {
+      documentVersion: result.documentVersion,
+      knownVersion: result.knownVersion,
+    });
+  }
+  return { doc: result.doc, dateIssues: result.dateIssues };
+}
+
+export type StoredTimeline = {
+  noteItemID: number;
+  doc: TimelineDocument;
+  dateIssues: DateIssue[];
+};
+
+export type UnreadableTimeline = {
+  noteItemID: number;
+  reason: StorageErrorReason;
+  message: string;
+  /** Both present only for a version refusal, which is the case that needs them. */
+  documentVersion?: number;
+  knownVersion?: number;
+};
+
+/**
+ * Every readable timeline in a library, plus an account of what could not be
+ * read.
+ *
+ * Returns both halves rather than a bare array on purpose. One corrupt
+ * document must not make the others unlistable, and skipping silently is the
+ * wrong half of that: "nothing found after skipping one" has to show as an
+ * error state rather than as an empty library.
+ *
+ * Creates nothing. A library with no container lists as empty rather than
+ * acquiring one, which is why this does not route through
+ * findOrCreateContainer for symmetry with the write path.
+ *
+ * Searches the library by tag rather than walking the container, so a note
+ * under a duplicate container still lists and a note whose parent was trashed
+ * does not.
+ */
+export async function listTimelines(libraryID: number): Promise<{
+  timelines: StoredTimeline[];
+  unreadable: UnreadableTimeline[];
+}> {
+  const notes = await searchStorageNotes(libraryID);
+  const timelines: StoredTimeline[] = [];
+  const unreadable: UnreadableTimeline[] = [];
+
+  for (const note of notes) {
+    try {
+      const { doc, dateIssues } = readDocumentFromNote(note);
+      timelines.push({ noteItemID: note.id, doc, dateIssues });
+    } catch (err) {
+      const error =
+        err instanceof StorageError
+          ? err
+          : new StorageError("parse-failed", String(err));
+      // Returned for the UI and logged as well, because the log is what a bug
+      // report has when nobody looked at the UI.
+      logFailure(
+        `[zoteroTimeline] skipping unreadable timeline note ${note.id} in library ${libraryID}: ${error.message}`,
+        error,
+      );
+      unreadable.push({
+        noteItemID: note.id,
+        reason: error.reason,
+        message: error.message,
+        ...(error.documentVersion !== undefined
+          ? { documentVersion: error.documentVersion }
+          : {}),
+        ...(error.knownVersion !== undefined
+          ? { knownVersion: error.knownVersion }
+          : {}),
+      });
+    }
+  }
+
+  return { timelines, unreadable };
 }
 
 /**
