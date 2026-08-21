@@ -13,7 +13,13 @@ import {
   unregisterContainerObserver,
 } from "./modules/timeline/containerGuard";
 
+import {
+  registerCacheObserver,
+  unregisterCacheObserver,
+} from "./modules/timeline/documentCache";
+
 let containerObserverID: string | null = null;
+let cacheObserverID: string | null = null;
 
 async function onStartup() {
   await Promise.all([
@@ -58,12 +64,19 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   if (containerObserverID === null) {
     containerObserverID = registerContainerObserver();
   }
+  if (cacheObserverID === null) {
+    cacheObserverID = registerCacheObserver();
+  }
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
   if (containerObserverID !== null) {
     unregisterContainerObserver(containerObserverID);
     containerObserverID = null;
+  }
+  if (cacheObserverID !== null) {
+    unregisterCacheObserver(cacheObserverID);
+    cacheObserverID = null;
   }
   ztoolkit.unregisterAll();
 }

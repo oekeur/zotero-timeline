@@ -13,4 +13,5 @@ export type FluentMessageId =
   | 'timeline-spike-note'
   | 'timeline-tab-label'
   | 'timeline-trashed-now'
-  | 'timeline-trashed-now-unnamed';
+  | 'timeline-trashed-now-unnamed'
+  | 'vocabulary-recovered';

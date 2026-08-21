@@ -9,3 +9,8 @@ container-trashed-now = Zotero Timeline's data item was moved to the trash, so e
 timeline-trashed-now = The timeline "{ $name }" was moved to the trash. Restore it from the trash to get it back.
 
 timeline-trashed-now-unnamed = A timeline was moved to the trash. Restore it from the trash to get it back.
+
+# Shown after the link-type list was rebuilt from the defaults because the
+# library had none. Naming the trash is what makes it actionable: the labels
+# come back if the old note is restored, because links store type ids.
+vocabulary-recovered = Zotero Timeline rebuilt this library's link types from the defaults, because it could not find the list. If you deleted it, the previous list is in the trash; restoring it brings your own labels back.

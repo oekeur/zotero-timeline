@@ -6,8 +6,16 @@
  * Notes are found by tag rather than by content-sniffing, so a corrupted one
  * is still findable and still distinguishable from "no note yet".
  */
-import { serializeDocument, type TimelineDocument } from "./schema";
-import { parseTimelineDocument, type DateIssue } from "./validate";
+import {
+  serializeDocument,
+  type TimelineDocument,
+  type Vocabulary,
+} from "./schema";
+import {
+  parseTimelineDocument,
+  parseVocabulary,
+  type DateIssue,
+} from "./validate";
 import { logFailure } from "../../utils/logging";
 
 /**
@@ -20,8 +28,7 @@ import { logFailure } from "../../utils/logging";
  *
  * The container is found by this tag rather than recorded in a preference: a
  * pref is device-local, and every synced device has to arrive at the same
- * container from library data alone. The leading underscore hides the tag from
- * Zotero's tag selector.
+ * container from library data alone.
  *
  * The leading underscore on all three tags hides them from Zotero's tag
  * selector.
@@ -236,6 +243,50 @@ export function readDocumentFromNote(item: Zotero.Item): {
   return { doc: result.doc, dateIssues: result.dateIssues };
 }
 
+/** The note body the vocabulary is stored in, wrapped exactly like a document. */
+export function buildVocabularyNoteHtml(vocabulary: Vocabulary): string {
+  return `${NOTE_WARNING}<pre>${escapeHtml(JSON.stringify(vocabulary))}</pre>`;
+}
+
+/**
+ * Reads and validates the vocabulary a note holds.
+ *
+ * Guarded on the vocabulary tag for the same reason the document reader is
+ * guarded on the storage tag: a write follows a read, so a note read as the
+ * wrong kind gets overwritten by the wrong kind on the next save.
+ */
+export function readVocabularyFromNote(item: Zotero.Item): Vocabulary {
+  assertNoteKind(item, VOCABULARY_TAG);
+  const block = extractDataBlock(item.getNote());
+  if (block === null) {
+    throw new StorageError(
+      "block-missing",
+      `vocabulary note ${item.id} is missing its data block`,
+    );
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(unescapeHtml(block));
+  } catch (err) {
+    throw new StorageError(
+      "parse-failed",
+      `vocabulary note ${item.id} contains invalid JSON: ${(err as Error).message}`,
+    );
+  }
+  const result = parseVocabulary(data);
+  if (!result.ok) {
+    throw new StorageError(
+      result.reason,
+      `vocabulary note ${item.id}: ${result.error}`,
+      {
+        documentVersion: result.documentVersion,
+        knownVersion: result.knownVersion,
+      },
+    );
+  }
+  return result.doc;
+}
+
 export type StoredTimeline = {
   noteItemID: number;
   doc: TimelineDocument;
@@ -268,7 +319,17 @@ export type UnreadableTimeline = {
  * under a duplicate container still lists and a note whose parent was trashed
  * does not.
  */
-export async function listTimelines(libraryID: number): Promise<{
+export async function listTimelines(
+  libraryID: number,
+  // Injected rather than imported so the cache can supply a caching reader
+  // without storage.ts having to know the cache exists.
+  read: (item: Zotero.Item) =>
+    | { doc: TimelineDocument; dateIssues: DateIssue[] }
+    | Promise<{
+        doc: TimelineDocument;
+        dateIssues: DateIssue[];
+      }> = readDocumentFromNote,
+): Promise<{
   timelines: StoredTimeline[];
   unreadable: UnreadableTimeline[];
 }> {
@@ -278,7 +339,7 @@ export async function listTimelines(libraryID: number): Promise<{
 
   for (const note of notes) {
     try {
-      const { doc, dateIssues } = readDocumentFromNote(note);
+      const { doc, dateIssues } = await read(note);
       timelines.push({ noteItemID: note.id, doc, dateIssues });
     } catch (err) {
       const error =
@@ -306,6 +367,103 @@ export async function listTimelines(libraryID: number): Promise<{
   }
 
   return { timelines, unreadable };
+}
+
+/**
+ * Writes a document into a note that already exists.
+ *
+ * setNote runs INSIDE the transaction, not before it. saveTx() calls
+ * _initSave, which reads the item's change flags, before Zotero opens the
+ * transaction, so a save queued behind another transaction on the same item
+ * can have its pending note change wiped in between by the earlier save's
+ * _finalizeSave (reload() plus _clearChanged()). The save then reports
+ * success, writes nothing, and the in-memory note silently reverts. Opening
+ * the transaction first closes that window.
+ *
+ * Creating a note and erasing one still use saveTx/eraseTx; this wrapper is
+ * specifically for re-saving an existing body.
+ */
+async function saveDocumentToNote(
+  item: Zotero.Item,
+  doc: TimelineDocument,
+): Promise<void> {
+  await Zotero.DB.executeTransaction(async () => {
+    item.setNote(buildNoteHtml(doc));
+    await item.save();
+  });
+}
+
+/** The storage note holding the document with this id, or null. */
+async function findNoteForDocument(
+  documentId: string,
+  libraryID: number,
+): Promise<Zotero.Item | null> {
+  for (const note of await searchStorageNotes(libraryID)) {
+    try {
+      if (readDocumentFromNote(note).doc.id === documentId) {
+        return note;
+      }
+    } catch {
+      // An unreadable note is not the note we are looking for. listTimelines
+      // is what reports it; failing the write here would make one corrupt
+      // document block edits to every other timeline.
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads one document, applies `mutate`, and writes exactly that note back with
+ * no other storage operation interleaving.
+ *
+ * The note is resolved ONCE, inside the queued task, which is what makes this
+ * a read-modify-write against the document as it stands at write time rather
+ * than against a copy some caller read earlier. Return null from `mutate` to
+ * mean "no change": a no-op edit should not dirty a note, because every dirty
+ * note is a sync round trip and a modify notification something has to
+ * suppress.
+ *
+ * One edit writes one note. That granularity is the deliberate divergence
+ * from mindmap, which rewrites its whole document per edit, and it is what
+ * bounds last-write-wins to a single timeline.
+ *
+ * A document the code cannot fully read is never mutated: a version refusal
+ * aborts before `mutate` is called, because last-write-wins means a partial
+ * parse followed by a save erases whatever the newer version added, silently.
+ */
+export async function updateTimelineDocument(
+  mutate: (doc: TimelineDocument) => TimelineDocument | null,
+  documentId: string,
+  libraryID: number,
+): Promise<TimelineDocument | null> {
+  return enqueue(async () => {
+    // Plain searches only in here. The queue is not reentrant.
+    const note = await findNoteForDocument(documentId, libraryID);
+    if (note === null) {
+      throw new StorageError(
+        "not-found",
+        `no timeline with id ${documentId} in library ${libraryID}`,
+      );
+    }
+    await refreshNote(note);
+    // Throws on a version refusal, which is the abort this needs.
+    const { doc } = readDocumentFromNote(note);
+
+    const next = mutate(doc);
+    if (next === null) {
+      return null;
+    }
+    const result = parseTimelineDocument(next);
+    if (!result.ok) {
+      throw new StorageError(
+        result.reason,
+        `refusing to write an invalid document to note ${note.id}: ${result.error}`,
+      );
+    }
+    await saveDocumentToNote(note, result.doc);
+    return result.doc;
+  });
 }
 
 /**
