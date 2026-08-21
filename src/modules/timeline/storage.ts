@@ -20,11 +20,26 @@
  * container from library data alone. The leading underscore hides the tag from
  * Zotero's tag selector.
  *
- * The `-v1` suffix versions the carrier convention (which item kind holds the
- * JSON and how it is wrapped), not the document schema, so it does not move
- * when CURRENT_SCHEMA_VERSION does.
+ * The leading underscore on all three tags hides them from Zotero's tag
+ * selector.
+ *
+ * The `-v1` suffix on all three versions the CARRIER convention: which item
+ * kind holds the JSON and how it is wrapped. It does not version the document
+ * schema and does not move when CURRENT_SCHEMA_VERSION does. If it did, a v2
+ * document would go invisible to a v1 reader instead of being listed and
+ * refused, which is exactly the guarantee the version check exists to make.
  */
 export const CONTAINER_TAG = "_zoterotimeline-container-v1";
+
+/**
+ * On every note holding one timeline document. Listing a library's timelines
+ * filters on this tag, which is why the container carries a different one: a
+ * container sharing it would list as a timeline.
+ */
+export const STORAGE_TAG = "_zoterotimeline-storage-v1";
+
+/** On the one note holding a library's link-type vocabulary. */
+export const VOCABULARY_TAG = "_zoterotimeline-vocabulary-v1";
 
 // Stored, synced data rather than UI text, so it stays untranslated - two
 // devices in different locales must still recognise the same item. Reading it
@@ -118,6 +133,81 @@ export async function findContainers(
   const items = (await Zotero.Items.getAsync(ids)) as Zotero.Item[];
   return [...items].sort((a, b) =>
     a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+  );
+}
+
+/**
+ * Every note in a library carrying the timeline-document tag, lowest item id
+ * first.
+ *
+ * Searches the whole library by tag rather than walking the container's
+ * children, which is what keeps a note under a duplicate container listable
+ * and drops a note whose parent was trashed.
+ */
+export async function searchStorageNotes(
+  libraryID: number,
+  { includeTrashed = false } = {},
+): Promise<Zotero.Item[]> {
+  const search = new Zotero.Search();
+  search.addCondition("libraryID", "is", libraryID);
+  search.addCondition("itemType", "is", "note");
+  search.addCondition("tag", "is", STORAGE_TAG);
+  if (includeTrashed) {
+    search.addCondition("includeDeleted", "true");
+  }
+  const ids = await search.search();
+  if (ids.length === 0) {
+    return [];
+  }
+  const items = (await Zotero.Items.getAsync(ids)) as Zotero.Item[];
+  // Sorted here rather than relying on getAsync echoing the id order back.
+  return [...items].sort((a, b) => a.id - b.id);
+}
+
+// Deliberately a second full function rather than one parameterised by tag.
+// Two call sites is not the third occurrence the abstraction threshold asks
+// for, and a shared helper here would be that abstraction wearing two names.
+/** Every note in a library carrying the vocabulary tag, lowest item id first. */
+export async function searchVocabularyNotes(
+  libraryID: number,
+  { includeTrashed = false } = {},
+): Promise<Zotero.Item[]> {
+  const search = new Zotero.Search();
+  search.addCondition("libraryID", "is", libraryID);
+  search.addCondition("itemType", "is", "note");
+  search.addCondition("tag", "is", VOCABULARY_TAG);
+  if (includeTrashed) {
+    search.addCondition("includeDeleted", "true");
+  }
+  const ids = await search.search();
+  if (ids.length === 0) {
+    return [];
+  }
+  const items = (await Zotero.Items.getAsync(ids)) as Zotero.Item[];
+  return [...items].sort((a, b) => a.id - b.id);
+}
+
+/**
+ * Refuses a note of the wrong kind before anything tries to parse it.
+ *
+ * Kind comes from the tag, never from sniffing the content, so it is still
+ * answerable when the JSON inside is unreadable. That is what keeps "a corrupt
+ * vocabulary note" distinguishable from "no vocabulary note yet": if kind came
+ * from parsing, both would collapse into "restore the defaults" and a list the
+ * user edited would be replaced by silence.
+ *
+ * Reading is what makes this matter, because a write follows a read. A
+ * vocabulary note handed to the timeline reader and parsed anyway gets
+ * overwritten by a timeline document on the next save.
+ */
+export function assertNoteKind(item: Zotero.Item, expectedTag: string): void {
+  if (item.hasTag(expectedTag)) {
+    return;
+  }
+  const found = item.getTags().map((t) => t.tag);
+  throw new StorageError(
+    "wrong-kind",
+    `note ${item.id} does not carry ${expectedTag}; it has [${found.join(", ")}]`,
   );
 }
 
