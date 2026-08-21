@@ -17,6 +17,10 @@ import {
   registerCacheObserver,
   unregisterCacheObserver,
 } from "./modules/timeline/documentCache";
+import {
+  registerLibraryFilter,
+  unregisterLibraryFilter,
+} from "./modules/timeline/libraryFilter";
 
 let containerObserverID: string | null = null;
 let cacheObserverID: string | null = null;
@@ -67,6 +71,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   if (cacheObserverID === null) {
     cacheObserverID = registerCacheObserver();
   }
+  registerLibraryFilter();
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
@@ -78,6 +83,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
     unregisterCacheObserver(cacheObserverID);
     cacheObserverID = null;
   }
+  unregisterLibraryFilter();
   ztoolkit.unregisterAll();
 }
 

@@ -187,6 +187,63 @@ export function buildNoteHtml(doc: TimelineDocument): string {
   return `${NOTE_WARNING}<pre>${escapeHtml(serializeDocument(doc))}</pre>`;
 }
 
+/**
+ * Zotero's sync server refuses a note above this many UTF-16 code units with
+ * HTTP 413, and nothing enforces it client-side. Measured 2026-08-20; earlier
+ * quoted figures of 200,000 and 250,000 are stale and the limit has been
+ * raised more than once, so treat this as a measurement with a date rather
+ * than a fact. An oversized document writes locally and fails only at sync, on
+ * whichever machine syncs first.
+ */
+export const NOTE_SIZE_CEILING = 500_000;
+
+/**
+ * Where the warning fires, at 90% of the ceiling. The margin covers two
+ * things, and the second is easy to miss:
+ *
+ * The user needs room to finish a thought and split a timeline deliberately,
+ * rather than being caught mid-edit by a limit.
+ *
+ * And what the server measures is not exactly the string we set. Zotero
+ * re-serialises the note through its own schema on save, wrapping the body in
+ * a data-schema-version div, so our measurement is a lower bound on what the
+ * server sees. That overhead is not measured; if a 413 ever arrives under this
+ * budget, the gap is the first place to look.
+ */
+export const NOTE_SIZE_BUDGET = 450_000;
+
+// One warning per document per session. Every drag is a write, and a warning
+// on every write trains the user to dismiss warnings, which is worse than no
+// warning at all.
+const warnedAboutSize = new Set<string>();
+
+export function clearSizeWarnings(): void {
+  warnedAboutSize.clear();
+}
+
+/**
+ * Whether this write should warn the user that the document is approaching the
+ * note size ceiling.
+ *
+ * Measures the FINAL note content, wrapper included, because the wrapper is
+ * exactly what the budget's second reason is about. String.length is UTF-16
+ * code units, so an astral character counts as two with no extra work; the
+ * test is what proves nobody replaced it with a code-point count.
+ *
+ * Returns the decision rather than warning, for the same reason the trash
+ * guard does: reaching getString from a spec throws.
+ */
+export function shouldWarnAboutSize(
+  doc: TimelineDocument,
+  html: string,
+): boolean {
+  if (html.length < NOTE_SIZE_BUDGET || warnedAboutSize.has(doc.id)) {
+    return false;
+  }
+  warnedAboutSize.add(doc.id);
+  return true;
+}
+
 function extractDataBlock(html: string): string | null {
   return DATA_BLOCK_PATTERN.exec(html)?.[1] ?? null;
 }
@@ -386,9 +443,16 @@ export async function listTimelines(
 async function saveDocumentToNote(
   item: Zotero.Item,
   doc: TimelineDocument,
+  onOversize: (doc: TimelineDocument) => void = () => {},
 ): Promise<void> {
+  const html = buildNoteHtml(doc);
+  // Measured before the write and never blocking it. Refusing would lose
+  // authored work, and whether to split a timeline is the user's call.
+  if (shouldWarnAboutSize(doc, html)) {
+    onOversize(doc);
+  }
   await Zotero.DB.executeTransaction(async () => {
-    item.setNote(buildNoteHtml(doc));
+    item.setNote(html);
     await item.save();
   });
 }
@@ -436,6 +500,7 @@ export async function updateTimelineDocument(
   mutate: (doc: TimelineDocument) => TimelineDocument | null,
   documentId: string,
   libraryID: number,
+  onOversize?: (doc: TimelineDocument) => void,
 ): Promise<TimelineDocument | null> {
   return enqueue(async () => {
     // Plain searches only in here. The queue is not reentrant.
@@ -461,7 +526,7 @@ export async function updateTimelineDocument(
         `refusing to write an invalid document to note ${note.id}: ${result.error}`,
       );
     }
-    await saveDocumentToNote(note, result.doc);
+    await saveDocumentToNote(note, result.doc, onOversize);
     return result.doc;
   });
 }

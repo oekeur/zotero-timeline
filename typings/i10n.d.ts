@@ -8,6 +8,7 @@ export type FluentMessageId =
   | 'pref-help'
   | 'pref-input'
   | 'pref-title'
+  | 'timeline-approaching-size-limit'
   | 'timeline-menu-open'
   | 'timeline-spike-heading'
   | 'timeline-spike-note'

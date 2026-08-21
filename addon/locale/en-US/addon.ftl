@@ -14,3 +14,8 @@ timeline-trashed-now-unnamed = A timeline was moved to the trash. Restore it fro
 # library had none. Naming the trash is what makes it actionable: the labels
 # come back if the old note is restored, because links store type ids.
 vocabulary-recovered = Zotero Timeline rebuilt this library's link types from the defaults, because it could not find the list. If you deleted it, the previous list is in the trash; restoring it brings your own labels back.
+
+# Shown once per timeline per session as a document approaches the largest note
+# Zotero's sync server will accept. Names the timeline and says what to do,
+# because a number alone is not something the user can act on.
+timeline-approaching-size-limit = The timeline "{ $name }" is getting close to the largest note Zotero will sync. Split it into two timelines to be safe.
