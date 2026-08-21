@@ -140,6 +140,29 @@ to build.
   `Plugin awaiting timeout` therefore means the plugin did not load, not that
   an assertion failed. Why almost nothing here is unit-testable outside Zotero
   is in `docs/contributing/testing-explanation.md`.
+- **Look at the running plugin yourself before reporting on it.** The MCP
+  observability rig (`zotero-dev`) drives the dev Zotero directly, so an agent
+  can read the error console, filter this plugin's debug output, and screenshot
+  the window without asking Oscar to look at anything. Set it up once per
+  worktree from `docs/contributing/mcp-observability-howto.md`, which also says
+  which call answers which question. Use it, in this order, whenever a change
+  touches the UI or the live Zotero API:
+  1. `zotero_ping`, and check the data directory it reports is this worktree's.
+     Two dev profiles on the default port make it answer from the wrong Zotero
+     without a word.
+  2. `zotero_read_errors` after any startup or hook change. It gives the real
+     message and source behind "Error running bootstrap method", which is
+     otherwise the entire signal.
+  3. `zotero_screenshot` for anything visual, plus `zotero_get_dom_tree` when a
+     region looks empty, which separates a missing element tree from a present
+     but invisible one.
+
+  Report what those calls returned, not that you ran them. Handing a silent
+  failure to Oscar to eyeball is the fallback for what the rig genuinely cannot
+  reach (the bootstrap-scope question in step 7 below), not the default. If the
+  rig is not set up and you are not going to set it up, say the change is
+  unverified rather than implying it was checked.
+
 - **Manual verification protocol** (for any change touching XUL, vis-timeline,
   or the live Zotero API — none of it is unit-testable, and most failure modes
   in this codebase are _silent_ rather than thrown): before declaring such a
@@ -153,7 +176,10 @@ to build.
   2. There is no log file to tail. `zotero-plugin-scaffold` discards Zotero's
      stdout entirely and never passes `-ZoteroDebugText`, so a failing test run,
      or Help > Debug Output for "Error running bootstrap method", is the only
-     signal available.
+     signal available _unless_ the observability rig above is running, which is
+     the reason to set it up. Its install is per worktree and its two
+     `server.prefs` entries are not wired up yet (TASK-20), so both are manual
+     steps for now rather than something `worktree-init.sh` does for you.
   3. Working in a worktree: run `~/.claude/scripts/worktree-init.sh` first,
      which gives that worktree its own dev profile. Without it two `npm start`
      instances attach to the same profile and collide: crashes, stale state,
@@ -173,15 +199,22 @@ to build.
      ceiling mismatch (`strict_max_version` in `addon/manifest.json`) blocks
      loading with no console error and no install failure at all.
   6. If Debug Output shows nothing where an error is expected, that is not
-     proof of success; console output can be filtered or misrouted. Temporarily
-     swap the suspect `Zotero.debug()` calls for
+     proof of success; console output can be filtered or misrouted. With the
+     rig set up, ask it: `zotero_read_errors` reports the message and source
+     behind "Error running bootstrap method", and `zotero_read_logs` filtered
+     to this plugin's prefix shows how far execution actually got. Without it,
+     temporarily swap the suspect `Zotero.debug()` calls for
      `ztoolkit.getGlobal("alert")("Reached: <location>")` and bracket the
      failing operation to confirm actual execution flow.
   7. If a third-party library throws a bare `ReferenceError` (`document`,
      `console`, `Image`, `ResizeObserver`, `MutationObserver` undefined), read
      the bundled source directly (`node_modules/<pkg>/dist/*.js`) at the failing
      line rather than guessing. Zotero's bootstrap scope lacks browser globals
-     these libraries assume are always present.
+     these libraries assume are always present. The rig gives you the failing
+     file and offset faster, but it does not answer this one: `zotero_execute_js`
+     runs in the main window's chrome scope, where all of those globals exist,
+     so it reports them present no matter what the bootstrap scope has. Only a
+     probe inside the plugin can measure that scope.
   8. Before shipping any `package.json` or manifest change, explicitly check
      the three fields known to fail silently rather than erroring:
      `repository.url` and `homepage` in `package.json` (a missing or

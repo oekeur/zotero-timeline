@@ -109,6 +109,14 @@ export default defineConfig({
               text: "Why tests run against live Zotero",
               link: "/contributing/testing-explanation",
             },
+            {
+              text: "Debugging a running Zotero",
+              link: "/contributing/mcp-observability-howto",
+            },
+            {
+              text: "Why the MCP observability rig was adopted",
+              link: "/contributing/mcp-observability-explanation",
+            },
           ],
         },
       ],
