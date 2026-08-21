@@ -3,11 +3,16 @@
 /* eslint-disable */
 // @ts-nocheck
 export type FluentMessageId =
-  | 'pref-enable'
+  | 'container-trashed-now'
   | 'pref-help'
-  | 'pref-input'
+  | 'pref-hide-timeline-notes'
+  | 'pref-hide-timeline-notes-help'
   | 'pref-title'
+  | 'timeline-approaching-size-limit'
   | 'timeline-menu-open'
   | 'timeline-spike-heading'
   | 'timeline-spike-note'
-  | 'timeline-tab-label';
+  | 'timeline-tab-label'
+  | 'timeline-trashed-now'
+  | 'timeline-trashed-now-unnamed'
+  | 'vocabulary-recovered';
