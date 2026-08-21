@@ -29,8 +29,15 @@ timeline, parented to it, holding a JSON document. One further note for the
 link-type vocabulary, parented to the same container.
 
 The container does two jobs. It collapses any number of plugin notes into a
-single visible row, and it keeps them out of Zotero's native link-target
-picker, which offers top-level items.
+single row, and it keeps them out of Zotero's native link-target picker, which
+offers top-level items.
+
+That row is hidden by default. A preference, on out of the box, filters the
+container and both note kinds out of the item tree, so a fresh install shows
+no plugin row at all; turning it off is how you see where the data lives. The
+collapsing still matters underneath: it is what makes the hiding one row to
+suppress rather than one per timeline, and the link-picker behaviour does not
+depend on the preference.
 
 **Notes are told apart by tag, not by order or position.** The timeline
 documents carry a storage tag; the vocabulary note carries a different one.
