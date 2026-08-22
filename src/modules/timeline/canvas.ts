@@ -10,9 +10,14 @@ export const MODULE_EVAL_ENV = {
 };
 
 import { Timeline, DataSet } from "vis-timeline/standalone";
-import { shiftEdtfDate, toTimelineRange } from "../../utils/edtfRange";
+import {
+  dateAtViewportPrecision,
+  shiftEdtfDate,
+  toTimelineRange,
+} from "../../utils/edtfRange";
+import { getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
-import { updateEvent, type EventEdits } from "./mutations";
+import { addEvent, updateEvent, type EventEdits } from "./mutations";
 import { updateTimelineDocument, type StoredTimeline } from "./storage";
 import type { Event, TimelineDocument } from "./schema";
 
@@ -83,7 +88,11 @@ export function getLastMovePayload(): Record<string, unknown> | undefined {
 /**
  * Builds every readable timeline in `timelines` into `container` and wires up
  * drag write-back. `onSelect` receives the namespaced id of the single
- * selected item, or null when the selection is empty.
+ * selected item, or null when the selection is empty. `onDocumentChange`, if
+ * given, receives a document whenever a create replaces this function's own
+ * copy of it with a freshly written one - the caller's separate `documents`
+ * map (timelineTab.ts keeps one for the editor panel) needs the same update or
+ * a newly created event is invisible to it until something else refreshes it.
  *
  * `container` must come from the tab's own document. vis-timeline reads
  * layout from it immediately, so a detached element renders at zero height and
@@ -94,6 +103,7 @@ export function renderCanvas(
   timelines: StoredTimeline[],
   libraryID: number,
   onSelect: (id: string | null) => void,
+  onDocumentChange?: (doc: TimelineDocument) => void,
 ): { timeline: Timeline; items: DataSet<any> } {
   // Keyed by document id and shared with `onMove` below, so a write updates
   // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
@@ -251,6 +261,73 @@ export function renderCanvas(
   timeline.on("select", (props: { items: string[] }) => {
     onSelect(props.items.length === 1 ? props.items[0] : null);
   });
+
+  // Clicking empty space inside a document's row is how an event gets
+  // created here - there is no dialog to interrupt the gesture, so the click
+  // itself supplies both the target document (`group`) and the date (`time`).
+  // Unlike onMove above, `group` is the only and correct signal for which
+  // document was clicked: onMove's "never trust item.group" rule exists
+  // because an *existing* item's write-back must key off the id-derived
+  // documentId, since vis-timeline does not guarantee item.group agrees with
+  // it. There is no item yet here, so no id exists to derive a document from
+  // - group is what the click actually landed on.
+  //
+  // `item` present means an existing item was clicked (handled by "select"
+  // above); `group` absent means the click landed outside any document's row
+  // (e.g. the time axis), and there is no target document to create into -
+  // both cases do nothing, since creating a timeline itself is out of scope.
+  timeline.on(
+    "click",
+    (props: { item?: unknown; group?: unknown; time: Date }) => {
+      if (props.item != null || props.group == null) {
+        return;
+      }
+      const documentId = String(props.group);
+      void (async () => {
+        const targetDoc = documents.get(documentId);
+        if (!targetDoc) {
+          return;
+        }
+        try {
+          const date = dateAtViewportPrecision(
+            props.time,
+            timeline.getWindow(),
+          );
+          let newEventId: string | undefined;
+          const result = await updateTimelineDocument(
+            (current) => {
+              const next = addEvent(current, {
+                title: getString("event-editor-untitled-title"),
+                date,
+              });
+              newEventId = next.events[next.events.length - 1].id;
+              return next;
+            },
+            documentId,
+            libraryID,
+          );
+          if (!result || !newEventId) {
+            return;
+          }
+          // Replaces this function's own copy so a drag started on the new
+          // event right after creating it finds it - addEvent returns a new
+          // document rather than mutating targetDoc in place, unlike an edit.
+          documents.set(documentId, result);
+          onDocumentChange?.(result);
+          const newEvent = result.events.find((e) => e.id === newEventId)!;
+          items.add(buildTimelineItem(documentId, newEvent));
+          // The wrapped setSelection above notifies onSelect, which is what
+          // opens the editor panel on the event just created.
+          (timeline as any).setSelection([visItemId(documentId, newEvent.id)]);
+        } catch (err) {
+          logFailure(
+            `[zoteroTimeline] failed to create an event in document ${documentId}: ${(err as Error).message}`,
+            err,
+          );
+        }
+      })();
+    },
+  );
 
   return { timeline, items };
 }

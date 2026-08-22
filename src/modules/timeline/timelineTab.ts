@@ -262,6 +262,12 @@ export async function openTimelineTab(): Promise<void> {
     timelines,
     libraryID,
     showEditorFor,
+    // canvas.ts keeps its own copy of every document for onMove's write-back;
+    // a create there replaces that copy with a freshly written one rather
+    // than mutating in place, so this map needs the same replacement, or
+    // showEditorFor can't find the event a click-to-create just made before
+    // it calls showEditorFor to open it.
+    (doc) => documents.set(doc.id, doc),
   );
   currentTimeline = timeline;
   teardownTimeline = () => {

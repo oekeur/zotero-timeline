@@ -1,5 +1,10 @@
 import { assert } from "chai";
-import { shiftEdtfDate, toTimelineRange } from "../src/utils/edtfRange";
+import {
+  dateAtViewportPrecision,
+  precisionForViewportSpan,
+  shiftEdtfDate,
+  toTimelineRange,
+} from "../src/utils/edtfRange";
 
 const DAY = 24 * 60 * 60 * 1000;
 // Five Gregorian years from 1621-01-01, leap days included - the plan's own
@@ -122,6 +127,57 @@ describe("edtf", function () {
     it("leaves the string alone when no delta is given", function () {
       assert.equal(shiftEdtfDate("1579-01-23", {}), "1579-01-23");
       assert.equal(shiftEdtfDate("1607-04/1609-04", {}), "1607-04/1609-04");
+    });
+  });
+
+  describe("precisionForViewportSpan", function () {
+    it("picks year precision for a span wider than 20 years", function () {
+      assert.equal(precisionForViewportSpan(21 * 365.25 * DAY), "year");
+    });
+
+    it("falls to month precision at exactly 20 years", function () {
+      assert.equal(precisionForViewportSpan(20 * 365.25 * DAY), "month");
+    });
+
+    it("picks month precision for a span between 2 and 20 years", function () {
+      assert.equal(precisionForViewportSpan(5 * 365.25 * DAY), "month");
+    });
+
+    it("falls to day precision at exactly 2 years", function () {
+      assert.equal(precisionForViewportSpan(2 * 365.25 * DAY), "day");
+    });
+
+    it("picks day precision for a span of 2 years or less", function () {
+      assert.equal(precisionForViewportSpan(30 * DAY), "day");
+    });
+  });
+
+  describe("dateAtViewportPrecision", function () {
+    it("formats a year-only date for a wide viewport", function () {
+      const time = new Date(Date.UTC(1580, 6, 13));
+      const window = {
+        start: new Date(Date.UTC(1400, 0, 1)),
+        end: new Date(Date.UTC(1900, 0, 1)),
+      };
+      assert.equal(dateAtViewportPrecision(time, window), "1580");
+    });
+
+    it("formats a month-precision date for a mid-width viewport", function () {
+      const time = new Date(Date.UTC(1580, 6, 13));
+      const window = {
+        start: new Date(Date.UTC(1578, 0, 1)),
+        end: new Date(Date.UTC(1583, 0, 1)),
+      };
+      assert.equal(dateAtViewportPrecision(time, window), "1580-07");
+    });
+
+    it("formats a day-precision date for a narrow viewport", function () {
+      const time = new Date(Date.UTC(1580, 6, 13));
+      const window = {
+        start: new Date(Date.UTC(1580, 5, 1)),
+        end: new Date(Date.UTC(1580, 7, 1)),
+      };
+      assert.equal(dateAtViewportPrecision(time, window), "1580-07-13");
     });
   });
 });

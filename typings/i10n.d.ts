@@ -21,6 +21,7 @@ export type FluentMessageId =
   | 'event-editor-tag-remove-button'
   | 'event-editor-tags-label'
   | 'event-editor-title-label'
+  | 'event-editor-untitled-title'
   | 'pref-help'
   | 'pref-hide-timeline-notes'
   | 'pref-hide-timeline-notes-help'

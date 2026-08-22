@@ -120,6 +120,59 @@ function shiftInstant(value: string, deltaMs: number): string {
  * exactly these two constructs, so the string itself is the one signal
  * bundling cannot rename out from under this.
  */
+const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
+
+export type ViewportPrecision = "year" | "month" | "day";
+
+/**
+ * The EDTF precision to author a freshly created event at, derived from how
+ * wide the timeline's own visible window currently is - not from the click
+ * itself, which is always exact to the millisecond and would otherwise author
+ * a spuriously precise date for a click made while zoomed out to see
+ * centuries.
+ *
+ * Round thresholds, not measured against any dataset: a visible span wider
+ * than 20 years reads as a decade-or-century view, so only the year is
+ * meaningful; wider than 2 years still hides individual days, so month is the
+ * finest honest precision; narrower than that, a day is what the viewport
+ * actually shows. Both thresholds are exclusive, so a span of exactly 20 or 2
+ * years falls to the coarser side.
+ */
+export function precisionForViewportSpan(spanMs: number): ViewportPrecision {
+  if (spanMs > 20 * MS_PER_YEAR) {
+    return "year";
+  }
+  if (spanMs > 2 * MS_PER_YEAR) {
+    return "month";
+  }
+  return "day";
+}
+
+/**
+ * Formats `time` as a plain EDTF string ("YYYY", "YYYY-MM" or "YYYY-MM-DD") at
+ * the precision `window` implies. No qualifier: this names a point the user
+ * just clicked, not an authored uncertain or approximate date.
+ *
+ * Builds the result through edtf's own constructor from date parts, the same
+ * way shiftInstant above does, rather than formatting a string by hand -
+ * padding and separators are then edtf's problem, not this function's.
+ */
+export function dateAtViewportPrecision(
+  time: Date,
+  window: { start: Date; end: Date },
+): string {
+  const precision = precisionForViewportSpan(
+    window.end.getTime() - window.start.getTime(),
+  );
+  const values =
+    precision === "year"
+      ? [time.getUTCFullYear()]
+      : precision === "month"
+        ? [time.getUTCFullYear(), time.getUTCMonth()]
+        : [time.getUTCFullYear(), time.getUTCMonth(), time.getUTCDate()];
+  return edtf({ values }).edtf;
+}
+
 export function shiftEdtfDate(input: string, delta: EdtfShiftDelta): string {
   if (input.includes("/")) {
     const separator = input.indexOf("/");

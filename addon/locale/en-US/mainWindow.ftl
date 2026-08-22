@@ -2,6 +2,7 @@ timeline-menu-open =
     .label = Open Timeline
 
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.
+event-editor-untitled-title = Untitled event
 event-editor-title-label = Title
 event-editor-date-label = Date
 event-editor-end-date-label = End date
