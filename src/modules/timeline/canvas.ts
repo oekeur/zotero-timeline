@@ -22,6 +22,50 @@ import { updateTimelineDocument, type StoredTimeline } from "./storage";
 import type { Event, TimelineDocument } from "./schema";
 
 /**
+ * Gesture-parity audit (TASK-27). The rule is one-directional: every canvas
+ * gesture that mutates data needs a typed equivalent, but a typed-only route
+ * needs no canvas gesture (project/backlog/plans/2026-08-21-m-2-event-
+ * authoring.md, "Unknowns"). Re-check this table whenever a new canvas
+ * gesture is added.
+ *
+ * - Select an item (`timeline.on("select", ...)` below): navigation only,
+ *   mutates nothing. Exempt, not a gap - confirmed by reading the handler,
+ *   which only calls `onSelect`.
+ * - Drag the body to move a date (`onMove` below): typed equivalent is
+ *   editing `date` (and `endDate`, when present) in the event editor
+ *   (eventEditor.ts) and clicking Save. Both routes call
+ *   `updateEvent`+`updateTimelineDocument` (mutations.ts, storage.ts) with
+ *   the same effect - proven by test/timelineDragPayload.test.ts (drag path)
+ *   and test/eventEditor.test.ts's "saves through the mutation and the write
+ *   path" (typed path) landing on the same function.
+ * - Drag an edge to resize a range (`onMove` below, same handler): same
+ *   typed equivalent as above, editing `endDate` (or `date`, for a
+ *   start-edge drag). Covered by the same two test files.
+ * - Click empty canvas to create an event (`click` handler below): typed
+ *   equivalent is the create form in eventEditor.ts's empty-state prompt
+ *   (title, date, and a document picker when more than one timeline is
+ *   loaded), reachable with nothing selected. Both routes call
+ *   `addEvent`+`updateTimelineDocument`. Unlike the click gesture, the typed
+ *   form has no canvas position to derive a date from, so it asks for the
+ *   date directly rather than inventing a default (see eventEditor.ts's
+ *   renderCreateForm docblock for why a placeholder date isn't safe here).
+ *   Covered by test/eventCreation.test.ts (click path) and
+ *   test/eventEditorCreate.test.ts (typed path).
+ * - Delete: no canvas-only gesture exists today (TASK-25's keyboard-delete
+ *   handler was added, found to destabilise unrelated tests through a
+ *   `container.focus()` call, and reverted - see TASK-25's Backlog notes).
+ *   The only route is already typed, the editor panel's Delete button
+ *   (eventEditor.ts, tested in test/eventEditor.test.ts). The parity rule
+ *   obligates a canvas gesture to have a typed counterpart, not the reverse,
+ *   so this is not a gap and nothing was added back.
+ *
+ * One documented exception, in the direction the rule permits (a
+ * keyboard-only route is allowed; a mouse-only one is not): a parked event
+ * (no canvas position at all) is not draggable and has no drag handle - its
+ * date is corrected only by typing, per the plan's own resolved "Unknowns".
+ */
+
+/**
  * The items DataSet is keyed by id, and event ids are only unique within their
  * own document, so the key has to carry both. This is also the write-back
  * route: the document an edit belongs to is derived from here and never from

@@ -4,6 +4,8 @@
 // @ts-nocheck
 export type FluentMessageId =
   | 'container-trashed-now'
+  | 'event-editor-create-button'
+  | 'event-editor-create-document-label'
   | 'event-editor-date-form-approximate'
   | 'event-editor-date-form-interval'
   | 'event-editor-date-form-list'

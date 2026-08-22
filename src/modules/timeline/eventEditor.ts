@@ -21,12 +21,17 @@
  * resolves to, or edtf's own thrown message verbatim on a parse failure - the
  * one place a "1580..1590" typo for "1580/1590" (a set of two candidate
  * dates, not a continuous span) is still tellable apart from what was meant.
+ *
+ * The empty-state prompt (no selection) also carries a create form - title,
+ * date, and a document picker when more than one timeline is loaded - the
+ * typed equivalent of clicking empty canvas. See canvas.ts's own top-of-file
+ * comment for the full gesture-parity audit this belongs to.
  */
 import edtf from "edtf";
-import { getLocaleID } from "../../utils/locale";
+import { getLocaleID, getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
 import { toTimelineRange, type TimelineRange } from "../../utils/edtfRange";
-import { updateEvent, removeEvent } from "./mutations";
+import { addEvent, updateEvent, removeEvent } from "./mutations";
 import { updateTimelineDocument } from "./storage";
 import type { Event as TimelineEvent } from "./schema";
 import type { FluentMessageId } from "../../../typings/i10n";
@@ -39,7 +44,14 @@ export interface EventEditorSelection {
 
 export type EventEditorChange =
   | { kind: "saved"; documentId: string; event: TimelineEvent }
-  | { kind: "deleted"; documentId: string; eventId: string };
+  | { kind: "deleted"; documentId: string; eventId: string }
+  | { kind: "created"; documentId: string; event: TimelineEvent };
+
+/** One row the empty-state create form can target. */
+export interface CreatableDocument {
+  id: string;
+  name: string;
+}
 
 // Stable hooks a caller (or a test) can select on, since the DOM shape itself
 // is not part of the contract.
@@ -60,6 +72,16 @@ export const TAG_INPUT_CLASS = "zoterotimeline-event-tag-input";
 export const SAVE_BUTTON_CLASS = "zoterotimeline-event-save";
 export const DELETE_BUTTON_CLASS = "zoterotimeline-event-delete";
 export const EMPTY_PROMPT_CLASS = "zoterotimeline-event-empty";
+// The typed equivalent of clicking empty canvas (TASK-25) - see the parity
+// audit atop canvas.ts. Rendered inside the empty-state prompt above, never
+// its own dialog, for the same reason nothing else here is one.
+export const CREATE_DOCUMENT_SELECT_CLASS =
+  "zoterotimeline-event-create-document";
+export const CREATE_TITLE_INPUT_CLASS = "zoterotimeline-event-create-title";
+export const CREATE_DATE_INPUT_CLASS = "zoterotimeline-event-create-date";
+export const CREATE_DATE_FEEDBACK_CLASS =
+  "zoterotimeline-event-create-date-feedback";
+export const CREATE_BUTTON_CLASS = "zoterotimeline-event-create";
 
 // One Fluent id per EDTF form edtf@4.11.1 can report via `.type` (plus
 // uncertain/approximate, which share type "Date" with the plain form and are
@@ -160,18 +182,136 @@ function updateDateFeedback(
 }
 
 /**
+ * The create form shown alongside the empty-state prompt: title, a free-text
+ * EDTF date with the same live feedback the edit form's date field has, and a
+ * document picker only when more than one timeline is loaded (a single
+ * loaded document needs no picker to be unambiguous). No canvas position
+ * exists here to derive a date from the way TASK-25's click gesture does, so
+ * unlike that gesture this one asks for the date directly rather than
+ * inventing a default - a blank date field does nothing on Create, since
+ * Event.date is required and a placeholder value would break the canvas the
+ * next time it re-renders (buildTimelineItem parses `date` unconditionally).
+ * A blank title falls back to the same "Untitled event" string the click
+ * gesture uses, so the two routes produce the same stored title when neither
+ * types one.
+ */
+function renderCreateForm(
+  doc: Document,
+  container: HTMLElement,
+  creatable: { libraryID: number; documents: CreatableDocument[] },
+  onChange?: (change: EventEditorChange) => void,
+): void {
+  const { libraryID, documents } = creatable;
+
+  let documentSelect: HTMLSelectElement | undefined;
+  if (documents.length > 1) {
+    const selectLabel = doc.createElement("label");
+    selectLabel.setAttribute(
+      "data-l10n-id",
+      getLocaleID("event-editor-create-document-label"),
+    );
+    container.appendChild(selectLabel);
+
+    documentSelect = doc.createElement("select");
+    documentSelect.classList.add(CREATE_DOCUMENT_SELECT_CLASS);
+    for (const candidate of documents) {
+      const option = doc.createElement("option");
+      option.value = candidate.id;
+      option.textContent = candidate.name;
+      documentSelect.appendChild(option);
+    }
+    container.appendChild(documentSelect);
+  }
+
+  const titleLabel = doc.createElement("label");
+  titleLabel.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-title-label"),
+  );
+  container.appendChild(titleLabel);
+
+  const titleInput = doc.createElement("input");
+  titleInput.type = "text";
+  titleInput.classList.add(CREATE_TITLE_INPUT_CLASS);
+  container.appendChild(titleInput);
+
+  const dateLabel = doc.createElement("label");
+  dateLabel.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-date-label"),
+  );
+  container.appendChild(dateLabel);
+
+  const dateInput = doc.createElement("input");
+  dateInput.type = "text";
+  dateInput.classList.add(CREATE_DATE_INPUT_CLASS);
+  container.appendChild(dateInput);
+
+  const dateFeedback = doc.createElement("p");
+  dateFeedback.classList.add(CREATE_DATE_FEEDBACK_CLASS);
+  container.appendChild(dateFeedback);
+  dateInput.addEventListener("input", () => {
+    updateDateFeedback(doc, dateFeedback, dateInput.value);
+  });
+
+  const createButton = doc.createElement("button");
+  createButton.type = "button";
+  createButton.classList.add(CREATE_BUTTON_CLASS);
+  createButton.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-create-button"),
+  );
+  container.appendChild(createButton);
+
+  createButton.addEventListener("click", () => {
+    const date = dateInput.value;
+    if (!date.trim()) {
+      return;
+    }
+    const documentId = documentSelect ? documentSelect.value : documents[0].id;
+    const title =
+      titleInput.value.trim() || getString("event-editor-untitled-title");
+    void (async () => {
+      try {
+        let newEventId: string | undefined;
+        const result = await updateTimelineDocument(
+          (current) => {
+            const next = addEvent(current, { title, date });
+            newEventId = next.events[next.events.length - 1].id;
+            return next;
+          },
+          documentId,
+          libraryID,
+        );
+        const created = result?.events.find((e) => e.id === newEventId);
+        if (result && created) {
+          onChange?.({ kind: "created", documentId, event: created });
+        }
+      } catch (err) {
+        logFailure(
+          `[zoteroTimeline] failed to create an event in document ${documentId}: ${(err as Error).message}`,
+          err,
+        );
+      }
+    })();
+  });
+}
+
+/**
  * `selection` null renders a prompt naming both ways to get an event into the
  * editor, rather than blanking - the panel stays in place across a selection
- * change so the canvas next to it never has to reflow.
+ * change so the canvas next to it never has to reflow. `creatable`, when
+ * given, adds the typed equivalent of clicking empty canvas below the prompt.
  *
- * `onChange` runs once a save or delete actually wrote a note, so the caller
- * can refresh the canvas item and, for a delete, clear the selection. A no-op
- * save (nothing actually changed) writes nothing and calls nothing.
+ * `onChange` runs once a save, delete or create actually wrote a note, so the
+ * caller can refresh the canvas item and, for a delete, clear the selection.
+ * A no-op save (nothing actually changed) writes nothing and calls nothing.
  */
 export function renderEventEditor(
   container: HTMLElement,
   selection: EventEditorSelection | null,
   onChange?: (change: EventEditorChange) => void,
+  creatable?: { libraryID: number; documents: CreatableDocument[] },
 ): void {
   const doc = container.ownerDocument!;
   container.textContent = "";
@@ -181,6 +321,9 @@ export function renderEventEditor(
     prompt.classList.add(EMPTY_PROMPT_CLASS);
     prompt.setAttribute("data-l10n-id", getLocaleID("event-editor-empty"));
     container.appendChild(prompt);
+    if (creatable && creatable.documents.length > 0) {
+      renderCreateForm(doc, container, creatable, onChange);
+    }
     return;
   }
 

@@ -214,16 +214,38 @@ export async function openTimelineTab(): Promise<void> {
     timelines.map((t) => [t.doc.id, t.doc]),
   );
 
+  // The typed create form's target list - every document rendered as a
+  // canvas row, the same set click-to-create can land in.
+  function creatableDocuments() {
+    return {
+      libraryID,
+      documents: Array.from(documents.values()).map((d) => ({
+        id: d.id,
+        name: d.name,
+      })),
+    };
+  }
+
   function showEditorFor(itemId: string | null): void {
     if (!itemId) {
-      renderEventEditor(panel as unknown as HTMLElement, null, onEditorChange);
+      renderEventEditor(
+        panel as unknown as HTMLElement,
+        null,
+        onEditorChange,
+        creatableDocuments(),
+      );
       return;
     }
     const { documentId, eventId } = parseVisItemId(itemId);
     const targetDoc = documents.get(documentId);
     const event = targetDoc?.events.find((e) => e.id === eventId);
     if (!targetDoc || !event) {
-      renderEventEditor(panel as unknown as HTMLElement, null, onEditorChange);
+      renderEventEditor(
+        panel as unknown as HTMLElement,
+        null,
+        onEditorChange,
+        creatableDocuments(),
+      );
       return;
     }
     renderEventEditor(
@@ -244,6 +266,12 @@ export async function openTimelineTab(): Promise<void> {
         targetDoc.events[index] = change.event;
       }
       items.update(buildTimelineItem(change.documentId, change.event));
+    } else if (change.kind === "created") {
+      targetDoc.events = [...targetDoc.events, change.event];
+      items.add(buildTimelineItem(change.documentId, change.event));
+      // Selecting the new event re-renders the panel into the normal edit
+      // form, the same hand-off click-to-create's own setSelection makes.
+      timeline.setSelection([visItemId(change.documentId, change.event.id)]);
     } else {
       targetDoc.events = targetDoc.events.filter(
         (e) => e.id !== change.eventId,

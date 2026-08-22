@@ -19,3 +19,5 @@ event-editor-tag-remove-button = Remove
 event-editor-tag-input-label = Add a tag and press Enter
 event-editor-save-button = Save
 event-editor-delete-button = Delete
+event-editor-create-document-label = Timeline
+event-editor-create-button = Create event
