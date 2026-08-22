@@ -3,6 +3,15 @@ timeline-menu-open =
 
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.
 event-editor-title-label = Title
+event-editor-date-label = Date
+event-editor-end-date-label = End date
+event-editor-date-form-plain = Plain
+event-editor-date-form-uncertain = Uncertain
+event-editor-date-form-approximate = Approximate
+event-editor-date-form-interval = Interval
+event-editor-date-form-one-of = One of
+event-editor-date-form-season = Season
+event-editor-date-form-list = List
 event-editor-description-label = Description
 event-editor-tags-label = Tags
 event-editor-tag-remove-button = Remove

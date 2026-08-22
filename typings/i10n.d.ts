@@ -4,9 +4,18 @@
 // @ts-nocheck
 export type FluentMessageId =
   | 'container-trashed-now'
+  | 'event-editor-date-form-approximate'
+  | 'event-editor-date-form-interval'
+  | 'event-editor-date-form-list'
+  | 'event-editor-date-form-one-of'
+  | 'event-editor-date-form-plain'
+  | 'event-editor-date-form-season'
+  | 'event-editor-date-form-uncertain'
+  | 'event-editor-date-label'
   | 'event-editor-delete-button'
   | 'event-editor-description-label'
   | 'event-editor-empty'
+  | 'event-editor-end-date-label'
   | 'event-editor-save-button'
   | 'event-editor-tag-input-label'
   | 'event-editor-tag-remove-button'

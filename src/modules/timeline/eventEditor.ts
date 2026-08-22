@@ -12,14 +12,24 @@
  * data-l10n-id rather than a value from getString(), which throws or returns
  * the raw key while rendering outside a Fluent-wired document.
  *
- * Dates are TASK-24's; this editor only ever touches title, description and
- * tags, and leaves date/endDate/sources untouched on save.
+ * date and endDate are free-text EDTF (ISO 8601-2), never validated or
+ * rewritten on save: a string this plugin's pinned edtf rejects may still be
+ * valid EDTF from a level it doesn't implement, so refusing the save would
+ * block a correct date the plugin merely can't read. The only feedback is a
+ * live parse readout naming which of EDTF's forms the string parsed as
+ * (plain/uncertain/approximate/interval/one-of/season/list) and the range it
+ * resolves to, or edtf's own thrown message verbatim on a parse failure - the
+ * one place a "1580..1590" typo for "1580/1590" (a set of two candidate
+ * dates, not a continuous span) is still tellable apart from what was meant.
  */
+import edtf from "edtf";
 import { getLocaleID } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
+import { toTimelineRange, type TimelineRange } from "../../utils/edtfRange";
 import { updateEvent, removeEvent } from "./mutations";
 import { updateTimelineDocument } from "./storage";
 import type { Event as TimelineEvent } from "./schema";
+import type { FluentMessageId } from "../../../typings/i10n";
 
 export interface EventEditorSelection {
   documentId: string;
@@ -34,6 +44,14 @@ export type EventEditorChange =
 // Stable hooks a caller (or a test) can select on, since the DOM shape itself
 // is not part of the contract.
 export const TITLE_INPUT_CLASS = "zoterotimeline-event-title";
+export const DATE_INPUT_CLASS = "zoterotimeline-event-date";
+export const DATE_FEEDBACK_CLASS = "zoterotimeline-event-date-feedback";
+export const END_DATE_INPUT_CLASS = "zoterotimeline-event-end-date";
+export const END_DATE_FEEDBACK_CLASS = "zoterotimeline-event-end-date-feedback";
+// Shared by both feedback readouts - which field it's naming comes from which
+// DATE_FEEDBACK_CLASS/END_DATE_FEEDBACK_CLASS container it's nested under.
+export const DATE_FEEDBACK_FORM_CLASS = "zoterotimeline-event-date-form";
+export const DATE_FEEDBACK_RANGE_CLASS = "zoterotimeline-event-date-range";
 export const DESCRIPTION_INPUT_CLASS = "zoterotimeline-event-description";
 export const TAG_CLASS = "zoterotimeline-event-tag";
 export const TAG_TEXT_CLASS = "zoterotimeline-event-tag-text";
@@ -42,6 +60,104 @@ export const TAG_INPUT_CLASS = "zoterotimeline-event-tag-input";
 export const SAVE_BUTTON_CLASS = "zoterotimeline-event-save";
 export const DELETE_BUTTON_CLASS = "zoterotimeline-event-delete";
 export const EMPTY_PROMPT_CLASS = "zoterotimeline-event-empty";
+
+// One Fluent id per EDTF form edtf@4.11.1 can report via `.type` (plus
+// uncertain/approximate, which share type "Date" with the plain form and are
+// told apart only by their qualifiers).
+const DATE_FORM_LOCALE_IDS: Record<string, FluentMessageId> = {
+  plain: "event-editor-date-form-plain",
+  uncertain: "event-editor-date-form-uncertain",
+  approximate: "event-editor-date-form-approximate",
+  interval: "event-editor-date-form-interval",
+  "one-of": "event-editor-date-form-one-of",
+  season: "event-editor-date-form-season",
+  list: "event-editor-date-form-list",
+};
+
+function formOf(
+  type: string,
+  uncertain: boolean,
+  approximate: boolean,
+): string {
+  // The test bundler's scope hoisting renames some of edtf's classes to avoid
+  // colliding with an identically-named binding elsewhere in the bundle
+  // ("Date" collides with the global; "Set" doesn't and is left alone) -
+  // `.type` is `this.constructor.name`, so it inherits whatever name survived
+  // that pass. Verified empirically against the live bundle: "Date" comes
+  // back "_Date", "Interval" comes back "_Interval", "Set" comes back "Set"
+  // unchanged. Stripping a leading underscore is exact for every case seen
+  // and a no-op for every case that isn't.
+  const normalized = type.replace(/^_+/, "");
+  switch (normalized) {
+    case "Date":
+      if (uncertain) return "uncertain";
+      if (approximate) return "approximate";
+      return "plain";
+    case "Interval":
+      return "interval";
+    // EDTF Level 2's square-bracket notation ("[1580,1590]", "[1580..1590]")
+    // parses to type "Set": a discrete list of candidate dates, not a
+    // continuous span, even though toTimelineRange maps both onto a similar
+    // start/end for drawing.
+    case "Set":
+      return "one-of";
+    case "Season":
+      return "season";
+    case "List":
+      return "list";
+    default:
+      return normalized;
+  }
+}
+
+function formatDateRange(range: TimelineRange): string {
+  const start = range.start.toLocaleDateString();
+  return range.end ? `${start} – ${range.end.toLocaleDateString()}` : start;
+}
+
+/**
+ * Parses `input` and (re)renders the live readout naming the EDTF form it
+ * parsed as and the range it resolves to, or edtf's own thrown message
+ * verbatim on a parse failure. Never rewrites `input`. Blank input (an
+ * optional endDate left empty, or a date field mid-edit) shows no feedback at
+ * all rather than an error, since it isn't a parse failure yet.
+ */
+function updateDateFeedback(
+  doc: Document,
+  feedback: HTMLElement,
+  input: string,
+): void {
+  feedback.textContent = "";
+  if (!input.trim()) {
+    return;
+  }
+
+  let value: ReturnType<typeof edtf>;
+  let range: TimelineRange;
+  try {
+    value = edtf(input);
+    range = toTimelineRange(input);
+  } catch (err) {
+    feedback.textContent = (err as Error).message;
+    return;
+  }
+
+  const form = formOf(value.type, range.uncertain, range.approximate);
+  const formSpan = doc.createElement("span");
+  formSpan.classList.add(DATE_FEEDBACK_FORM_CLASS);
+  const localeId = DATE_FORM_LOCALE_IDS[form];
+  if (localeId) {
+    formSpan.setAttribute("data-l10n-id", getLocaleID(localeId));
+  } else {
+    formSpan.textContent = form;
+  }
+  feedback.appendChild(formSpan);
+
+  const rangeSpan = doc.createElement("span");
+  rangeSpan.classList.add(DATE_FEEDBACK_RANGE_CLASS);
+  rangeSpan.textContent = formatDateRange(range);
+  feedback.appendChild(rangeSpan);
+}
 
 /**
  * `selection` null renders a prompt naming both ways to get an event into the
@@ -82,6 +198,50 @@ export function renderEventEditor(
   titleInput.value = event.title;
   titleInput.classList.add(TITLE_INPUT_CLASS);
   container.appendChild(titleInput);
+
+  const dateLabel = doc.createElement("label");
+  dateLabel.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-date-label"),
+  );
+  container.appendChild(dateLabel);
+
+  const dateInput = doc.createElement("input");
+  dateInput.type = "text";
+  dateInput.value = event.date;
+  dateInput.classList.add(DATE_INPUT_CLASS);
+  container.appendChild(dateInput);
+
+  const dateFeedback = doc.createElement("p");
+  dateFeedback.classList.add(DATE_FEEDBACK_CLASS);
+  container.appendChild(dateFeedback);
+
+  dateInput.addEventListener("input", () => {
+    updateDateFeedback(doc, dateFeedback, dateInput.value);
+  });
+  updateDateFeedback(doc, dateFeedback, dateInput.value);
+
+  const endDateLabel = doc.createElement("label");
+  endDateLabel.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-end-date-label"),
+  );
+  container.appendChild(endDateLabel);
+
+  const endDateInput = doc.createElement("input");
+  endDateInput.type = "text";
+  endDateInput.value = event.endDate ?? "";
+  endDateInput.classList.add(END_DATE_INPUT_CLASS);
+  container.appendChild(endDateInput);
+
+  const endDateFeedback = doc.createElement("p");
+  endDateFeedback.classList.add(END_DATE_FEEDBACK_CLASS);
+  container.appendChild(endDateFeedback);
+
+  endDateInput.addEventListener("input", () => {
+    updateDateFeedback(doc, endDateFeedback, endDateInput.value);
+  });
+  updateDateFeedback(doc, endDateFeedback, endDateInput.value);
 
   const descriptionLabel = doc.createElement("label");
   descriptionLabel.setAttribute(
@@ -186,6 +346,10 @@ export function renderEventEditor(
               title: titleInput.value,
               description: descriptionInput.value.trim()
                 ? descriptionInput.value
+                : undefined,
+              date: dateInput.value,
+              endDate: endDateInput.value.trim()
+                ? endDateInput.value
                 : undefined,
               tags: tags.slice(),
             }),
