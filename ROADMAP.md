@@ -12,39 +12,35 @@ been cut, so the first published version is the one the v1 scope describes.
 
 ## Status
 
-m-0 is done. The plugin loads into Zotero 7 through 10 and registers as
+m-0 and m-1 are done. The plugin loads into Zotero 7 through 10 and registers as
 `Zotero.ZoteroTimeline`, the build produces an .xpi plus update JSON, the test
 suite runs against a live Zotero, CI covers four Zotero majors, and the docs
-site deploys. Nothing user-visible exists yet.
+site deploys. The storage layer merged in `ad24e78`: the per-library container,
+both note kinds told apart by tag, the document schema and its validation, the
+read and write paths, and the parse cache. TASK-17's observability spike closed
+ahead of it and the rig it chose is now wired into worktree setup.
 
-TASK-17 is next, ahead of m-1. It is a spike on the
-`introfini/mcp-server-zotero-dev` observability rig, and it comes first because
-of what it would unblock rather than what it delivers: `zotero-plugin-scaffold`
-discards Zotero's stdout and never passes `-ZoteroDebugText`, so today the only
-signal from a running dev instance is Help > Debug Output, read by eye. The
-server drives a running Zotero over the Firefox Remote Debugging Protocol and
-exposes `Zotero.debug` output, error-console reads, screenshots, the DOM tree
-and computed styles. Every one of those is something m-1 through m-5 will need
-repeatedly, and most failure modes in this codebase are silent rather than
-thrown.
+Nothing user-visible exists yet even so. m-1 is entirely storage, and a user
+cannot see a timeline until there is a canvas to draw it on.
 
-The comparison is not against a good status quo, it is against having no log
-stream at all. If the trial works, every milestone after it is cheaper to
-verify. If it does not, the answer is recorded and m-1 starts having lost a
-day.
+m-4, the combined view, is next, and it is next rather than m-2 because it
+carries that canvas. Every authoring gesture in m-2 happens on it, so authoring
+cannot be demonstrated before it exists.
 
-m-1, the storage layer, follows it.
+**The 0.1.0 build order is m-1, m-4, m-2, m-3, m-5.** Milestone numbers are
+identifiers, not a sequence, and the table below is sorted by number rather than
+by the order the work happens in.
 
 ## Milestone map
 
 |         | Milestone                   | Expected in      | State                             |
 | ------- | --------------------------- | ---------------- | --------------------------------- |
 | m-0     | Scaffolding                 | n/a, pre-release | Done                              |
-| TASK-17 | Observability rig spike     | n/a, dev tooling | Next up                           |
-| m-1     | Storage layer               | 0.1.0            | Planned                           |
-| m-2     | Event authoring             | 0.1.0            | Planned                           |
+| TASK-17 | Observability rig spike     | n/a, dev tooling | Done                              |
+| m-1     | Storage layer               | 0.1.0            | Done                              |
+| m-2     | Event authoring             | 0.1.0            | Planned, builds after m-4         |
 | m-3     | Source links                | 0.1.0            | Planned                           |
-| m-4     | Combined view               | 0.1.0            | Planned                           |
+| m-4     | Combined view               | 0.1.0            | Next up                           |
 | m-5     | Timeline management         | 0.1.0            | Planned                           |
 | TASK-16 | Cross-timeline editing      | 0.2.0            | Deferred                          |
 | m-6     | Item pane section           | 0.2.0            | Deferred                          |
@@ -78,8 +74,12 @@ document, with no client-side check. An oversized document saves locally and
 fails at sync. The plugin warns first.
 
 R13, an event title staying readable rather than clipping to the width of its
-own bar, is an open requirement not yet placed under a milestone. It belongs to
-m-2 or m-4 and is expected in 0.1.0 either way.
+own bar, belongs to m-4. The clipping is a property of the render path rather
+than of authoring: TASK-4 traced it to `white-space: nowrap` and
+`overflow: hidden` in vis-timeline's own stylesheet, so whatever draws an event
+has to solve it deliberately, by drawing the label outside the bar or letting it
+overflow. m-4 lands before m-2, so titles are readable as soon as anything is
+drawn at all.
 
 ## 0.2.0: finish the combined view
 

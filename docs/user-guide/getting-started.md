@@ -27,7 +27,8 @@ Zotero 7, 8, 9 or 10. The plugin declares `strict_min_version` 6.999 and
 
 **The timeline tab.** One tab, opened from the library, holding a horizontal
 chronological axis. Each timeline you have toggled on is a lane. Events are
-drawn on their lane at their date, and you drag them to change that date.
+drawn on their lane at their date. Click an event to select it, then drag to
+change that date.
 
 **Events.** Created on a timeline, never in your item list. Events are not
 Zotero items, so they do not appear in collections, exports, or citations. That
