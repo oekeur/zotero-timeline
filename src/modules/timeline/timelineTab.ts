@@ -14,6 +14,9 @@ import {
   ensureDocumentHead,
   ensureWindowGlobals,
 } from "../../utils/windowGlobals";
+import { listTimelines } from "./storage";
+import { renderEventEditor, type EventEditorChange } from "./eventEditor";
+import type { TimelineDocument } from "./schema";
 
 const TAB_TYPE = "zoterotimeline-timeline";
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
@@ -25,22 +28,40 @@ let teardownTimeline: (() => void) | undefined;
 // can drive a drag.
 let currentTimeline: unknown;
 let moduleEvalEnv: unknown;
-let fixtureModule: unknown;
+let canvasModule: unknown;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
 }
 
 // Re-exported through the lazily loaded module rather than imported at the top
-// of this file. A single static import of ./fixture anywhere in the bundle
+// of this file. A single static import of ./canvas anywhere in the bundle
 // makes esbuild evaluate it at load, which defeats the deferral below and
 // leaves Hammer frozen with no window.
 export function getLastMovePayload(): any {
-  return (fixtureModule as any)?.getLastMovePayload?.();
+  return (canvasModule as any)?.getLastMovePayload?.();
 }
 
 export function getCurrentTimeline(): any {
   return currentTimeline;
+}
+
+/**
+ * The pane's own selected library, the way ZoteroPane exposes it.
+ * zotero-types still declares `getSelectedLibraryID()`, but current Zotero
+ * removed it in favour of `getSelectedLibraryIDs()` (plural, multi-library
+ * selection) and the singular now throws unconditionally - confirmed against
+ * the running Zotero rather than the stale typings. Falls back to the user
+ * library so a tab opened before the pane has a selection still has
+ * somewhere to load timelines from.
+ */
+function resolveLibraryID(win: Window): number {
+  const zoteroPane = (win as unknown as _ZoteroTypes.MainWindow).ZoteroPane as
+    | { getSelectedLibraryIDs?: () => number[] }
+    | undefined;
+  return (
+    zoteroPane?.getSelectedLibraryIDs?.()[0] ?? Zotero.Libraries.userLibraryID
+  );
 }
 
 const STYLESHEET_ID = "zoterotimeline-vis-stylesheet";
@@ -130,6 +151,13 @@ export async function openTimelineTab(): Promise<void> {
   header.appendChild(note as unknown as Node);
   body.appendChild(header as unknown as Node);
 
+  // Canvas and editor sit side by side, so selecting an event never reflows
+  // the canvas out from under the pointer.
+  const row = el(doc, "div");
+  row.style.cssText =
+    "display: flex; flex-direction: row; flex: 1 1 0; min-height: 0; overflow: hidden;";
+  body.appendChild(row as unknown as Node);
+
   const canvas = el(doc, "div");
   canvas.id = "zoterotimeline-canvas";
   // position: relative is a hard requirement rather than styling. The library
@@ -138,12 +166,18 @@ export async function openTimelineTab(): Promise<void> {
   // tree and the timeline draws somewhere other than where its container is,
   // or not visibly at all.
   //
-  // min-height: 0 for the same reason a flex child needs min-width: 0: the
-  // default content-based minimum stops the canvas shrinking, and the row then
-  // overflows the tab.
+  // min-height/min-width: 0 for the same reason any flex child needs them:
+  // the default content-based minimum stops the canvas shrinking, and the row
+  // then overflows the tab.
   canvas.style.cssText =
-    "flex: 1 1 0; min-height: 0; position: relative; overflow: hidden;";
-  body.appendChild(canvas as unknown as Node);
+    "flex: 3 1 0; min-height: 0; min-width: 0; position: relative; overflow: hidden;";
+  row.appendChild(canvas as unknown as Node);
+
+  const panel = el(doc, "div");
+  panel.id = "zoterotimeline-editor";
+  panel.style.cssText =
+    "flex: 1 1 0; min-height: 0; min-width: 220px; overflow: auto; padding: 8px 12px; border-left: 1px solid;";
+  row.appendChild(panel as unknown as Node);
 
   // Imported HERE, not at the top of the file, and this is load-bearing.
   //
@@ -163,18 +197,71 @@ export async function openTimelineTab(): Promise<void> {
   // A dynamic import defers evaluation until after ensureWindowGlobals above,
   // so Hammer sees the real window. esbuild keeps it lazy rather than hoisting
   // it back to load time.
-  const mod = await import("./fixture");
-  const { renderFixture } = mod;
-  fixtureModule = mod;
+  const mod = await import("./canvas");
+  const { renderCanvas, buildTimelineItem, parseVisItemId, visItemId } = mod;
+  canvasModule = mod;
   moduleEvalEnv = mod.MODULE_EVAL_ENV;
   Zotero.debug(
     `[ZoteroTimeline] vis module evaluated with ${JSON.stringify(moduleEvalEnv)}`,
   );
 
+  const libraryID = resolveLibraryID(win);
+  const { timelines } = await listTimelines(libraryID);
+  // Keyed by document id, and kept up to date on every save/delete, so a
+  // re-selection after an edit shows what was just written rather than what
+  // was loaded when the tab opened.
+  const documents = new Map<string, TimelineDocument>(
+    timelines.map((t) => [t.doc.id, t.doc]),
+  );
+
+  function showEditorFor(itemId: string | null): void {
+    if (!itemId) {
+      renderEventEditor(panel as unknown as HTMLElement, null, onEditorChange);
+      return;
+    }
+    const { documentId, eventId } = parseVisItemId(itemId);
+    const targetDoc = documents.get(documentId);
+    const event = targetDoc?.events.find((e) => e.id === eventId);
+    if (!targetDoc || !event) {
+      renderEventEditor(panel as unknown as HTMLElement, null, onEditorChange);
+      return;
+    }
+    renderEventEditor(
+      panel as unknown as HTMLElement,
+      { documentId, libraryID, event },
+      onEditorChange,
+    );
+  }
+
+  function onEditorChange(change: EventEditorChange): void {
+    const targetDoc = documents.get(change.documentId);
+    if (!targetDoc) {
+      return;
+    }
+    if (change.kind === "saved") {
+      const index = targetDoc.events.findIndex((e) => e.id === change.event.id);
+      if (index !== -1) {
+        targetDoc.events[index] = change.event;
+      }
+      items.update(buildTimelineItem(change.documentId, change.event));
+    } else {
+      targetDoc.events = targetDoc.events.filter(
+        (e) => e.id !== change.eventId,
+      );
+      items.remove(visItemId(change.documentId, change.eventId));
+      // The wrapped setSelection re-renders the panel as empty on its own.
+      timeline.setSelection([]);
+    }
+  }
+
   // After the container is in the document. vis-timeline measures its parent
   // immediately, and a detached element measures zero, which renders as a
   // blank tab rather than an error.
-  const timeline = renderFixture(canvas as unknown as HTMLElement);
+  const { timeline, items } = renderCanvas(
+    canvas as unknown as HTMLElement,
+    timelines,
+    showEditorFor,
+  );
   currentTimeline = timeline;
   teardownTimeline = () => {
     try {
@@ -184,9 +271,9 @@ export async function openTimelineTab(): Promise<void> {
     }
   };
 
-  Zotero.debug(
-    `[ZoteroTimeline] fixture rendered into tab ${id} (${TAB_TYPE})`,
-  );
+  showEditorFor(null);
+
+  Zotero.debug(`[ZoteroTimeline] canvas rendered into tab ${id} (${TAB_TYPE})`);
 }
 
 export function registerTimelineMenu(): void {

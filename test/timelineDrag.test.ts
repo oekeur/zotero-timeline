@@ -1,4 +1,10 @@
 import { assert } from "chai";
+import { STORAGE_TAG } from "../src/modules/timeline/storage";
+import {
+  canvasFixtureDocuments,
+  createDocumentNote,
+  eraseAllPluginItems,
+} from "./support-pluginItems";
 
 // A range item is not draggable until it is selected. vis-timeline only builds
 // the .vis-drag-center handle - the element that actually carries the drag -
@@ -12,6 +18,26 @@ import { assert } from "chai";
 // synthesised pointer events in a XUL window do not satisfy its recogniser.
 // Confirming the payload needs a person, and is TASK-4's remaining criterion.
 describe("timeline drag", function () {
+  this.timeout(60000);
+
+  let libraryID: number;
+
+  before(function () {
+    libraryID = Zotero.Libraries.userLibraryID;
+  });
+
+  beforeEach(async function () {
+    (Zotero as any).ZoteroTimeline.api.closeTimelineTab();
+    await eraseAllPluginItems(libraryID);
+    for (const doc of canvasFixtureDocuments()) {
+      await createDocumentNote(libraryID, STORAGE_TAG, doc);
+    }
+  });
+
+  afterEach(async function () {
+    await eraseAllPluginItems(libraryID);
+  });
+
   it("grows a drag handle only once the item is selected", async function () {
     this.timeout(60000);
 

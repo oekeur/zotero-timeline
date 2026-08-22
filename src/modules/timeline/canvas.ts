@@ -11,57 +11,8 @@ export const MODULE_EVAL_ENV = {
 
 import { Timeline, DataSet } from "vis-timeline/standalone";
 import { toTimelineRange } from "../../utils/edtfRange";
-
-/**
- * A hardcoded two-timeline, four-event fixture. It exists to answer the
- * questions the rendering spike was opened for, not to model the domain:
- * whether vis-timeline runs in a privileged Zotero window at all, and what a
- * drag actually hands back.
- *
- * Dates are EDTF, mapped through toTimelineRange, so the fixture exercises the
- * real date path rather than pre-baked Date objects.
- */
-interface FixtureEvent {
-  eventId: string;
-  title: string;
-  /** EDTF. See docs/user-guide/getting-started for the accepted forms. */
-  date: string;
-}
-
-interface FixtureDocument {
-  documentId: string;
-  title: string;
-  events: FixtureEvent[];
-}
-
-const FIXTURE: FixtureDocument[] = [
-  {
-    documentId: "doc-revolt",
-    title: "Dutch Revolt",
-    events: [
-      { eventId: "ev-fury", title: "Iconoclastic Fury", date: "1566" },
-      {
-        eventId: "ev-utrecht",
-        title: "Union of Utrecht",
-        date: "1579-01-23",
-      },
-    ],
-  },
-  {
-    documentId: "doc-sources",
-    title: "Source production",
-    events: [
-      // Approximate: the "~" must survive into the rendered range.
-      { eventId: "ev-pamphlets", title: "Pamphlet campaign", date: "1580~" },
-      // The ranged item. onMove must report an `end` for this one.
-      {
-        eventId: "ev-truce",
-        title: "Truce negotiations",
-        date: "1607-04/1609-04",
-      },
-    ],
-  },
-];
+import type { StoredTimeline } from "./storage";
+import type { Event } from "./schema";
 
 /**
  * The items DataSet is keyed by id, and event ids are only unique within their
@@ -69,17 +20,8 @@ const FIXTURE: FixtureDocument[] = [
  * route: the document an edit belongs to is derived from here and never from
  * `item.group`, which vis-timeline does not guarantee to supply.
  */
-function visItemId(documentId: string, eventId: string): string {
+export function visItemId(documentId: string, eventId: string): string {
   return `${documentId}:${eventId}`;
-}
-
-// Last payload onMove received, so a test can assert the drag path actually
-// ran rather than inferring it from a DOM that deliberately does not change
-// (onMove refuses the edit).
-let lastMovePayload: Record<string, unknown> | undefined;
-
-export function getLastMovePayload(): Record<string, unknown> | undefined {
-  return lastMovePayload;
 }
 
 export function parseVisItemId(id: string): {
@@ -96,37 +38,55 @@ export function parseVisItemId(id: string): {
   };
 }
 
+/** The vis-timeline item for one event, shared by the initial render and a refresh after an edit. */
+export function buildTimelineItem(documentId: string, event: Event) {
+  const range = toTimelineRange(event.date);
+  return {
+    id: visItemId(documentId, event.id),
+    group: documentId,
+    content: event.title,
+    start: range.start,
+    ...(range.end ? { end: range.end } : {}),
+    title: `${event.title} (${event.date})`,
+    className: range.approximate
+      ? "zt-approximate"
+      : range.uncertain
+        ? "zt-uncertain"
+        : undefined,
+  };
+}
+
+// Last payload onMove received, so a test can assert the drag path actually
+// ran rather than inferring it from a DOM that deliberately does not change
+// (onMove refuses the edit).
+let lastMovePayload: Record<string, unknown> | undefined;
+
+export function getLastMovePayload(): Record<string, unknown> | undefined {
+  return lastMovePayload;
+}
+
 /**
- * Builds the fixture into `container` and logs every drag.
+ * Builds every readable timeline in `timelines` into `container` and logs
+ * every drag. `onSelect` receives the namespaced id of the single selected
+ * item, or null when the selection is empty.
  *
  * `container` must come from the tab's own document. vis-timeline reads
  * layout from it immediately, so a detached element renders at zero height and
  * looks like a failure to draw.
  */
-export function renderFixture(container: HTMLElement): Timeline {
+export function renderCanvas(
+  container: HTMLElement,
+  timelines: StoredTimeline[],
+  onSelect: (id: string | null) => void,
+): { timeline: Timeline; items: DataSet<any> } {
   const items = new DataSet(
-    FIXTURE.flatMap((doc) =>
-      doc.events.map((event) => {
-        const range = toTimelineRange(event.date);
-        return {
-          id: visItemId(doc.documentId, event.eventId),
-          group: doc.documentId,
-          content: event.title,
-          start: range.start,
-          ...(range.end ? { end: range.end } : {}),
-          title: `${event.title} (${event.date})`,
-          className: range.approximate
-            ? "zt-approximate"
-            : range.uncertain
-              ? "zt-uncertain"
-              : undefined,
-        };
-      }),
+    timelines.flatMap(({ doc }) =>
+      doc.events.map((event) => buildTimelineItem(doc.id, event)),
     ),
   );
 
   const groups = new DataSet(
-    FIXTURE.map((doc) => ({ id: doc.documentId, content: doc.title })),
+    timelines.map(({ doc }) => ({ id: doc.id, content: doc.name })),
   );
 
   const timeline = new Timeline(container, items, groups, {
@@ -141,9 +101,9 @@ export function renderFixture(container: HTMLElement): Timeline {
     margin: { item: 8 },
     zoomKey: "ctrlKey",
 
-    // The spike's whole point. Log what the payload actually contains rather
-    // than trusting the documented shape, then refuse the edit so the fixture
-    // stays put across drags.
+    // The write-back is TASK-26's job. Log what the payload actually contains
+    // rather than trusting the documented shape, then refuse the edit so the
+    // canvas stays put across drags for now.
     onMove(item: any, callback: (item: any | null) => void) {
       const derived = parseVisItemId(String(item.id));
       lastMovePayload = {
@@ -178,5 +138,23 @@ export function renderFixture(container: HTMLElement): Timeline {
     },
   });
 
-  return timeline;
+  // A real pointer selection emits vis-timeline's own "select" event, but its
+  // setSelection() (used by tests, and by anything driving selection
+  // programmatically rather than by click) does not - verified against
+  // vis-timeline@8.5.4's source, where a click's own handler emits the event
+  // itself after calling a different, internal setSelection. Wrapping the
+  // public method here is what makes a scripted selection change reach the
+  // editor the same way a click does.
+  const setSelection = timeline.setSelection.bind(timeline);
+  (timeline as any).setSelection = (ids: unknown, options?: unknown) => {
+    setSelection(ids as any, options as any);
+    const list = ids == null ? [] : Array.isArray(ids) ? ids : [ids];
+    onSelect(list.length === 1 ? String(list[0]) : null);
+  };
+
+  timeline.on("select", (props: { items: string[] }) => {
+    onSelect(props.items.length === 1 ? props.items[0] : null);
+  });
+
+  return { timeline, items };
 }

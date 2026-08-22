@@ -51,6 +51,7 @@ async function onStartup() {
   // registered, rather than a second copy bundled into the test.
   addon.api = {
     openTimelineTab,
+    closeTimelineTab,
     getLastMovePayload,
     getCurrentTimeline,
     getModuleEvalEnv,

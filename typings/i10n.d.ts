@@ -4,6 +4,14 @@
 // @ts-nocheck
 export type FluentMessageId =
   | 'container-trashed-now'
+  | 'event-editor-delete-button'
+  | 'event-editor-description-label'
+  | 'event-editor-empty'
+  | 'event-editor-save-button'
+  | 'event-editor-tag-input-label'
+  | 'event-editor-tag-remove-button'
+  | 'event-editor-tags-label'
+  | 'event-editor-title-label'
   | 'pref-help'
   | 'pref-hide-timeline-notes'
   | 'pref-hide-timeline-notes-help'

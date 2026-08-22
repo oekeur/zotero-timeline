@@ -1,9 +1,35 @@
 import { assert } from "chai";
+import { STORAGE_TAG } from "../src/modules/timeline/storage";
+import {
+  canvasFixtureDocuments,
+  createDocumentNote,
+  eraseAllPluginItems,
+} from "./support-pluginItems";
 
 // Diagnostic harness for "the tab opens but nothing is visible". Each stage
 // reports what it actually found, so a failure names the layer that broke
 // rather than just the end result.
 describe("timeline tab", function () {
+  this.timeout(60000);
+
+  let libraryID: number;
+
+  before(function () {
+    libraryID = Zotero.Libraries.userLibraryID;
+  });
+
+  beforeEach(async function () {
+    (Zotero as any).ZoteroTimeline.api.closeTimelineTab();
+    await eraseAllPluginItems(libraryID);
+    for (const doc of canvasFixtureDocuments()) {
+      await createDocumentNote(libraryID, STORAGE_TAG, doc);
+    }
+  });
+
+  afterEach(async function () {
+    await eraseAllPluginItems(libraryID);
+  });
+
   it("builds a visible fixture into the tab container", async function () {
     this.timeout(60000);
 

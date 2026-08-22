@@ -1,10 +1,36 @@
 import { assert } from "chai";
+import { STORAGE_TAG } from "../src/modules/timeline/storage";
+import {
+  canvasFixtureDocuments,
+  createDocumentNote,
+  eraseAllPluginItems,
+} from "./support-pluginItems";
 
 // Attempts a real pan gesture on a selected item's drag handle and reads the
 // onMove payload. This is the spike's central question: whether `group` is
 // present, and whether it agrees with the document derived from the namespaced
 // id. The write-back must never trust item.group.
 describe("timeline drag payload", function () {
+  this.timeout(60000);
+
+  let libraryID: number;
+
+  before(function () {
+    libraryID = Zotero.Libraries.userLibraryID;
+  });
+
+  beforeEach(async function () {
+    (Zotero as any).ZoteroTimeline.api.closeTimelineTab();
+    await eraseAllPluginItems(libraryID);
+    for (const doc of canvasFixtureDocuments()) {
+      await createDocumentNote(libraryID, STORAGE_TAG, doc);
+    }
+  });
+
+  afterEach(async function () {
+    await eraseAllPluginItems(libraryID);
+  });
+
   it("reports the onMove payload for a dragged range item", async function () {
     this.timeout(60000);
 
