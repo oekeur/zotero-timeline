@@ -40,19 +40,32 @@ export function parseVisItemId(id: string): {
   };
 }
 
-/** The vis-timeline item for one event, shared by the initial render and a refresh after an edit. */
+/**
+ * The vis-timeline item for one event, shared by the initial render and a
+ * refresh after an edit.
+ *
+ * `endDate` is what makes an event a range (schema.ts); when it is present,
+ * the end endpoint comes from its own resolved instant, not from `date`.
+ * `date` alone still supplies the end when `endDate` is absent, which is what
+ * keeps a range authored entirely inside `date` as an EDTF Interval or Set
+ * (no `endDate`) rendering exactly as it always has.
+ */
 export function buildTimelineItem(documentId: string, event: Event) {
-  const range = toTimelineRange(event.date);
+  const dateRange = toTimelineRange(event.date);
+  const end =
+    event.endDate !== undefined
+      ? toTimelineRange(event.endDate).start
+      : dateRange.end;
   return {
     id: visItemId(documentId, event.id),
     group: documentId,
     content: event.title,
-    start: range.start,
-    ...(range.end ? { end: range.end } : {}),
+    start: dateRange.start,
+    ...(end ? { end } : {}),
     title: `${event.title} (${event.date})`,
-    className: range.approximate
+    className: dateRange.approximate
       ? "zt-approximate"
-      : range.uncertain
+      : dateRange.uncertain
         ? "zt-uncertain"
         : undefined,
   };
@@ -146,28 +159,38 @@ export function renderCanvas(
           // The document a write belongs to always comes from the namespaced
           // id, never from item.group - vis-timeline does not guarantee group
           // agrees with it (see visItemId above).
-          const original = toTimelineRange(event.date);
+          const dateRange = toTimelineRange(event.date);
+          // Mirrors buildTimelineItem's own choice of end endpoint: endDate
+          // owns it when present, `date` alone otherwise.
+          const originalEnd =
+            event.endDate !== undefined
+              ? toTimelineRange(event.endDate).start
+              : dateRange.end;
           const proposedStart = item.start as Date;
           const proposedEnd = item.end as Date | undefined;
 
-          const startDelta = proposedStart.getTime() - original.start.getTime();
+          const startDelta =
+            proposedStart.getTime() - dateRange.start.getTime();
           const endDelta =
-            original.end !== undefined && proposedEnd !== undefined
-              ? proposedEnd.getTime() - original.end.getTime()
+            originalEnd !== undefined && proposedEnd !== undefined
+              ? proposedEnd.getTime() - originalEnd.getTime()
               : undefined;
 
           const changes: EventEdits = {
             date: shiftEdtfDate(event.date, {
               ...(startDelta !== 0 ? { start: startDelta } : {}),
-              ...(endDelta !== undefined && endDelta !== 0
+              // Only folds the end delta into `date` itself when `date` is
+              // what encodes the range (no endDate): shiftEdtfDate falls
+              // back to `delta.end` for a plain instant when `delta.start`
+              // is omitted, which would wrongly move a single-instant
+              // `date` by the end delta once endDate owns the end.
+              ...(event.endDate === undefined &&
+              endDelta !== undefined &&
+              endDelta !== 0
                 ? { end: endDelta }
                 : {}),
             }),
           };
-          // endDate has no rendering of its own yet (buildTimelineItem never
-          // reads it), so the only "end" instant this drag ever observed is
-          // the one derived from `date` above - reused here rather than
-          // invented, since there is nothing else to measure it against.
           if (event.endDate !== undefined && endDelta !== undefined) {
             changes.endDate = shiftEdtfDate(event.endDate, {
               start: endDelta,
