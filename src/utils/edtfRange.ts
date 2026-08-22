@@ -59,3 +59,92 @@ export function toTimelineRange(input: string): TimelineRange {
     approximate: qualifierIsSet(value.approximate),
   };
 }
+
+export interface EdtfShiftDelta {
+  /** Applied to the instant itself, or to an Interval's lower bound, in ms. */
+  start?: number;
+  /** Applied to an Interval's upper bound only, in ms. */
+  end?: number;
+}
+
+/**
+ * Shifts a single EDTF instant by `deltaMs`, keeping its precision (a
+ * year-only string stays year-only) and its uncertain/approximate qualifiers.
+ *
+ * Rebuilds the value from date parts rather than formatting a string by hand:
+ * edtf's own `Date` constructor already knows how to reattach a bitmask
+ * qualifier to a set of values, which is the part a hand-rolled formatter
+ * would otherwise have to reimplement.
+ */
+function shiftInstant(value: string, deltaMs: number): string {
+  const parsed = edtf(value);
+  const shifted = new Date(parsed.min + deltaMs);
+  const precision = parsed.precision ?? 3;
+  const values =
+    precision <= 1
+      ? [shifted.getUTCFullYear()]
+      : precision === 2
+        ? [shifted.getUTCFullYear(), shifted.getUTCMonth()]
+        : [
+            shifted.getUTCFullYear(),
+            shifted.getUTCMonth(),
+            shifted.getUTCDate(),
+          ];
+  return edtf({
+    values,
+    uncertain: parsed.uncertain,
+    approximate: parsed.approximate,
+  }).edtf;
+}
+
+/**
+ * Re-serialises an EDTF string after a drag moves it by `delta`, without
+ * silently sharpening its precision or dropping a qualifier - the rewrite a
+ * mouse movement must never cause (project/backlog/plans, m-2 decisions).
+ *
+ * An Interval's two endpoints move independently: `delta.start` shifts the
+ * lower bound, `delta.end` the upper, and the other endpoint's own substring
+ * is left exactly as authored when its delta is omitted - a resize on one
+ * edge must not touch the other. A one-of Set has no separate endpoints to
+ * resize, so every member shifts by whichever single delta is given
+ * (`delta.start` preferred, `delta.end` as a fallback), which is the only
+ * reading that leaves the set meaning what it meant. Anything else - a plain
+ * instant - shifts by that same single delta.
+ *
+ * Branches on the input string's own syntax ("/" for an Interval, "[...]"
+ * for a Set) rather than on a parsed value's `.type`. Verified against a real
+ * built test bundle: `edtf`'s classes are named at runtime through
+ * `this.constructor.name`, and esbuild renamed `Interval` to `_Interval` to
+ * dodge a collision elsewhere in the bundle - `value.type === "Interval"`
+ * silently never matched. EDTF's grammar reserves both characters for
+ * exactly these two constructs, so the string itself is the one signal
+ * bundling cannot rename out from under this.
+ */
+export function shiftEdtfDate(input: string, delta: EdtfShiftDelta): string {
+  if (input.includes("/")) {
+    const separator = input.indexOf("/");
+    const lower = input.slice(0, separator);
+    const upper = input.slice(separator + 1);
+    return [
+      delta.start !== undefined ? shiftInstant(lower, delta.start) : lower,
+      delta.end !== undefined ? shiftInstant(upper, delta.end) : upper,
+    ].join("/");
+  }
+
+  if (input.startsWith("[") && input.endsWith("]")) {
+    const shift = delta.start ?? delta.end;
+    const value = edtf(input);
+    if (shift === undefined || !value.values) {
+      return input;
+    }
+    const members = value.values.map((member) =>
+      Array.isArray(member)
+        ? `${shiftInstant(member[0].edtf, shift)}..${shiftInstant(member[1].edtf, shift)}`
+        : shiftInstant(member.edtf, shift),
+    );
+    return `[${members.join(",")}]`;
+  }
+
+  const shift = delta.start ?? delta.end;
+  return shift === undefined ? input : shiftInstant(input, shift);
+}

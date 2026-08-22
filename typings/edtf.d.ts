@@ -17,6 +17,13 @@ declare module "edtf" {
     readonly max: number;
     readonly uncertain?: EdtfQualifier | boolean;
     readonly approximate?: EdtfQualifier | boolean;
+    /** Present on a "Date" value: 1 = year, 2 = year-month, 3 = year-month-day. */
+    readonly precision?: number;
+    /**
+     * Present on a "Set" (and "List"): each entry is either one member, or a
+     * `[from, to]` pair for a consecutive sub-range within the set.
+     */
+    readonly values?: (EdtfValue | [EdtfValue, EdtfValue])[];
     /**
      * Sets and Intervals iterate their members. A Set's own min/max cover only
      * its first member, so a span has to come from the members themselves.
@@ -25,4 +32,15 @@ declare module "edtf" {
   }
 
   export default function edtf(input: string): EdtfValue;
+  /**
+   * Builds a "Date" value from explicit components rather than parsing a
+   * string - the re-serialisation path after a drag, which computes new date
+   * parts and needs to reattach the original qualifiers rather than reparse
+   * text.
+   */
+  export default function edtf(input: {
+    values: number[];
+    uncertain?: EdtfQualifier | boolean;
+    approximate?: EdtfQualifier | boolean;
+  }): EdtfValue;
 }

@@ -10,9 +10,11 @@ export const MODULE_EVAL_ENV = {
 };
 
 import { Timeline, DataSet } from "vis-timeline/standalone";
-import { toTimelineRange } from "../../utils/edtfRange";
-import type { StoredTimeline } from "./storage";
-import type { Event } from "./schema";
+import { shiftEdtfDate, toTimelineRange } from "../../utils/edtfRange";
+import { logFailure } from "../../utils/logging";
+import { updateEvent, type EventEdits } from "./mutations";
+import { updateTimelineDocument, type StoredTimeline } from "./storage";
+import type { Event, TimelineDocument } from "./schema";
 
 /**
  * The items DataSet is keyed by id, and event ids are only unique within their
@@ -66,9 +68,9 @@ export function getLastMovePayload(): Record<string, unknown> | undefined {
 }
 
 /**
- * Builds every readable timeline in `timelines` into `container` and logs
- * every drag. `onSelect` receives the namespaced id of the single selected
- * item, or null when the selection is empty.
+ * Builds every readable timeline in `timelines` into `container` and wires up
+ * drag write-back. `onSelect` receives the namespaced id of the single
+ * selected item, or null when the selection is empty.
  *
  * `container` must come from the tab's own document. vis-timeline reads
  * layout from it immediately, so a detached element renders at zero height and
@@ -77,8 +79,16 @@ export function getLastMovePayload(): Record<string, unknown> | undefined {
 export function renderCanvas(
   container: HTMLElement,
   timelines: StoredTimeline[],
+  libraryID: number,
   onSelect: (id: string | null) => void,
 ): { timeline: Timeline; items: DataSet<any> } {
+  // Keyed by document id and shared with `onMove` below, so a write updates
+  // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
+  // its own map over the same `doc` references for the event editor).
+  const documents = new Map<string, TimelineDocument>(
+    timelines.map(({ doc }) => [doc.id, doc]),
+  );
+
   const items = new DataSet(
     timelines.flatMap(({ doc }) =>
       doc.events.map((event) => buildTimelineItem(doc.id, event)),
@@ -101,9 +111,13 @@ export function renderCanvas(
     margin: { item: 8 },
     zoomKey: "ctrlKey",
 
-    // The write-back is TASK-26's job. Log what the payload actually contains
-    // rather than trusting the documented shape, then refuse the edit so the
-    // canvas stays put across drags for now.
+    // vis-timeline's own onMove contract calls this callback once, whenever
+    // it is called - _onDragEnd (vis-timeline/.../vis-timeline-graph2d.js)
+    // does nothing else with `props` after invoking it, so a callback that
+    // resolves after an await is not racing anything internal. That is what
+    // makes the async write below safe: the item's DOM position simply holds
+    // at the raw dragged spot until the callback fires, then snaps to
+    // whatever this call actually wrote.
     onMove(item: any, callback: (item: any | null) => void) {
       const derived = parseVisItemId(String(item.id));
       lastMovePayload = {
@@ -117,24 +131,83 @@ export function renderCanvas(
         derivedDocumentId: derived.documentId,
         derivedEventId: derived.eventId,
       };
-      Zotero.debug(
-        `[ZoteroTimeline] onMove payload: ${JSON.stringify({
-          id: item.id,
-          content: item.content,
-          start: item.start,
-          end: item.end ?? null,
-          hasEnd: item.end !== undefined,
-          group: item.group ?? null,
-          hasGroup: "group" in item && item.group !== undefined,
-          derivedDocumentId: derived.documentId,
-          derivedEventId: derived.eventId,
-          groupMatchesDerived:
-            item.group === undefined
-              ? "group absent"
-              : String(item.group) === derived.documentId,
-        })}`,
-      );
-      callback(null);
+
+      void (async () => {
+        const targetDoc = documents.get(derived.documentId);
+        const index =
+          targetDoc?.events.findIndex((e) => e.id === derived.eventId) ?? -1;
+        if (!targetDoc || index === -1) {
+          callback(null);
+          return;
+        }
+        const event = targetDoc.events[index];
+
+        try {
+          // The document a write belongs to always comes from the namespaced
+          // id, never from item.group - vis-timeline does not guarantee group
+          // agrees with it (see visItemId above).
+          const original = toTimelineRange(event.date);
+          const proposedStart = item.start as Date;
+          const proposedEnd = item.end as Date | undefined;
+
+          const startDelta = proposedStart.getTime() - original.start.getTime();
+          const endDelta =
+            original.end !== undefined && proposedEnd !== undefined
+              ? proposedEnd.getTime() - original.end.getTime()
+              : undefined;
+
+          const changes: EventEdits = {
+            date: shiftEdtfDate(event.date, {
+              ...(startDelta !== 0 ? { start: startDelta } : {}),
+              ...(endDelta !== undefined && endDelta !== 0
+                ? { end: endDelta }
+                : {}),
+            }),
+          };
+          // endDate has no rendering of its own yet (buildTimelineItem never
+          // reads it), so the only "end" instant this drag ever observed is
+          // the one derived from `date` above - reused here rather than
+          // invented, since there is nothing else to measure it against.
+          if (event.endDate !== undefined && endDelta !== undefined) {
+            changes.endDate = shiftEdtfDate(event.endDate, {
+              start: endDelta,
+            });
+          }
+
+          const result = await updateTimelineDocument(
+            (current) => updateEvent(current, derived.eventId, changes),
+            derived.documentId,
+            libraryID,
+          );
+
+          if (result === null) {
+            // Nothing actually changed (e.g. a drag that released back where
+            // it started) - accept the drop as-is, nothing was written.
+            callback(item);
+            return;
+          }
+          const updatedEvent = result.events.find(
+            (e) => e.id === derived.eventId,
+          );
+          if (!updatedEvent) {
+            callback(null);
+            return;
+          }
+          targetDoc.events[index] = updatedEvent;
+          // Passes the freshly built item, not the raw dragged one: a
+          // year-only date always lands on Jan 1, a day-precision one keeps
+          // whatever the drag actually resolved to, and either way the
+          // canvas ends up showing exactly what was written, not where the
+          // pointer happened to let go.
+          callback(buildTimelineItem(derived.documentId, updatedEvent));
+        } catch (err) {
+          logFailure(
+            `[zoteroTimeline] failed to write drag for event ${derived.eventId}: ${(err as Error).message}`,
+            err,
+          );
+          callback(null);
+        }
+      })();
     },
   });
 

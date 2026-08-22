@@ -260,6 +260,7 @@ export async function openTimelineTab(): Promise<void> {
   const { timeline, items } = renderCanvas(
     canvas as unknown as HTMLElement,
     timelines,
+    libraryID,
     showEditorFor,
   );
   currentTimeline = timeline;
