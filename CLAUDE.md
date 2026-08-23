@@ -10,7 +10,12 @@ and a stale one has already sent a planning pass down the wrong path.
 
 Planning lives in the nested tracker at `project/`. Read `project/PRODUCT.md`
 for the product charter and `project/data-model.md` for the stored shapes
-before designing anything that touches storage.
+before designing anything that touches storage. Read `project/ui-design.md`
+before building any surface: a tab, a pane, an item-pane section, a menu, a
+dialog, a form. It carries the rules zoteroMindmap had to rebuild five surfaces
+to learn, the measured Zotero colour tokens, and what the vendored
+`vis-timeline.css` paints wrong on a dark theme. A surface built without it is
+the one that gets rebuilt.
 
 ## Commands
 
