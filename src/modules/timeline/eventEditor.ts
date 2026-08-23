@@ -69,6 +69,8 @@ export const TAG_CLASS = "zoterotimeline-event-tag";
 export const TAG_TEXT_CLASS = "zoterotimeline-event-tag-text";
 export const TAG_REMOVE_BUTTON_CLASS = "zoterotimeline-event-tag-remove";
 export const TAG_INPUT_CLASS = "zoterotimeline-event-tag-input";
+export const TAG_LIST_CLASS = "zoterotimeline-event-tags";
+export const ACTIONS_CLASS = "zoterotimeline-event-actions";
 export const SAVE_BUTTON_CLASS = "zoterotimeline-event-save";
 export const DELETE_BUTTON_CLASS = "zoterotimeline-event-delete";
 export const EMPTY_PROMPT_CLASS = "zoterotimeline-event-empty";
@@ -410,6 +412,7 @@ export function renderEventEditor(
   // as a local array and only turned into a write on Save.
   const tags = event.tags.slice();
   const tagList = doc.createElement("div");
+  tagList.classList.add(TAG_LIST_CLASS);
   container.appendChild(tagList);
 
   function renderTags(): void {
@@ -470,6 +473,7 @@ export function renderEventEditor(
   });
 
   const actions = doc.createElement("div");
+  actions.classList.add(ACTIONS_CLASS);
   container.appendChild(actions);
 
   const saveButton = doc.createElement("button");

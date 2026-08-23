@@ -1,3 +1,228 @@
-.makeItRed {
-  background-color: tomato;
+/*
+ * Plugin styles for the surfaces that live inside a Zotero main window: the
+ * Timeline tab shell and the event editor panel beside its canvas. Injected
+ * once per main window by hooks.ts and dropped again on window unload.
+ *
+ * Every colour here comes from a Zotero variable. A literal would survive a
+ * theme switch unchanged, and --color-accent resolves to the keyword
+ * SelectedItem, which is the OS accent and a different colour on every machine,
+ * so it is never the plugin's to choose. See project/ui-design.md for the
+ * token table and the reasoning.
+ *
+ * NOTATION LIVES HERE, NOT IN TYPESCRIPT. A dash pattern, line style or state
+ * fill that a surface draws is a class in this file; the surface applies the
+ * class. zoteroMindmap did the opposite and now carries the same dash arrays in
+ * three modules with nothing checking they agree. Classes for the EDTF forms
+ * and any source-type styling get added here when those are built.
+ */
+
+/* ---------- Timeline tab shell ---------- */
+
+.zoterotimeline-tab-body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  /*
+   * A flex child's default content-based minimum stops it shrinking, and the
+   * tab then overflows instead of the inner panes scrolling. Every flex
+   * container in this shell needs it.
+   */
+  min-height: 0;
+  overflow: hidden;
+}
+
+.zoterotimeline-tab-header {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-panedivider);
+}
+
+.zoterotimeline-tab-heading {
+  font-weight: 600;
+}
+
+.zoterotimeline-tab-note {
+  margin-top: 2px;
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+}
+
+/*
+ * Canvas and editor side by side, so selecting an event never reflows the
+ * canvas out from under the pointer.
+ */
+.zoterotimeline-tab-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * position: relative is a hard requirement rather than styling. vis-timeline
+ * absolutely positions its own layers inside this element; with no positioning
+ * context they resolve against some ancestor further up the XUL tree and the
+ * timeline draws somewhere other than where its container is, or not visibly
+ * at all.
+ *
+ * min-height and min-width of 0 for the flex reason above: without them the
+ * canvas refuses to shrink and the row overflows the tab.
+ */
+.zoterotimeline-canvas {
+  flex: 3 1 0;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.zoterotimeline-editor {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 220px;
+  overflow: auto;
+  padding: 8px 12px;
+  border-left: 1px solid var(--color-panedivider);
+}
+
+/* ---------- Event editor ---------- */
+
+/*
+ * Labels stack above their fields rather than sitting in a second column. The
+ * panel starts at 220px and the item-pane mount m-6 adds is narrower still, so
+ * nothing here may assume a second column.
+ */
+.zoterotimeline-editor label {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 2px;
+  color: var(--fill-secondary);
+}
+
+.zoterotimeline-editor input[type="text"],
+.zoterotimeline-editor textarea,
+.zoterotimeline-editor select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.zoterotimeline-editor textarea {
+  min-height: 4em;
+  resize: vertical;
+}
+
+.zoterotimeline-event-empty {
+  margin: 0;
+  color: var(--fill-secondary);
+}
+
+/*
+ * Deliberately unstyled by name, and this is the record of that rather than an
+ * omission: the create form's four classes
+ * (zoterotimeline-event-create-document, -create-title, -create-date,
+ * -create) are test hooks, not styling hooks. They are ordinary inputs and a
+ * button inside the same stacked form, so the element-level rules on
+ * .zoterotimeline-editor above already carry them, and naming them again would
+ * be two places to change one layout. Their date readout is the exception and
+ * is styled with the other two below, because a parse error has to read the
+ * same wherever it appears.
+ */
+
+/* The parse readout under a date field. Secondary until it has something to
+ * say; an unreadable date is the one case that has to catch the eye. */
+.zoterotimeline-event-date-feedback,
+.zoterotimeline-event-end-date-feedback,
+.zoterotimeline-event-create-date-feedback {
+  margin: 2px 0 0;
+  min-height: 1.2em;
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+}
+
+.zoterotimeline-event-date-form {
+  color: var(--fill-primary);
+}
+
+.zoterotimeline-event-date-range {
+  color: var(--fill-secondary);
+}
+
+/* ---------- Tags ---------- */
+
+.zoterotimeline-event-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.zoterotimeline-event-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 4px 1px 6px;
+  border-radius: 3px;
+  background: var(--fill-quinary);
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+}
+
+.zoterotimeline-event-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoterotimeline-event-tag-remove {
+  flex-shrink: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fill-secondary);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.zoterotimeline-event-tag-remove:hover {
+  background: var(--fill-quarternary);
+  color: var(--fill-primary);
+}
+
+/* ---------- Actions ---------- */
+
+.zoterotimeline-event-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/*
+ * Delete sits apart from Save rather than beside it. Two adjacent buttons of
+ * equal weight, one of which destroys the event, is a misclick waiting to
+ * happen.
+ */
+.zoterotimeline-event-delete {
+  margin-inline-start: auto;
+}
+
+/* ---------- Glyphs ---------- */
+
+/*
+ * An inline SVG glyph is sized and coloured here, never by the code that
+ * builds it. When a glyph helper eventually earns its third call site it owns
+ * the markup and nothing else.
+ */
+.zoterotimeline-glyph {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
 }

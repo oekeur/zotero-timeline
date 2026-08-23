@@ -1,0 +1,25 @@
+/*
+ * Plugin styles for the preferences pane.
+ *
+ * Registered through Zotero.PreferencePanes.register's `stylesheets` option
+ * rather than shared with zoteroPane.css, and that is not a preference. The
+ * preferences window is not a main window, so the sheet hooks.ts injects per
+ * main window never reaches it. zoteroMindmap shipped a pane styled by a sheet
+ * it never loaded for exactly this reason.
+ *
+ * Every colour comes from a Zotero variable; see project/ui-design.md.
+ *
+ * Small on purpose. TASK-34's vocabulary editor is what fills it, and the
+ * point of writing it now is that the loading path is already proven when that
+ * task starts.
+ */
+
+/* The line under the hide-notes checkbox saying what hiding does and that
+ * nothing is deleted. Secondary: it explains the control above it rather than
+ * competing with it. Selected by an explicit class rather than by position or
+ * by an id carrying the __addonRef__ placeholder, so it survives another
+ * control being added between the two. */
+.zoterotimeline-pref-help {
+  margin: 2px 0 0;
+  color: var(--fill-secondary);
+}

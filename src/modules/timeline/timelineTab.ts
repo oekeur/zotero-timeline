@@ -14,6 +14,7 @@ import {
   ensureDocumentHead,
   ensureWindowGlobals,
 } from "../../utils/windowGlobals";
+import { ensureStylesheet } from "../../utils/stylesheet";
 import { listTimelines } from "./storage";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
 import type { TimelineDocument } from "./schema";
@@ -21,6 +22,17 @@ import type { TimelineDocument } from "./schema";
 const TAB_TYPE = "zoterotimeline-timeline";
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
 const HTML_NS = "http://www.w3.org/1999/xhtml";
+
+// The tab shell's classes, styled in addon/content/zoteroPane.css. Exported
+// rather than written as literals at the point of use so a test or a later
+// surface names the same string the sheet does.
+export const TAB_BODY_CLASS = "zoterotimeline-tab-body";
+export const TAB_HEADER_CLASS = "zoterotimeline-tab-header";
+export const TAB_HEADING_CLASS = "zoterotimeline-tab-heading";
+export const TAB_NOTE_CLASS = "zoterotimeline-tab-note";
+export const TAB_ROW_CLASS = "zoterotimeline-tab-row";
+export const CANVAS_CLASS = "zoterotimeline-canvas";
+export const EDITOR_CLASS = "zoterotimeline-editor";
 
 let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
@@ -64,28 +76,37 @@ function resolveLibraryID(win: Window): number {
   );
 }
 
-const STYLESHEET_ID = "zoterotimeline-vis-stylesheet";
-const STYLESHEET_URL = "chrome://zoterotimeline/content/vis-timeline.css";
+const VIS_STYLESHEET_ID = "zoterotimeline-vis-stylesheet";
+const VIS_STYLESHEET_URL = "chrome://zoterotimeline/content/vis-timeline.css";
+const VIS_OVERRIDES_ID = "zoterotimeline-vis-overrides";
+const VIS_OVERRIDES_URL =
+  "chrome://zoterotimeline/content/vis-timeline-overrides.css";
 
 /**
  * vis-timeline ships its stylesheet inside the bundle and injects it with a
- * `styleInject` helper. That helper is guarded by
- * `typeof document === "undefined"`, which is true in Zotero's bootstrap scope
- * where the bundle evaluates, so it returns early and the stylesheet is never
- * added. Nothing throws; the timeline simply renders unstyled, which looks
- * like a broken render rather than a missing file.
+ * `styleInject` helper guarded by `typeof document === "undefined"`. The CSS is
+ * vendored into addon/content/ and linked here instead of relying on that.
  *
- * So the CSS is vendored into addon/content/ and linked here instead.
+ * The link is kept deliberately, and the reason is no longer the one this
+ * comment used to give. It claimed the guard holds because Zotero's bootstrap
+ * scope has no `document`. That is not what happens on the current code path:
+ * ./canvas is imported dynamically at tab open, after ensureWindowGlobals has
+ * installed `document` on globalThis, so styleInject does run and does inject
+ * its own <style> blocks. Measured on Zotero 10.0-beta.25: commenting the link
+ * out changed the render on neither a hot reload nor a cold start.
+ *
+ * It stays anyway. Dropping it would make styling depend on an import-order
+ * invariant nothing enforces, and the CI matrix still builds against Zotero 7,
+ * 8 and 9, where the bundle may well evaluate somewhere `document` is absent
+ * and the guard bites for real. One <link> is a cheap insurance premium
+ * against a failure whose only symptom is an unstyled timeline.
+ *
+ * The overrides sheet is appended second and must stay second: it restates
+ * vendored colours at equal specificity and wins only on document order.
  */
-function ensureStylesheet(doc: Document): void {
-  if (doc.getElementById(STYLESHEET_ID)) {
-    return;
-  }
-  const link = doc.createElementNS(HTML_NS, "link") as HTMLLinkElement;
-  link.id = STYLESHEET_ID;
-  link.setAttribute("rel", "stylesheet");
-  link.setAttribute("href", STYLESHEET_URL);
-  (doc.head ?? doc.documentElement)?.appendChild(link as unknown as Node);
+function ensureVisStylesheets(doc: Document): void {
+  ensureStylesheet(doc, VIS_STYLESHEET_ID, VIS_STYLESHEET_URL);
+  ensureStylesheet(doc, VIS_OVERRIDES_ID, VIS_OVERRIDES_URL);
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -131,21 +152,19 @@ export async function openTimelineTab(): Promise<void> {
   // assumes one.
   ensureDocumentHead(doc);
   ensureWindowGlobals(win);
-  ensureStylesheet(doc);
+  ensureVisStylesheets(doc);
 
   const body = el(doc, "div");
-  body.style.cssText =
-    "display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden;";
+  body.classList.add(TAB_BODY_CLASS);
   container.appendChild(body as unknown as Node);
 
   const header = el(doc, "div");
-  header.style.cssText =
-    "flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid;";
+  header.classList.add(TAB_HEADER_CLASS);
   const heading = el(doc, "div");
-  heading.style.cssText = "font-weight: 600;";
+  heading.classList.add(TAB_HEADING_CLASS);
   heading.textContent = getString("timeline-spike-heading");
   const note = el(doc, "div");
-  note.style.cssText = "opacity: 0.75; font-size: 0.9em; margin-top: 2px;";
+  note.classList.add(TAB_NOTE_CLASS);
   note.textContent = getString("timeline-spike-note");
   header.appendChild(heading as unknown as Node);
   header.appendChild(note as unknown as Node);
@@ -154,29 +173,22 @@ export async function openTimelineTab(): Promise<void> {
   // Canvas and editor sit side by side, so selecting an event never reflows
   // the canvas out from under the pointer.
   const row = el(doc, "div");
-  row.style.cssText =
-    "display: flex; flex-direction: row; flex: 1 1 0; min-height: 0; overflow: hidden;";
+  row.classList.add(TAB_ROW_CLASS);
   body.appendChild(row as unknown as Node);
 
   const canvas = el(doc, "div");
   canvas.id = "zoterotimeline-canvas";
-  // position: relative is a hard requirement rather than styling. The library
-  // absolutely positions its own layers inside this element; without a
-  // positioning context they resolve against some ancestor further up the XUL
-  // tree and the timeline draws somewhere other than where its container is,
-  // or not visibly at all.
-  //
-  // min-height/min-width: 0 for the same reason any flex child needs them:
-  // the default content-based minimum stops the canvas shrinking, and the row
-  // then overflows the tab.
-  canvas.style.cssText =
-    "flex: 3 1 0; min-height: 0; min-width: 0; position: relative; overflow: hidden;";
+  // The rule behind CANVAS_CLASS carries two declarations that are behaviour
+  // rather than appearance, and zoteroPane.css says why at length: position:
+  // relative is what vis-timeline's absolutely positioned layers resolve
+  // against, and min-height/min-width: 0 is what lets the canvas shrink
+  // instead of overflowing the row. Neither is safe to drop as styling.
+  canvas.classList.add(CANVAS_CLASS);
   row.appendChild(canvas as unknown as Node);
 
   const panel = el(doc, "div");
   panel.id = "zoterotimeline-editor";
-  panel.style.cssText =
-    "flex: 1 1 0; min-height: 0; min-width: 220px; overflow: auto; padding: 8px 12px; border-left: 1px solid;";
+  panel.classList.add(EDITOR_CLASS);
   row.appendChild(panel as unknown as Node);
 
   // Imported HERE, not at the top of the file, and this is load-bearing.
