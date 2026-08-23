@@ -1,0 +1,193 @@
+/*
+ * Theme layer over the vendored vis-timeline.css.
+ *
+ * The vendored sheet carries 145 colour literals and no dark handling. It is
+ * tuned for a white page, and Zotero is not one. Measured in the tab on a dark
+ * theme before this file existed: axis text painted #4d4d4d against a #1e1e1e
+ * canvas, a contrast ratio of 2.0:1, below even WCAG AA's 3:1 large-text
+ * floor, while the minor grid painted #e5e5e5 at 13.2:1, so the scaffolding
+ * was louder than the data on it. A selected event painted #fff785, vis's own
+ * yellow, which has nothing to do with Zotero's selection language.
+ *
+ * WHY EVERY SELECTOR IS SCOPED, AND NOT JUST LOADED LAST.
+ *
+ * Loading this after vis-timeline.css is not enough, and the first cut that
+ * assumed it was changed nothing at all on screen. vis-timeline's bundled
+ * `styleInject` runs on the current code path: ./canvas is imported
+ * dynamically at tab open, after ensureWindowGlobals has installed `document`
+ * on globalThis, so the guard that would have stopped it does not. It appends
+ * fifteen <style> blocks to the document head, three of which define
+ * .vis-item, and they land AFTER both of this plugin's <link> elements.
+ * Measured: head holds 6 links then 15 injected style blocks, in that order.
+ *
+ * At equal specificity the later rule wins, so an override that relies on
+ * document order loses to a sheet the library injects at runtime. Scoping each
+ * rule under .zoterotimeline-canvas adds one class to every selector, which
+ * beats the corresponding vendored rule no matter when it was injected. It
+ * also confines the theming to this plugin's own canvas rather than to any vis
+ * instance that might exist in the window.
+ *
+ * The tooltip is the exception: vis may append it outside the canvas
+ * container, so it doubles its own class to gain specificity instead of
+ * relying on an ancestor.
+ *
+ * vis-timeline renders real DOM styled by real CSS, so the variables resolve
+ * directly. There is no read-the-token-and-bake-a-literal step of the kind a
+ * canvas renderer forces.
+ *
+ * Not restated: every .vis-configuration rule. That is vis's own settings
+ * widget, roughly half the literals in the vendored sheet, and this plugin
+ * never constructs it. Styling it would be styling a surface that does not
+ * exist.
+ */
+
+/* ---------- Frame and panels ---------- */
+
+.zoterotimeline-canvas .vis-timeline {
+  border: var(--material-border);
+  color: var(--fill-primary);
+}
+
+.zoterotimeline-canvas .vis-panel.vis-center,
+.zoterotimeline-canvas .vis-panel.vis-left,
+.zoterotimeline-canvas .vis-panel.vis-right,
+.zoterotimeline-canvas .vis-panel.vis-top,
+.zoterotimeline-canvas .vis-panel.vis-bottom {
+  border-color: var(--color-panedivider);
+}
+
+/* ---------- Time axis ---------- */
+
+.zoterotimeline-canvas .vis-time-axis .vis-text {
+  color: var(--fill-secondary);
+}
+
+/*
+ * The grid is scaffolding and reads behind the data, not in front of it. The
+ * vendored values inverted that on a dark theme: near-white lines over a
+ * near-black canvas.
+ */
+.zoterotimeline-canvas .vis-time-axis .vis-grid.vis-minor {
+  border-color: var(--fill-quinary);
+}
+
+.zoterotimeline-canvas .vis-time-axis .vis-grid.vis-major {
+  border-color: var(--fill-quarternary);
+}
+
+.zoterotimeline-canvas
+  .vis-panel.vis-background.vis-horizontal
+  .vis-grid.vis-minor {
+  border-color: var(--fill-quinary);
+}
+
+.zoterotimeline-canvas
+  .vis-panel.vis-background.vis-horizontal
+  .vis-grid.vis-major {
+  border-color: var(--fill-quarternary);
+}
+
+/* ---------- Lanes ---------- */
+
+.zoterotimeline-canvas .vis-labelset .vis-label {
+  color: var(--fill-secondary);
+  border-bottom: 1px solid var(--color-panedivider);
+}
+
+.zoterotimeline-canvas .vis-foreground .vis-group {
+  border-bottom: 1px solid var(--color-panedivider);
+}
+
+.zoterotimeline-canvas .vis-group-is-dragging {
+  background: var(--fill-quinary);
+}
+
+/*
+ * Nested-group shading. The vendored sheet ramps ten hardcoded black alphas
+ * for sub-lane depth, which reads as ten shades of nothing on a dark theme.
+ * Collapsed to the two steps the fill ramp already provides; TASK-15 defines
+ * more if sub-lanes ever need them.
+ */
+.zoterotimeline-canvas .vis-label.vis-nested-group {
+  background: var(--fill-quinary);
+}
+
+.zoterotimeline-canvas .vis-label.vis-nested-group.vis-group-level-0 {
+  background-color: transparent;
+}
+
+/* ---------- Events ---------- */
+
+/*
+ * An event box is a surface fill plus a border, both from the ramp, so text at
+ * --fill-primary stays legible on either theme. The vendored pale blue was a
+ * light-theme island on a dark canvas.
+ */
+.zoterotimeline-canvas .vis-item {
+  color: var(--fill-primary);
+  background-color: var(--fill-quinary);
+  border-color: var(--fill-tertiary);
+}
+
+/*
+ * Selection tints one step up the ramp and carries the accent as a ring rather
+ * than as the fill. --color-accent is the OS accent, a different colour on
+ * every machine, so it is contained to a border where any hue reads as
+ * intentional. Filling the box with it, which is what the vendored #fff785
+ * effectively did, is the thing project/ui-design.md rules out.
+ */
+.zoterotimeline-canvas .vis-item.vis-selected {
+  background-color: var(--fill-quarternary);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.zoterotimeline-canvas .vis-item.vis-point.vis-selected {
+  background-color: var(--fill-quarternary);
+}
+
+.zoterotimeline-canvas .vis-item.vis-background {
+  background-color: var(--fill-senary);
+}
+
+.zoterotimeline-canvas .vis-item .vis-onUpdateTime-tooltip {
+  background: var(--color-sidepane);
+  color: var(--fill-primary);
+  border: var(--material-border);
+}
+
+/* ---------- Markers ---------- */
+
+/*
+ * The now-line stays a real red rather than a neutral: it is the one mark on
+ * the canvas whose meaning is "here", and the fill ramp cannot say that.
+ * --accent-red is Zotero's own, so it still moves with the theme.
+ */
+.zoterotimeline-canvas .vis-current-time {
+  background-color: var(--accent-red);
+}
+
+.zoterotimeline-canvas .vis-custom-time {
+  background-color: var(--accent-azure);
+}
+
+/* ---------- Tooltip ---------- */
+
+/*
+ * Doubled class rather than scoped: vis may append the tooltip outside the
+ * canvas container, so an ancestor selector cannot be relied on to match.
+ */
+div.vis-tooltip.vis-tooltip {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--fill-primary);
+  background-color: var(--color-sidepane);
+  border: var(--material-border);
+  box-shadow: none;
+}
+
+/* ---------- Focus ---------- */
+
+.zoterotimeline-canvas .vis-active {
+  box-shadow: 0 0 0 var(--width-focus-border) var(--color-focus-border);
+}
