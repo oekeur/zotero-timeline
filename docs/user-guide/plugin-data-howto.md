@@ -1,8 +1,9 @@
 # Recovering trashed plugin data
 
 ::: warning Pre-release
-The plugin does not create these items yet. This page records the recovery
-procedure the storage design implies, so it exists before the failure can.
+The plugin does create these items now, but nothing is released yet and this
+procedure has not been exercised against a real loss. It is the recovery the
+storage design implies, written down before the failure can happen.
 :::
 
 Your timelines are stored as Zotero note items under one container item per
@@ -16,6 +17,11 @@ The timeline list is empty, or one timeline you know exists is missing, and you
 did not delete anything from inside the plugin.
 
 ## Restore it
+
+The preference that hides the container row from your item list does not apply
+to the trash, deliberately: hiding it there would empty the trash of the very
+items this procedure recovers. So the steps below work with the preference left
+on.
 
 1. Click **Trash** in the left-hand pane of your Zotero library.
 2. Sort by **Date Modified** so recently trashed items come first.

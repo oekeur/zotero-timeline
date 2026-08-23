@@ -42,12 +42,16 @@ to fail independently.
 So each timeline is one JSON document in one note. The container item exists to
 keep those notes out of the way: any number of them collapse into a single
 top-level row, and Zotero's native link picker does not offer them as targets.
+That row is hidden from the item tree by default, and a preference brings it
+back.
 
 ## What you pay for it
 
-**Your plugin data is visible and deletable.** It appears in your library as
-items, and ordinary library operations apply to it. A stray delete puts your
-timelines in the trash. That is recoverable, and
+**Your plugin data is deletable.** It is ordinary library items, so ordinary
+library operations apply to it, and a stray delete puts your timelines in the
+trash. Hiding the container row by default keeps it out of your way but does not
+put it out of reach: the trash, a search, and turning the preference off all
+still find it. That is recoverable, and
 [the how-to](/user-guide/plugin-data-howto) covers it, but it is a real failure
 mode that a private file would not have.
 

@@ -1,8 +1,10 @@
 # What the plugin stores
 
 ::: warning Pre-release
-This describes the decided storage design. The code that writes it is not
-built yet.
+The storage layer is built and writes these shapes. Nothing is released yet, and
+the surfaces that author source links and edit the link vocabulary land in a
+later milestone, so those two fields exist in the document before anything can
+fill them.
 :::
 
 Everything this plugin owns lives in your Zotero library as ordinary items.
@@ -17,8 +19,13 @@ There is no plugin database and no external file.
 | Link vocabulary   | One note item per library, parented to the same container |
 
 The container exists so that any number of plugin notes collapse into a single
-visible top-level row, and so Zotero's native link picker does not offer them
-as link targets.
+top-level row, and so Zotero's native link picker does not offer them as link
+targets.
+
+That row is hidden from your item list by default. A preference, on out of the
+box, filters the container and both note kinds out of the item tree, so a fresh
+install shows no plugin row at all. Turning it off is how you see where the data
+lives. The link-picker behaviour does not depend on the preference.
 
 Timeline notes and the vocabulary note are told apart by tag, not by position:
 they carry distinct tags, so listing timelines never picks up the vocabulary.

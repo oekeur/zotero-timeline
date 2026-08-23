@@ -1,54 +1,63 @@
 # Roadmap
 
-Where the work stands and which version each feature is expected in. This is
-the high-level view of what is built, what is planned, and in what order. The
-product charter, the numbered requirements and the data model live in the
-project's own tracker, which is not published; the milestone and task ids below
-are labels from it. Written 2026-08-20.
+Which version each feature is expected in, and why the groupings are what they
+are. Direction rather than status: what is built is read from the tracker and
+from git, never from here. The product charter, the numbered requirements and
+the data model live in the project's own tracker, which is not published; the
+milestone and task ids below are labels from it. Written 2026-08-20, revised
+2026-08-23.
 
 The charter and the milestone descriptions say "v1". That is this release,
 **0.1.0**. The package has been at 0.1.0 since the scaffold and no release has
 been cut, so the first published version is the one the v1 scope describes.
 
-## Status
+## What has been built, and where to read it
 
-m-0 and m-1 are done. The plugin loads into Zotero 7 through 10 and registers as
-`Zotero.ZoteroTimeline`, the build produces an .xpi plus update JSON, the test
-suite runs against a live Zotero, CI covers four Zotero majors, and the docs
-site deploys. The storage layer merged in `ad24e78`: the per-library container,
-both note kinds told apart by tag, the document schema and its validation, the
-read and write paths, and the parse cache. TASK-17's observability spike closed
-ahead of it and the rig it chose is now wired into worktree setup.
+Not here. What is done and what is open is read from
+`scripts/backlog.sh task list --plain`, from `git tag` and the GitHub releases,
+and from `src/`. A hand-maintained status column in this file drifts the moment
+a task lands, and the one that used to sit in the table below said m-4 was next
+up and m-2 unstarted two days after m-2 merged. `CLAUDE.md` makes the same rule
+for the same reason.
 
-Nothing user-visible exists yet even so. m-1 is entirely storage, and a user
-cannot see a timeline until there is a canvas to draw it on.
+What belongs here is direction and the reasoning behind the grouping, which does
+not go stale, plus one piece of history that explains the shape of the work.
 
-m-4, the combined view, is next, and it is next rather than m-2 because it
-carries that canvas. Every authoring gesture in m-2 happens on it, so authoring
-cannot be demonstrated before it exists.
+**The planned build order was m-1, m-4, m-2, m-3, m-5, and that is not what
+happened.** m-2 was built against TASK-4's rendering spike rather than waiting
+for m-4, and in doing so it shipped a real part of m-4: the tab, the canvas with
+one lane per timeline, drag write-back through the namespaced id, and
+click-empty-canvas to create. So m-4 is half built and out of order.
 
-**The 0.1.0 build order is m-1, m-4, m-2, m-3, m-5.** Milestone numbers are
-identifiers, not a sequence, and the table below is sorted by number rather than
-by the order the work happens in.
+What is left of m-4 is therefore smaller and differently shaped than its
+milestone description implies: telling the EDTF forms apart on the canvas,
+parking an unreadable date, the visibility and ordering sidebar, read-only mode,
+navigation chrome, the Tools entry and its shortcut, live refresh, and R13.
+`project/backlog/plans/2026-08-22-m-4-combined-view.md` lists what already
+exists so none of it is rebuilt.
+
+Milestone numbers are identifiers, not a sequence, and the table below is sorted
+by number rather than by the order the work happens in.
 
 ## Milestone map
 
-|         | Milestone                   | Expected in      | State                             |
-| ------- | --------------------------- | ---------------- | --------------------------------- |
-| m-0     | Scaffolding                 | n/a, pre-release | Done                              |
-| TASK-17 | Observability rig spike     | n/a, dev tooling | Done                              |
-| m-1     | Storage layer               | 0.1.0            | Done                              |
-| m-2     | Event authoring             | 0.1.0            | Planned, builds after m-4         |
-| m-3     | Source links                | 0.1.0            | Planned                           |
-| m-4     | Combined view               | 0.1.0            | Next up                           |
-| m-5     | Timeline management         | 0.1.0            | Planned                           |
-| TASK-16 | Cross-timeline editing      | 0.2.0            | Deferred                          |
-| m-6     | Item pane section           | 0.2.0            | Deferred                          |
-| m-8     | Library context menu        | 0.3.0            | Deferred                          |
-| m-7     | Tags and filtering          | 0.3.0            | Deferred, tags written from 0.1.0 |
-| TASK-15 | Sub-lanes within a timeline | unscheduled      | Deferred                          |
+|         | Milestone                   | Expected in      |
+| ------- | --------------------------- | ---------------- |
+| m-0     | Scaffolding                 | n/a, pre-release |
+| TASK-17 | Observability rig spike     | n/a, dev tooling |
+| m-1     | Storage layer               | 0.1.0            |
+| m-2     | Event authoring             | 0.1.0            |
+| m-3     | Source links                | 0.1.0            |
+| m-4     | Combined view               | 0.1.0            |
+| m-5     | Timeline management         | 0.1.0            |
+| TASK-16 | Cross-timeline editing      | 0.2.0            |
+| m-6     | Item pane section           | 0.2.0            |
+| m-8     | Library context menu        | 0.3.0            |
+| m-7     | Tags and filtering          | 0.3.0            |
+| TASK-15 | Sub-lanes within a timeline | unscheduled      |
 
 Versions past 0.1.0 are an ordering and a rough grouping, not a commitment.
+Which of these are done is a tracker question, not a roadmap one.
 
 ## 0.1.0: m-1 through m-5
 
@@ -74,12 +83,16 @@ document, with no client-side check. An oversized document saves locally and
 fails at sync. The plugin warns first.
 
 R13, an event title staying readable rather than clipping to the width of its
-own bar, belongs to m-4. The clipping is a property of the render path rather
-than of authoring: TASK-4 traced it to `white-space: nowrap` and
+own bar, belongs to m-4, as TASK-44. The clipping is a property of the render
+path rather than of authoring: TASK-4 traced it to `white-space: nowrap` and
 `overflow: hidden` in vis-timeline's own stylesheet, so whatever draws an event
 has to solve it deliberately, by drawing the label outside the bar or letting it
-overflow. m-4 lands before m-2, so titles are readable as soon as anything is
-drawn at all.
+overflow.
+
+The original plan was that m-4 landed before m-2, so titles would be readable as
+soon as anything was drawn at all. The build order went the other way, so the
+canvas draws today with the clipping unaddressed. R13 is an open defect on a
+live surface rather than a property guaranteed by ordering.
 
 ## 0.2.0: finish the combined view
 

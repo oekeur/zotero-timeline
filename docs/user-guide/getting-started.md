@@ -63,7 +63,8 @@ back to exactly one document.
 In your library, not in a plugin config file. Each timeline is a JSON document
 held in the content of a Zotero note, parented to a single plugin-owned
 container item per library. That container keeps the notes collapsed into one
-row and out of Zotero's link-target picker.
+row and out of Zotero's link-target picker, and that row is hidden from your
+item list by default.
 
 The practical consequences are worth knowing before you start:
 
