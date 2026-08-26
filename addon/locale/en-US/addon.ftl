@@ -19,3 +19,29 @@ vocabulary-recovered = Zotero Timeline rebuilt this library's link types from th
 # Zotero's sync server will accept. Names the timeline and says what to do,
 # because a number alone is not something the user can act on.
 timeline-approaching-size-limit = The timeline "{ $name }" is getting close to the largest note Zotero will sync. Split it into two timelines to be safe.
+
+# The vocabulary editor in the preference pane. Its container is rebuilt from
+# scratch on every state change, so its text is read through getString rather
+# than data-l10n-id - see vocabularySettings.ts's top-of-file comment.
+vocabulary-loading = Loading…
+vocabulary-library-label = Library
+vocabulary-not-yet-stored = These are the default link types. They have not been saved for this library yet; the first change you make here creates the list.
+vocabulary-version-unsupported = This library's link types were saved by a newer version of Zotero Timeline and can't be edited here. Update the plugin to edit them.
+vocabulary-unreadable = Zotero Timeline could not read this library's link types ({ $message }). It will not overwrite them; fix or restore the note from the trash.
+vocabulary-add-button = Add
+vocabulary-edit-button = Edit
+vocabulary-delete-button = Delete
+vocabulary-save-button = Save
+vocabulary-cancel-button = Cancel
+vocabulary-field-label = Label
+vocabulary-delete-confirm-title = Delete link type
+vocabulary-delete-confirm-used =
+    { $count ->
+        [0] Delete this link type? No source links use it.
+        [one] Delete this link type? { $count } source link uses it and will show as "(unknown type)" there.
+       *[other] Delete this link type? { $count } source links use it and will show as "(unknown type)" there.
+    }
+vocabulary-delete-confirm-unknown = Could not check how many source links use this type: the library's timeline data could not be read. Delete anyway?
+vocabulary-error-not-writable = This library can't be edited, so the change was not saved.
+vocabulary-error-empty = A library's link types can't be empty. Add another type before deleting the last one.
+vocabulary-error-generic = Zotero Timeline could not save this change: { $message }

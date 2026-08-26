@@ -25,6 +25,10 @@ import {
   registerLibraryFilter,
   unregisterLibraryFilter,
 } from "./modules/timeline/libraryFilter";
+import {
+  renderVocabularySettings,
+  setConfirmDeleteForTests,
+} from "./modules/timeline/vocabularySettings";
 import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 
 let containerObserverID: string | null = null;
@@ -65,12 +69,17 @@ async function onStartup() {
 
   // Exposed so the live-Zotero suite can drive the same instance the plugin
   // registered, rather than a second copy bundled into the test.
+  // renderVocabularySettings doubles as the preferences pane's own wiring:
+  // preferences.xhtml's onload calls it directly, since the pane is not a
+  // main window and hooks.ts's four lifecycle hooks never reach it.
   addon.api = {
     openTimelineTab,
     closeTimelineTab,
     getLastMovePayload,
     getCurrentTimeline,
     getModuleEvalEnv,
+    renderVocabularySettings,
+    setConfirmDeleteForTests,
   };
 
   await Promise.all(

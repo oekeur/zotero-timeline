@@ -8,10 +8,6 @@
  * it never loaded for exactly this reason.
  *
  * Every colour comes from a Zotero variable; see project/ui-design.md.
- *
- * Small on purpose. TASK-34's vocabulary editor is what fills it, and the
- * point of writing it now is that the loading path is already proven when that
- * task starts.
  */
 
 /* The line under the hide-notes checkbox saying what hiding does and that
@@ -22,4 +18,84 @@
 .zoterotimeline-pref-help {
   margin: 2px 0 0;
   color: var(--fill-secondary);
+}
+
+/* ---------- Vocabulary editor ---------- */
+
+.zoterotimeline-vocab-library-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.zoterotimeline-vocab-library-label {
+  color: var(--fill-secondary);
+}
+
+/* Explanatory copy: the not-yet-stored notice, an unreadable/version note.
+ * Same treatment as the pref-help line above so the two read as one family. */
+.zoterotimeline-vocab-note {
+  margin: 0 0 8px;
+  color: var(--fill-secondary);
+}
+
+/* A rejected write. role="alert" carries the semantics; the colour is what
+ * makes it read as a failure rather than as another explanatory line. */
+.zoterotimeline-vocab-error {
+  margin: 0 0 8px;
+  color: var(--accent-red);
+}
+
+.zoterotimeline-vocab-list {
+  display: flex;
+  flex-direction: column;
+  border: var(--material-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.zoterotimeline-vocab-row {
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.zoterotimeline-vocab-row:not(:last-child) {
+  border-bottom: var(--material-border);
+}
+
+.zoterotimeline-vocab-row:hover {
+  background: var(--fill-quinary);
+}
+
+/* A tint plus a left bar, never a fill of --color-accent itself: that token
+ * resolves to the OS accent colour and is unpredictable on its own. See
+ * project/ui-design.md. */
+.zoterotimeline-vocab-row.selected {
+  background: var(--fill-quarternary);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.zoterotimeline-vocab-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.zoterotimeline-vocab-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.zoterotimeline-vocab-form label {
+  color: var(--fill-secondary);
+}
+
+.zoterotimeline-vocab-form-actions {
+  grid-column: 2;
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
 }

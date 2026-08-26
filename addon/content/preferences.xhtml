@@ -13,6 +13,22 @@
     data-l10n-id="pref-hide-timeline-notes-help"
   ></html:p>
 </groupbox>
+<groupbox
+  aria-labelledby="zoterotimeline-vocabulary-heading"
+  onload="
+    Zotero.ZoteroTimeline.api.renderVocabularySettings(
+      this.querySelector('.zoterotimeline-vocab-container'),
+    )
+  "
+>
+  <label>
+    <html:h2
+      id="zoterotimeline-vocabulary-heading"
+      data-l10n-id="pref-vocabulary-heading"
+    ></html:h2>
+  </label>
+  <html:div class="zoterotimeline-vocab-container"></html:div>
+</groupbox>
 <vbox>
   <html:label
     data-l10n-id="pref-help"
