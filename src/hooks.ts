@@ -4,6 +4,7 @@ import {
   getCurrentTimeline,
   getLastMovePayload,
   getModuleEvalEnv,
+  getVisibleTimelines,
   openTimelineTab,
   registerTimelineMenu,
 } from "./modules/timeline/timelineTab";
@@ -14,6 +15,7 @@ import {
 } from "./modules/timeline/containerGuard";
 
 import {
+  parsesSoFar,
   registerCacheObserver,
   unregisterCacheObserver,
 } from "./modules/timeline/documentCache";
@@ -80,6 +82,8 @@ async function onStartup() {
     getModuleEvalEnv,
     renderVocabularySettings,
     setConfirmDeleteForTests,
+    getVisibleTimelines,
+    parsesSoFar,
   };
 
   await Promise.all(

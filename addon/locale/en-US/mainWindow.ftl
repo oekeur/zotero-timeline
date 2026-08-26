@@ -1,6 +1,20 @@
 timeline-menu-open =
     .label = Open Timeline
 
+timeline-sidebar-heading = Timelines
+timeline-sidebar-unreadable-label = Unreadable timeline
+
+timeline-sidebar-visible-checkbox =
+    .title = Show or hide this timeline
+
+timeline-sidebar-move-up-button =
+    .title = Move up
+
+timeline-sidebar-move-down-button =
+    .title = Move down
+
+timeline-sidebar-none-visible = No timelines are visible. Toggle one on in the sidebar to see it here.
+
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.
 event-editor-untitled-title = Untitled event
 event-editor-title-label = Title

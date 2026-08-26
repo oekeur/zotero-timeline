@@ -9,13 +9,14 @@
  * an HTML select's dropdown at all. Rendering into the tab container sidesteps
  * all three, because it is the same document the item pane already uses.
  */
-import { getString } from "../../utils/locale";
+import { getLocaleID, getString } from "../../utils/locale";
 import {
   ensureDocumentHead,
   ensureWindowGlobals,
 } from "../../utils/windowGlobals";
 import { ensureStylesheet } from "../../utils/stylesheet";
-import { listTimelines } from "./storage";
+import { listTimelinesCached } from "./documentCache";
+import type { StoredTimeline, UnreadableTimeline } from "./storage";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
 import type { TimelineDocument } from "./schema";
 
@@ -33,6 +34,18 @@ export const TAB_NOTE_CLASS = "zoterotimeline-tab-note";
 export const TAB_ROW_CLASS = "zoterotimeline-tab-row";
 export const CANVAS_CLASS = "zoterotimeline-canvas";
 export const EDITOR_CLASS = "zoterotimeline-editor";
+export const SIDEBAR_CLASS = "zoterotimeline-sidebar";
+export const SIDEBAR_HEADING_CLASS = "zoterotimeline-sidebar-heading";
+export const SIDEBAR_ROW_CLASS = "zoterotimeline-sidebar-row";
+export const SIDEBAR_ROW_UNREADABLE_CLASS =
+  "zoterotimeline-sidebar-row-unreadable";
+export const SIDEBAR_ROW_LABEL_CLASS = "zoterotimeline-sidebar-row-label";
+export const SIDEBAR_ROW_VISIBLE_CLASS = "zoterotimeline-sidebar-row-visible";
+export const SIDEBAR_ROW_NAME_CLASS = "zoterotimeline-sidebar-row-name";
+export const SIDEBAR_ROW_MOVE_UP_CLASS = "zoterotimeline-sidebar-row-move-up";
+export const SIDEBAR_ROW_MOVE_DOWN_CLASS =
+  "zoterotimeline-sidebar-row-move-down";
+export const CANVAS_EMPTY_PROMPT_CLASS = "zoterotimeline-canvas-empty-prompt";
 
 let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
@@ -41,6 +54,13 @@ let teardownTimeline: (() => void) | undefined;
 let currentTimeline: unknown;
 let moduleEvalEnv: unknown;
 let canvasModule: unknown;
+// The vis groups DataSet renderCanvas built, and the readable timelines it
+// was built from. Both module-level for the same reason currentTimeline is:
+// getVisibleTimelines() is called by the live-Zotero suite against the
+// plugin's own running instance, not the test bundle's separate copy of this
+// module.
+let timelineGroups: unknown;
+let readableTimelines: StoredTimeline[] = [];
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -56,6 +76,34 @@ export function getLastMovePayload(): any {
 
 export function getCurrentTimeline(): any {
   return currentTimeline;
+}
+
+/**
+ * Every visible timeline, topmost first - the one place this is computed, for
+ * TASK-16 (picking the topmost still-visible timeline when the active one is
+ * toggled off) and m-7's TASK-50 (which tags to offer). Reads the vis groups
+ * DataSet's own `order` and `visible` fields rather than a second copy of
+ * either: the sidebar's toggle and reorder controls write those fields
+ * directly, so this is always current with no merge step of its own.
+ */
+export function getVisibleTimelines(): StoredTimeline[] {
+  if (!timelineGroups) {
+    return [];
+  }
+  const rows = (
+    timelineGroups as {
+      get: (opts: { order: string }) => Array<{
+        id: string;
+        visible?: boolean;
+      }>;
+    }
+  ).get({ order: "order" });
+  return rows
+    .filter((group) => group.visible !== false)
+    .map((group) =>
+      readableTimelines.find((t) => t.doc.id === String(group.id)),
+    )
+    .filter((t): t is StoredTimeline => t !== undefined);
 }
 
 /**
@@ -140,6 +188,8 @@ export async function openTimelineTab(): Promise<void> {
       teardownTimeline?.();
       teardownTimeline = undefined;
       currentTimeline = undefined;
+      timelineGroups = undefined;
+      readableTimelines = [];
     },
   });
   timelineTabID = id;
@@ -170,11 +220,16 @@ export async function openTimelineTab(): Promise<void> {
   header.appendChild(note as unknown as Node);
   body.appendChild(header as unknown as Node);
 
-  // Canvas and editor sit side by side, so selecting an event never reflows
-  // the canvas out from under the pointer.
+  // Sidebar, canvas and editor sit side by side, so selecting an event never
+  // reflows the canvas out from under the pointer.
   const row = el(doc, "div");
   row.classList.add(TAB_ROW_CLASS);
   body.appendChild(row as unknown as Node);
+
+  const sidebar = el(doc, "div");
+  sidebar.id = "zoterotimeline-sidebar";
+  sidebar.classList.add(SIDEBAR_CLASS);
+  row.appendChild(sidebar as unknown as Node);
 
   const canvas = el(doc, "div");
   canvas.id = "zoterotimeline-canvas";
@@ -218,7 +273,8 @@ export async function openTimelineTab(): Promise<void> {
   );
 
   const libraryID = resolveLibraryID(win);
-  const { timelines } = await listTimelines(libraryID);
+  const { timelines, unreadable } = await listTimelinesCached(libraryID);
+  readableTimelines = timelines;
   // Keyed by document id, and kept up to date on every save/delete, so a
   // re-selection after an edit shows what was just written rather than what
   // was loaded when the tab opened.
@@ -297,7 +353,7 @@ export async function openTimelineTab(): Promise<void> {
   // After the container is in the document. vis-timeline measures its parent
   // immediately, and a detached element measures zero, which renders as a
   // blank tab rather than an error.
-  const { timeline, items } = renderCanvas(
+  const { timeline, items, groups } = renderCanvas(
     canvas as unknown as HTMLElement,
     timelines,
     libraryID,
@@ -310,6 +366,7 @@ export async function openTimelineTab(): Promise<void> {
     (doc) => documents.set(doc.id, doc),
   );
   currentTimeline = timeline;
+  timelineGroups = groups;
   teardownTimeline = () => {
     try {
       timeline.destroy();
@@ -318,6 +375,163 @@ export async function openTimelineTab(): Promise<void> {
     }
   };
 
+  // Typed narrowly to what the sidebar actually reads and writes, rather than
+  // pulling in vis-timeline's own types: this module never imports vis-timeline
+  // statically (see the dynamic import above), and `groups` is already a live
+  // instance by the time any of this runs.
+  type GroupRow = { id: string; content: string; visible?: boolean };
+  function groupsDS() {
+    return groups as unknown as {
+      get: (opts: { order: string }) => GroupRow[];
+      update: (
+        data:
+          | { id: string; visible?: boolean; order?: number }
+          | Array<{ id: string; visible?: boolean; order?: number }>,
+      ) => unknown;
+    };
+  }
+
+  const emptyPrompt = el(doc, "div");
+  emptyPrompt.classList.add(CANVAS_EMPTY_PROMPT_CLASS);
+  emptyPrompt.setAttribute(
+    "data-l10n-id",
+    getLocaleID("timeline-sidebar-none-visible"),
+  );
+
+  /**
+   * Rebuilds the sidebar from the vis groups DataSet, which is the ordered,
+   * visible/hidden truth the toggle and reorder controls write straight into.
+   * Rows carry `data-timeline-id`, the attachment point a later activation
+   * gesture (TASK-16) reads rather than a second lookup of its own.
+   */
+  function renderSidebar(): void {
+    sidebar.textContent = "";
+
+    const heading = el(doc, "div");
+    heading.classList.add(SIDEBAR_HEADING_CLASS);
+    heading.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-heading"),
+    );
+    sidebar.appendChild(heading as unknown as Node);
+
+    const rows = groupsDS().get({ order: "order" });
+    rows.forEach((group, index) => {
+      sidebar.appendChild(
+        buildSidebarRow(group, index, rows.length) as unknown as Node,
+      );
+    });
+
+    for (const entry of unreadable) {
+      sidebar.appendChild(buildUnreadableRow(entry) as unknown as Node);
+    }
+
+    const anyVisible = rows.some((group) => group.visible !== false);
+    if (rows.length > 0 && !anyVisible) {
+      if (!emptyPrompt.isConnected) {
+        canvas.appendChild(emptyPrompt as unknown as Node);
+      }
+    } else if (emptyPrompt.isConnected) {
+      emptyPrompt.remove();
+    }
+  }
+
+  function buildSidebarRow(
+    group: GroupRow,
+    index: number,
+    total: number,
+  ): HTMLElement {
+    const row = el(doc, "div");
+    row.classList.add(SIDEBAR_ROW_CLASS);
+    row.setAttribute("data-timeline-id", group.id);
+
+    const label = el(doc, "label");
+    label.classList.add(SIDEBAR_ROW_LABEL_CLASS);
+
+    const checkbox = el(doc, "input");
+    checkbox.type = "checkbox";
+    checkbox.classList.add(SIDEBAR_ROW_VISIBLE_CLASS);
+    checkbox.checked = group.visible !== false;
+    checkbox.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-visible-checkbox"),
+    );
+    // Flips the group's own visible flag - the only thing a toggle changes.
+    // vis-timeline's own DataView re-filters on this write and the canvas
+    // redraws with no document re-read.
+    checkbox.addEventListener("change", () => {
+      groupsDS().update({ id: group.id, visible: checkbox.checked });
+      renderSidebar();
+    });
+    label.appendChild(checkbox as unknown as Node);
+
+    const name = el(doc, "span");
+    name.classList.add(SIDEBAR_ROW_NAME_CLASS);
+    name.textContent = group.content;
+    label.appendChild(name as unknown as Node);
+
+    row.appendChild(label as unknown as Node);
+
+    const moveUp = el(doc, "button");
+    moveUp.type = "button";
+    moveUp.classList.add(SIDEBAR_ROW_MOVE_UP_CLASS);
+    moveUp.disabled = index === 0;
+    moveUp.textContent = "↑";
+    moveUp.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-move-up-button"),
+    );
+    moveUp.addEventListener("click", () => reorderGroup(group.id, -1));
+    row.appendChild(moveUp as unknown as Node);
+
+    const moveDown = el(doc, "button");
+    moveDown.type = "button";
+    moveDown.classList.add(SIDEBAR_ROW_MOVE_DOWN_CLASS);
+    moveDown.disabled = index === total - 1;
+    moveDown.textContent = "↓";
+    moveDown.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-move-down-button"),
+    );
+    moveDown.addEventListener("click", () => reorderGroup(group.id, 1));
+    row.appendChild(moveDown as unknown as Node);
+
+    return row;
+  }
+
+  function buildUnreadableRow(entry: UnreadableTimeline): HTMLElement {
+    const row = el(doc, "div");
+    row.classList.add(SIDEBAR_ROW_CLASS, SIDEBAR_ROW_UNREADABLE_CLASS);
+    const name = el(doc, "span");
+    name.classList.add(SIDEBAR_ROW_NAME_CLASS);
+    name.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-unreadable-label"),
+    );
+    (name as unknown as HTMLElement).title = entry.message;
+    row.appendChild(name as unknown as Node);
+    return row;
+  }
+
+  /**
+   * Rewrites every group's `order` field from a swap of two adjacent rows,
+   * rather than trying to slot one group between two others: groupOrder sorts
+   * on this field, so a full, gapless renumbering is what keeps it unambiguous
+   * after repeated reorders.
+   */
+  function reorderGroup(documentId: string, delta: number): void {
+    const rows = groupsDS().get({ order: "order" });
+    const index = rows.findIndex((group) => group.id === documentId);
+    const target = index + delta;
+    if (index === -1 || target < 0 || target >= rows.length) {
+      return;
+    }
+    [rows[index], rows[target]] = [rows[target], rows[index]];
+    groupsDS().update(rows.map((group, i) => ({ id: group.id, order: i })));
+    renderSidebar();
+  }
+
+  renderSidebar();
   showEditorFor(null);
 
   Zotero.debug(`[ZoteroTimeline] canvas rendered into tab ${id} (${TAB_TYPE})`);

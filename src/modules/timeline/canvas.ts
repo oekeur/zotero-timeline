@@ -63,6 +63,13 @@ import type { Event, TimelineDocument } from "./schema";
  * keyboard-only route is allowed; a mouse-only one is not): a parked event
  * (no canvas position at all) is not draggable and has no drag handle - its
  * date is corrected only by typing, per the plan's own resolved "Unknowns".
+ *
+ * - Toggle a lane's visibility or reorder the lanes (timelineTab.ts's
+ *   sidebar): not a canvas gesture at all - there is no pointer interaction
+ *   on the canvas itself that does either. The sidebar's controls are a plain
+ *   checkbox and plain buttons, both natively operable by click or by
+ *   keyboard focus plus Enter/Space, so nothing here is mouse-only and the
+ *   audit has nothing to extend for it.
  */
 
 /**
@@ -141,6 +148,12 @@ export function getLastMovePayload(): Record<string, unknown> | undefined {
  * `container` must come from the tab's own document. vis-timeline reads
  * layout from it immediately, so a detached element renders at zero height and
  * looks like a failure to draw.
+ *
+ * Every group starts visible, ordered the way `timelines` was handed in. The
+ * sidebar (timelineTab.ts) never rebuilds these DataSets to toggle or
+ * reorder a lane: it flips a group's `visible` field and rewrites `order`
+ * fields on the returned `groups` DataSet, which is what keeps a toggle
+ * instant and re-reads no document.
  */
 export function renderCanvas(
   container: HTMLElement,
@@ -148,7 +161,7 @@ export function renderCanvas(
   libraryID: number,
   onSelect: (id: string | null) => void,
   onDocumentChange?: (doc: TimelineDocument) => void,
-): { timeline: Timeline; items: DataSet<any> } {
+): { timeline: Timeline; items: DataSet<any>; groups: DataSet<any> } {
   // Keyed by document id and shared with `onMove` below, so a write updates
   // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
   // its own map over the same `doc` references for the event editor).
@@ -163,7 +176,12 @@ export function renderCanvas(
   );
 
   const groups = new DataSet(
-    timelines.map(({ doc }) => ({ id: doc.id, content: doc.name })),
+    timelines.map(({ doc }, order) => ({
+      id: doc.id,
+      content: doc.name,
+      order,
+      visible: true,
+    })),
   );
 
   const timeline = new Timeline(container, items, groups, {
@@ -177,6 +195,11 @@ export function renderCanvas(
     orientation: "top",
     margin: { item: 8 },
     zoomKey: "ctrlKey",
+    // vis-timeline's own default - named explicitly because the sidebar's
+    // reorder buttons depend on it: a group's numeric `order` field is what
+    // decides the vertical order, and rewriting that field is the entire
+    // reorder mechanism.
+    groupOrder: "order",
 
     // vis-timeline's own onMove contract calls this callback once, whenever
     // it is called - _onDragEnd (vis-timeline/.../vis-timeline-graph2d.js)
@@ -373,5 +396,5 @@ export function renderCanvas(
     },
   );
 
-  return { timeline, items };
+  return { timeline, items, groups };
 }
