@@ -18,6 +18,10 @@ import {
   unregisterCacheObserver,
 } from "./modules/timeline/documentCache";
 import {
+  registerSourcePruneObserver,
+  unregisterSourcePruneObserver,
+} from "./modules/timeline/sourcePrune";
+import {
   registerLibraryFilter,
   unregisterLibraryFilter,
 } from "./modules/timeline/libraryFilter";
@@ -25,6 +29,7 @@ import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 
 let containerObserverID: string | null = null;
 let cacheObserverID: string | null = null;
+let sourcePruneObserverID: string | null = null;
 
 // The plugin's own main-window sheet: the tab shell and the event editor, and
 // whatever m-6's item-pane section adds. Per window, because a link belongs to
@@ -104,6 +109,9 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   if (cacheObserverID === null) {
     cacheObserverID = registerCacheObserver();
   }
+  if (sourcePruneObserverID === null) {
+    sourcePruneObserverID = registerSourcePruneObserver();
+  }
   registerLibraryFilter();
 }
 
@@ -116,6 +124,10 @@ async function onMainWindowUnload(win: Window): Promise<void> {
   if (cacheObserverID !== null) {
     unregisterCacheObserver(cacheObserverID);
     cacheObserverID = null;
+  }
+  if (sourcePruneObserverID !== null) {
+    unregisterSourcePruneObserver(sourcePruneObserverID);
+    sourcePruneObserverID = null;
   }
   unregisterLibraryFilter();
   ztoolkit.unregisterAll();
