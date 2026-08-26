@@ -1,5 +1,7 @@
 import { assert } from "chai";
+import edtf from "edtf";
 import {
+  boundsOf,
   dateAtViewportPrecision,
   precisionForViewportSpan,
   shiftEdtfDate,
@@ -42,6 +44,23 @@ describe("edtf", function () {
     const range = toTimelineRange("[1580..1590]");
     assert.equal(iso(range.start), "1580-01-01T00:00:00.000Z");
     assert.equal(iso(range.end), "1590-12-31T23:59:59.999Z");
+  });
+
+  it("spans a one-of set even when its parsed .type cannot be trusted", function () {
+    // Regression guard for the bundler class-name mangling risk boundsOf()
+    // used to carry: it must decide a Set is a Set from the "[...]" syntax of
+    // the input string, not from `value.type`. Overriding just this instance's
+    // own `.type` (not the shared Set.prototype getter, which edtf's own
+    // constructor re-checks on every parse) simulates what esbuild renaming
+    // the Set class would do to that value's `.type` without corrupting edtf
+    // itself. A regression to a `value.type === "Set"` check fails this: it
+    // would fall back to the plain min/max path and span only the first
+    // member.
+    const probe = edtf("[1580..1590]");
+    Object.defineProperty(probe, "type", { configurable: true, value: "_Set" });
+    const [min, max] = boundsOf("[1580..1590]", probe);
+    assert.equal(iso(new Date(min)), "1580-01-01T00:00:00.000Z");
+    assert.equal(iso(new Date(max)), "1590-12-31T23:59:59.999Z");
   });
 
   it("parses a month interval across both endpoints", function () {

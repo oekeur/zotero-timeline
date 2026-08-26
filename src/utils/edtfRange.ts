@@ -30,9 +30,20 @@ function qualifierIsSet(
  * A Set's own `min`/`max` describe only its first member: parsing
  * "[1580..1590]" yields max 1580-12-31, not 1590-12-31. Iterating gives the
  * real span. Verified against edtf@4.11.1.
+ *
+ * Branches on the input string's own "[...]" syntax rather than on
+ * `value.type === "Set"`, the same technique shiftEdtfDate below uses:
+ * esbuild's scope-hoisting has been observed renaming edtf's exported
+ * classes to dodge collisions elsewhere in the bundle, which makes
+ * `this.constructor.name` (and therefore `.type`) unreliable at runtime.
+ * EDTF's grammar reserves the brackets for exactly this construct, so the
+ * string is the one signal bundling cannot rename out from under this.
  */
-function boundsOf(value: ReturnType<typeof edtf>): [number, number] {
-  if (value.type === "Set") {
+export function boundsOf(
+  input: string,
+  value: ReturnType<typeof edtf>,
+): [number, number] {
+  if (input.startsWith("[") && input.endsWith("]")) {
     const members = [...value];
     if (members.length > 0) {
       return [members[0].min, members[members.length - 1].max];
@@ -50,7 +61,7 @@ function boundsOf(value: ReturnType<typeof edtf>): [number, number] {
  */
 export function toTimelineRange(input: string): TimelineRange {
   const value = edtf(input);
-  const [min, max] = boundsOf(value);
+  const [min, max] = boundsOf(input, value);
 
   return {
     start: new Date(min),
