@@ -7,6 +7,8 @@
  * is still findable and still distinguishable from "no note yet".
  */
 import {
+  CURRENT_SCHEMA_VERSION,
+  DEFAULT_LINK_TYPES,
   serializeDocument,
   type TimelineDocument,
   type Vocabulary,
@@ -77,7 +79,9 @@ export type StorageErrorReason =
   | "version-unsupported"
   | "wrong-kind"
   | "not-found"
-  | "container-trashed";
+  | "container-trashed"
+  | "empty-vocabulary"
+  | "not-writable";
 
 export class StorageError extends Error {
   reason: StorageErrorReason;
@@ -648,29 +652,117 @@ export async function findOrCreateContainer(
 /**
  * Creates one plugin-owned note under the library's container.
  *
+ * Not queued itself: `createTaggedNote` wraps this for every caller outside
+ * storage.ts, and `updateVocabulary` calls it directly from inside its own
+ * queued task, where enqueueing again would park it behind itself - the
+ * queue is not reentrant.
+ *
+ * `libraryID` is required rather than defaulted on every path here. A fallback
+ * that omits it can put a group-library note in the user library.
+ */
+async function createNoteUnqueued(
+  libraryID: number,
+  tag: string,
+  html: string,
+): Promise<Zotero.Item> {
+  const container = await findOrCreateContainer(libraryID);
+  const item = new Zotero.Item("note");
+  item.libraryID = libraryID;
+  // Parented before the save, so the note never exists as a top-level row -
+  // not even for the moment between creating it and moving it.
+  item.parentItemID = container.id;
+  item.setNote(html);
+  item.addTag(tag);
+  await item.saveTx();
+  return item;
+}
+
+/**
+ * Creates one plugin-owned note under the library's container.
+ *
  * The single place a plugin note is born, so every one of them carries a tag
  * and none of them is ever a top-level row. Runs through the write queue: two
  * concurrent first writes would otherwise each find no container and each
  * create one, and nothing local to findOrCreateContainer can prevent that.
- *
- * `libraryID` is required rather than defaulted on every path here. A fallback
- * that omits it can put a group-library note in the user library.
  */
 export async function createTaggedNote(
   libraryID: number,
   tag: string,
   html: string,
 ): Promise<Zotero.Item> {
+  return enqueue(() => createNoteUnqueued(libraryID, tag, html));
+}
+
+/**
+ * Reads the library's one vocabulary note (lowest key, matching the tie-break
+ * readVocabulary uses), applies `mutate`, and writes the result back through
+ * the same queue as updateTimelineDocument. A library with no vocabulary note
+ * yet is read as the defaults, the same base readVocabulary would recover -
+ * so an edit made against what a caller displayed as "the defaults, not yet
+ * stored" lands on top of exactly that, rather than starting from nothing.
+ *
+ * Refuses two things a mutate function must not be trusted to check itself,
+ * because every caller inherits the refusal from here:
+ *
+ * - Writing when the library is not editable. Checked before the queue is
+ *   touched at all, so a doomed write never reaches saveTx.
+ * - Writing an empty types list. A vocabulary with nothing in it breaks
+ *   "default to the vocabulary's first type", which every link-authoring
+ *   surface relies on being satisfiable. Reading an already-empty list off
+ *   disk is still allowed; only writing one is refused.
+ *
+ * Return null from `mutate` to mean "no change": a no-op edit should not
+ * dirty the note, same rule as updateTimelineDocument.
+ */
+export async function updateVocabulary(
+  libraryID: number,
+  mutate: (vocabulary: Vocabulary) => Vocabulary | null,
+): Promise<Vocabulary | null> {
+  const library = Zotero.Libraries.get(libraryID);
+  if (!library || !library.editable) {
+    throw new StorageError(
+      "not-writable",
+      `library ${libraryID} is not writable`,
+    );
+  }
   return enqueue(async () => {
-    const container = await findOrCreateContainer(libraryID);
-    const item = new Zotero.Item("note");
-    item.libraryID = libraryID;
-    // Parented before the save, so the note never exists as a top-level row -
-    // not even for the moment between creating it and moving it.
-    item.parentItemID = container.id;
-    item.setNote(html);
-    item.addTag(tag);
-    await item.saveTx();
-    return item;
+    // Plain searches and the unqueued note creator only. The queue is not
+    // reentrant.
+    const notes = await searchVocabularyNotes(libraryID);
+    const sorted = [...notes].sort((a, b) =>
+      a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+    );
+    const existing = sorted[0] ?? null;
+    const current: Vocabulary = existing
+      ? readVocabularyFromNote(existing)
+      : { version: CURRENT_SCHEMA_VERSION, types: DEFAULT_LINK_TYPES };
+
+    const next = mutate(current);
+    if (next === null) {
+      return null;
+    }
+    if (next.types.length === 0) {
+      throw new StorageError(
+        "empty-vocabulary",
+        `refusing to write an empty vocabulary to library ${libraryID}`,
+      );
+    }
+    const result = parseVocabulary(next);
+    if (!result.ok) {
+      throw new StorageError(
+        result.reason,
+        `refusing to write an invalid vocabulary to library ${libraryID}: ${result.error}`,
+      );
+    }
+    const html = buildVocabularyNoteHtml(result.doc);
+    if (existing) {
+      await Zotero.DB.executeTransaction(async () => {
+        existing.setNote(html);
+        await existing.save();
+      });
+    } else {
+      await createNoteUnqueued(libraryID, VOCABULARY_TAG, html);
+    }
+    return result.doc;
   });
 }

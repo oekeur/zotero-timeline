@@ -5,16 +5,23 @@ import {
   VOCABULARY_TAG,
   buildVocabularyNoteHtml,
   createTaggedNote,
+  findContainers,
   findOrCreateContainer,
   listTimelines,
   searchVocabularyNotes,
+  updateVocabulary,
   whenStorageIdle,
 } from "../src/modules/timeline/storage";
 import {
   DEFAULT_LINK_TYPES,
   UNKNOWN_TYPE_LABEL,
+  addLinkType,
+  countLinksUsingType,
   labelFor,
+  peekVocabulary,
   readVocabulary,
+  removeLinkType,
+  renameLinkType,
 } from "../src/modules/timeline/vocabulary";
 import {
   createDocumentNote,
@@ -246,5 +253,173 @@ describe("storage: the link-type vocabulary", function () {
     const result = await readVocabulary(libraryID, countWarning);
 
     assert.deepEqual(result.types, DEFAULT_LINK_TYPES);
+  });
+
+  describe("the write path", function () {
+    // AC #1
+    it("reads, mutates and writes the one vocabulary note through the same queue as updateTimelineDocument", async function () {
+      const written = await updateVocabulary(libraryID, (vocabulary) =>
+        addLinkType(vocabulary, "eyewitness account"),
+      );
+
+      assert.isNotNull(written);
+      assert.isTrue(
+        written!.types.some((t) => t.label === "eyewitness account"),
+      );
+
+      const result = await readVocabulary(libraryID);
+      assert.equal(
+        result.state,
+        "ok",
+        "updateVocabulary should already have written the note",
+      );
+      assert.deepEqual(result.types, written!.types);
+    });
+
+    // AC #2
+    it("lands both writes when two updateVocabulary calls start without awaiting the first", async function () {
+      const first = updateVocabulary(libraryID, (vocabulary) =>
+        addLinkType(vocabulary, "first"),
+      );
+      const second = updateVocabulary(libraryID, (vocabulary) =>
+        addLinkType(vocabulary, "second"),
+      );
+      await Promise.all([first, second]);
+      await whenStorageIdle();
+
+      const result = await readVocabulary(libraryID);
+      const labels = result.types.map((t) => t.label);
+      assert.include(labels, "first");
+      assert.include(labels, "second");
+    });
+
+    // AC #3
+    it("a rename changes label and leaves id untouched, on the stored note", async function () {
+      await updateVocabulary(libraryID, (vocabulary) =>
+        addLinkType(vocabulary, "eyewitness"),
+      );
+      const before = await readVocabulary(libraryID);
+      const target = before.types.find((t) => t.label === "eyewitness")!;
+
+      await updateVocabulary(libraryID, (vocabulary) =>
+        renameLinkType(vocabulary, target.id, "eyewitness account"),
+      );
+
+      const after = await readVocabulary(libraryID);
+      const renamed = after.types.find((t) => t.id === target.id);
+      assert.isDefined(renamed, "the id did not survive the rename");
+      assert.equal(renamed!.label, "eyewitness account");
+    });
+
+    // AC #4
+    it("a source whose type was deleted still reads back with that typeId, rendered as unknown", async function () {
+      await updateVocabulary(libraryID, (vocabulary) =>
+        addLinkType(vocabulary, "eyewitness"),
+      );
+      const before = await readVocabulary(libraryID);
+      const target = before.types.find((t) => t.label === "eyewitness")!;
+
+      const doc = documentNamed("Abolition", "tl-deleted-type");
+      doc.events[0].sources = [
+        { kind: "item", libraryID, key: "ABCD2345", typeId: target.id },
+      ];
+      await createDocumentNote(libraryID, STORAGE_TAG, doc);
+
+      await updateVocabulary(libraryID, (vocabulary) =>
+        removeLinkType(vocabulary, target.id),
+      );
+
+      const { timelines } = await listTimelines(libraryID);
+      assert.equal(timelines[0].doc.events[0].sources[0].typeId, target.id);
+
+      const after = await readVocabulary(libraryID);
+      assert.equal(labelFor(after.types, target.id), UNKNOWN_TYPE_LABEL);
+    });
+
+    // AC #5
+    it("the non-creating read reports absence and leaves no note and no container behind", async function () {
+      const result = await peekVocabulary(libraryID);
+
+      assert.equal(result.state, "absent");
+      assert.deepEqual(result.types, DEFAULT_LINK_TYPES);
+      assert.lengthOf(await searchVocabularyNotes(libraryID), 0);
+      assert.lengthOf(await findContainers(libraryID), 0);
+    });
+
+    // AC #6
+    it("counts links using a type across every timeline in the library", async function () {
+      const docA = documentNamed("Abolition", "tl-count-a");
+      docA.events[0].sources = [
+        { kind: "item", libraryID, key: "AAAA1111", typeId: "cites" },
+        { kind: "item", libraryID, key: "BBBB2222", typeId: "cites" },
+      ];
+      const docB = documentNamed("Revolt", "tl-count-b");
+      docB.events[0].sources = [
+        { kind: "item", libraryID, key: "CCCC3333", typeId: "cites" },
+      ];
+      await createDocumentNote(libraryID, STORAGE_TAG, docA);
+      await createDocumentNote(libraryID, STORAGE_TAG, docB);
+
+      assert.equal(await countLinksUsingType(libraryID, "cites"), 3);
+      assert.equal(await countLinksUsingType(libraryID, "supports"), 0);
+    });
+
+    it("returns null rather than 0 when a document in the library will not parse", async function () {
+      await createRawNote(
+        libraryID,
+        STORAGE_TAG,
+        "<p>note</p><pre>{not json</pre>",
+      );
+
+      assert.isNull(await countLinksUsingType(libraryID, "cites"));
+    });
+
+    // AC #7
+    it("refuses a write to a library the user cannot write to, before it ever reaches saveTx", async function () {
+      const unwritableLibraryID = -999;
+      const originalGet = Zotero.Libraries.get;
+      Zotero.Libraries.get = ((id: number) =>
+        id === unwritableLibraryID
+          ? ({ editable: false } as unknown as ReturnType<
+              typeof Zotero.Libraries.get
+            >)
+          : originalGet.call(
+              Zotero.Libraries,
+              id,
+            )) as typeof Zotero.Libraries.get;
+
+      try {
+        let caught: unknown;
+        try {
+          await updateVocabulary(unwritableLibraryID, (vocabulary) =>
+            addLinkType(vocabulary, "x"),
+          );
+        } catch (err) {
+          caught = err;
+        }
+        assert.instanceOf(caught, Error);
+        assert.match((caught as Error).message, /not writable/);
+        assert.lengthOf(await searchVocabularyNotes(unwritableLibraryID), 0);
+      } finally {
+        Zotero.Libraries.get = originalGet;
+      }
+    });
+
+    // Refused per project/data-model.md: a stored Vocabulary always holds at
+    // least one LinkType, and it is the write that refuses, not the mutate
+    // function's caller.
+    it("refuses to write an empty vocabulary", async function () {
+      let caught: unknown;
+      try {
+        await updateVocabulary(libraryID, () => ({
+          version: CURRENT_SCHEMA_VERSION,
+          types: [],
+        }));
+      } catch (err) {
+        caught = err;
+      }
+      assert.instanceOf(caught, Error);
+      assert.lengthOf(await searchVocabularyNotes(libraryID), 0);
+    });
   });
 });

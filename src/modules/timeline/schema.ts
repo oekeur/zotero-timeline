@@ -68,6 +68,23 @@ export type Vocabulary = {
 };
 
 /**
+ * Adapted from mindmap's five, minus `directional`. A mindmap link joins two
+ * nodes and needs a direction; a source link runs from an event to a Zotero
+ * item and its direction is fixed by what the two ends are.
+ *
+ * Lives here rather than in vocabulary.ts so storage.ts's write path can use
+ * it as the recovery base without importing from vocabulary.ts, which
+ * imports from storage.ts.
+ */
+export const DEFAULT_LINK_TYPES: LinkType[] = [
+  { id: "cites", label: "cites" },
+  { id: "supports", label: "supports" },
+  { id: "contradicts", label: "contradicts" },
+  { id: "primary-source-for", label: "primary source for" },
+  { id: "related-to", label: "related to" },
+];
+
+/**
  * The document exactly as it goes into the note. Two documents that serialise
  * identically are the same stored document, which is how a caller tells a
  * change it made itself apart from someone else's.
