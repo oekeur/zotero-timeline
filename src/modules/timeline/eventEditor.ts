@@ -26,14 +26,34 @@
  * date, and a document picker when more than one timeline is loaded - the
  * typed equivalent of clicking empty canvas. See canvas.ts's own top-of-file
  * comment for the full gesture-parity audit this belongs to.
+ *
+ * Sources: what the event cites, added through sourcePicker's native dialog,
+ * typed against the library's vocabulary and named through sourceLabels.ts -
+ * the one place a source is named everywhere one is shown. Kept as a local
+ * array and only turned into a write on Save, exactly like the tag list:
+ * two write models on one panel would let a user lose one edit silently with
+ * nothing on the surface saying which. A typeId that resolves to no type in
+ * the vocabulary is valid data, not corruption, and is never rewritten just
+ * for resolving to nothing.
  */
 import edtf from "edtf";
 import { getLocaleID, getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
 import { toTimelineRange, type TimelineRange } from "../../utils/edtfRange";
-import { addEvent, updateEvent, removeEvent } from "./mutations";
+import {
+  addEvent,
+  addSource,
+  removeEvent,
+  removeSource,
+  updateEvent,
+  updateSource,
+  type SourceEdits,
+} from "./mutations";
+import { pickSource } from "./sourcePicker";
+import { labelForItem, labelForSource } from "./sourceLabels";
+import { peekVocabulary, UNKNOWN_TYPE_LABEL } from "./vocabulary";
 import { updateTimelineDocument } from "./storage";
-import type { Event as TimelineEvent } from "./schema";
+import type { Event as TimelineEvent, LinkType, SourceRef } from "./schema";
 import type { FluentMessageId } from "../../../typings/i10n";
 
 export interface EventEditorSelection {
@@ -70,6 +90,14 @@ export const TAG_TEXT_CLASS = "zoterotimeline-event-tag-text";
 export const TAG_REMOVE_BUTTON_CLASS = "zoterotimeline-event-tag-remove";
 export const TAG_INPUT_CLASS = "zoterotimeline-event-tag-input";
 export const TAG_LIST_CLASS = "zoterotimeline-event-tags";
+export const SOURCE_LIST_CLASS = "zoterotimeline-event-sources";
+export const SOURCE_CLASS = "zoterotimeline-event-source";
+export const SOURCE_LABEL_TEXT_CLASS = "zoterotimeline-event-source-label";
+export const SOURCE_TYPE_SELECT_CLASS = "zoterotimeline-event-source-type";
+export const SOURCE_NAME_INPUT_CLASS = "zoterotimeline-event-source-name";
+export const SOURCE_REMOVE_BUTTON_CLASS = "zoterotimeline-event-source-remove";
+export const SOURCE_ADD_BUTTON_CLASS = "zoterotimeline-event-source-add";
+export const SOURCE_FEEDBACK_CLASS = "zoterotimeline-event-source-feedback";
 export const ACTIONS_CLASS = "zoterotimeline-event-actions";
 export const SAVE_BUTTON_CLASS = "zoterotimeline-event-save";
 export const DELETE_BUTTON_CLASS = "zoterotimeline-event-delete";
@@ -300,6 +328,25 @@ function renderCreateForm(
 }
 
 /**
+ * Whether two source refs make the same claim. Mirrors mutations.ts's own
+ * isSameClaim, which addSource uses at write time but does not export - a
+ * SourceRef has no id to key a shared helper on, and this lets a duplicate
+ * the picker just produced be refused with a message before the row exists,
+ * rather than silently dropped at Save.
+ */
+function isSameSourceClaim(
+  a: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
+  b: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
+): boolean {
+  return (
+    a.kind === b.kind &&
+    a.key === b.key &&
+    a.typeId === b.typeId &&
+    a.name === b.name
+  );
+}
+
+/**
  * `selection` null renders a prompt naming both ways to get an event into the
  * editor, rather than blanking - the panel stays in place across a selection
  * change so the canvas next to it never has to reflow. `creatable`, when
@@ -472,6 +519,158 @@ export function renderEventEditor(
     renderTags();
   });
 
+  const sourcesLabel = doc.createElement("label");
+  sourcesLabel.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-sources-label"),
+  );
+  container.appendChild(sourcesLabel);
+
+  // Kept as a local array and only turned into a write on Save, the same
+  // rule the tag list above follows. originalIndex addresses the source's
+  // position in event.sources at the moment the panel opened - a SourceRef
+  // has no id, so Save diffs against that index rather than the row's
+  // current position, which shifts as rows are added and removed.
+  const sources: Array<{ ref: SourceRef; originalIndex: number | null }> =
+    event.sources.map((ref, originalIndex) => ({
+      ref: { ...ref },
+      originalIndex,
+    }));
+
+  const sourceList = doc.createElement("div");
+  sourceList.classList.add(SOURCE_LIST_CLASS);
+  container.appendChild(sourceList);
+
+  const sourceFeedback = doc.createElement("p");
+  sourceFeedback.classList.add(SOURCE_FEEDBACK_CLASS);
+  container.appendChild(sourceFeedback);
+
+  // Empty until the library's vocabulary resolves, so a row renders with
+  // just its own typeId (as the unknown-type option) rather than blocking
+  // the rest of the panel on an async read.
+  let vocabularyTypes: LinkType[] = [];
+
+  function renderSources(): void {
+    sourceList.textContent = "";
+    sources.forEach((row, index) => {
+      const rowEl = doc.createElement("div");
+      rowEl.classList.add(SOURCE_CLASS);
+      sourceList.appendChild(rowEl);
+
+      const labelSpan = doc.createElement("span");
+      labelSpan.classList.add(SOURCE_LABEL_TEXT_CLASS);
+      labelSpan.textContent = labelForSource(row.ref);
+      rowEl.appendChild(labelSpan);
+
+      const typeSelect = doc.createElement("select");
+      typeSelect.classList.add(SOURCE_TYPE_SELECT_CLASS);
+      typeSelect.setAttribute(
+        "data-l10n-id",
+        getLocaleID("event-editor-source-type-select"),
+      );
+      for (const type of vocabularyTypes) {
+        const option = doc.createElement("option");
+        option.value = type.id;
+        option.textContent = type.label;
+        typeSelect.appendChild(option);
+      }
+      // A typeId a deleted link type left behind is valid data, not
+      // corruption (vocabulary.ts), and keeps its id across a save unless
+      // the user picks a different one - so the select needs an option for
+      // it even though the vocabulary itself no longer offers one.
+      if (!vocabularyTypes.some((type) => type.id === row.ref.typeId)) {
+        const unknownOption = doc.createElement("option");
+        unknownOption.value = row.ref.typeId;
+        unknownOption.textContent = UNKNOWN_TYPE_LABEL;
+        typeSelect.appendChild(unknownOption);
+      }
+      typeSelect.value = row.ref.typeId;
+      typeSelect.addEventListener("change", () => {
+        row.ref = { ...row.ref, typeId: typeSelect.value };
+      });
+      rowEl.appendChild(typeSelect);
+
+      // Always rendered, blank when unset, rather than a reveal/collapse
+      // toggle: the field exists for a distinction that applies to one pair
+      // and is low-stakes enough that a persistent empty slot is simpler
+      // than an extra control, and it keeps every row's shape identical
+      // whether or not the field is populated.
+      const nameInput = doc.createElement("input");
+      nameInput.type = "text";
+      nameInput.classList.add(SOURCE_NAME_INPUT_CLASS);
+      nameInput.setAttribute(
+        "data-l10n-id",
+        getLocaleID("event-editor-source-name-input"),
+      );
+      nameInput.value = row.ref.name ?? "";
+      nameInput.addEventListener("input", () => {
+        const name = nameInput.value.trim() || undefined;
+        row.ref = { ...row.ref, name };
+      });
+      rowEl.appendChild(nameInput);
+
+      const removeButton = doc.createElement("button");
+      removeButton.type = "button";
+      removeButton.classList.add(SOURCE_REMOVE_BUTTON_CLASS);
+      removeButton.setAttribute(
+        "data-l10n-id",
+        getLocaleID("event-editor-source-remove-button"),
+      );
+      removeButton.addEventListener("click", () => {
+        sources.splice(index, 1);
+        renderSources();
+      });
+      rowEl.appendChild(removeButton);
+    });
+  }
+  renderSources();
+
+  // Non-creating: opening the editor on an event that cites nothing yet
+  // must not scatter a vocabulary note into a library that never had one,
+  // the same restraint TASK-34's preference pane takes and for the same
+  // reason (see vocabulary.ts's peekVocabulary docblock).
+  const vocabularyReady = peekVocabulary(libraryID).then((result) => {
+    vocabularyTypes = result.types;
+    renderSources();
+  });
+
+  const addSourceButton = doc.createElement("button");
+  addSourceButton.type = "button";
+  addSourceButton.classList.add(SOURCE_ADD_BUTTON_CLASS);
+  addSourceButton.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-source-add-button"),
+  );
+  container.appendChild(addSourceButton);
+  addSourceButton.addEventListener("click", () => {
+    void (async () => {
+      sourceFeedback.textContent = "";
+      let item: Zotero.Item | null;
+      try {
+        item = await pickSource(libraryID);
+      } catch (err) {
+        sourceFeedback.textContent = (err as Error).message;
+        return;
+      }
+      if (!item) {
+        return;
+      }
+      await vocabularyReady;
+      const ref: SourceRef = {
+        kind: item.isNote() ? "note" : "item",
+        libraryID: item.libraryID,
+        key: item.key,
+        typeId: vocabularyTypes[0]?.id ?? "",
+      };
+      if (sources.some((row) => isSameSourceClaim(row.ref, ref))) {
+        sourceFeedback.textContent = `"${labelForItem(item)}" is already a source on this event with the same type and no name.`;
+        return;
+      }
+      sources.push({ ref, originalIndex: null });
+      renderSources();
+    })();
+  });
+
   const actions = doc.createElement("div");
   actions.classList.add(ACTIONS_CLASS);
   container.appendChild(actions);
@@ -488,18 +687,87 @@ export function renderEventEditor(
     void (async () => {
       try {
         const result = await updateTimelineDocument(
-          (current) =>
-            updateEvent(current, event.id, {
-              title: titleInput.value,
-              description: descriptionInput.value.trim()
-                ? descriptionInput.value
-                : undefined,
-              date: dateInput.value,
-              endDate: endDateInput.value.trim()
-                ? endDateInput.value
-                : undefined,
-              tags: tags.slice(),
-            }),
+          (current) => {
+            let next =
+              updateEvent(current, event.id, {
+                title: titleInput.value,
+                description: descriptionInput.value.trim()
+                  ? descriptionInput.value
+                  : undefined,
+                date: dateInput.value,
+                endDate: endDateInput.value.trim()
+                  ? endDateInput.value
+                  : undefined,
+                tags: tags.slice(),
+              }) ?? current;
+
+            // Updates first, while every original index is still valid since
+            // the array's length hasn't changed yet; removals next, highest
+            // index first, so removing one never shifts an index still to be
+            // processed; additions last, since they only ever append. This
+            // keeps every untouched source in place and reaches each of
+            // TASK-30's mutations at most once per row, all inside the one
+            // mutate call updateTimelineDocument turns into one note write.
+            for (const row of sources) {
+              if (row.originalIndex === null) {
+                continue;
+              }
+              const original = event.sources[row.originalIndex];
+              const changes: SourceEdits = {};
+              if (row.ref.typeId !== original.typeId) {
+                changes.typeId = row.ref.typeId;
+              }
+              if (row.ref.name !== original.name) {
+                changes.name = row.ref.name;
+              }
+              if (Object.keys(changes).length === 0) {
+                continue;
+              }
+              const updated = updateSource(
+                next,
+                event.id,
+                row.originalIndex,
+                changes,
+              );
+              if (updated) {
+                next = updated;
+              }
+            }
+
+            const keptIndices = new Set(
+              sources
+                .map((row) => row.originalIndex)
+                .filter((index): index is number => index !== null),
+            );
+            const removedIndices = event.sources
+              .map((_, index) => index)
+              .filter((index) => !keptIndices.has(index))
+              .sort((a, b) => b - a);
+            for (const index of removedIndices) {
+              const removed = removeSource(next, event.id, index);
+              if (removed) {
+                next = removed;
+              }
+            }
+
+            for (const row of sources) {
+              if (row.originalIndex !== null) {
+                continue;
+              }
+              const added = addSource(next, event.id, {
+                kind: row.ref.kind,
+                libraryID: row.ref.libraryID,
+                key: row.ref.key,
+                typeId: row.ref.typeId,
+                name: row.ref.name,
+              });
+              if (added) {
+                next = added;
+              }
+            }
+
+            return next === current ? null : next;
+          },
           documentId,
           libraryID,
         );

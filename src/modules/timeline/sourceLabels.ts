@@ -5,6 +5,7 @@
  * editor so any of them can label an item without pulling the others in
  * behind it.
  */
+import type { SourceRef } from "./schema";
 
 export const MISSING_ITEM_LABEL = "(missing item)";
 export const EMPTY_NOTE_LABEL = "(empty note)";
@@ -58,4 +59,16 @@ export function labelForItem(item: Zotero.Item): string {
   }
   const parent = Zotero.Items.get(parentID) as Zotero.Item | false;
   return parent ? `${preview} — ${parent.getDisplayTitle()}` : preview;
+}
+
+/**
+ * Labels a stored SourceRef by resolving it to the item it points at and
+ * naming that, rather than reading ref.kind: a ref can outlive what it
+ * points at being replaced, and the label should describe what is actually
+ * there. Missing is reachable in normal use, between an erase and the prune
+ * landing, and permanently in a group library the user has lost access to.
+ */
+export function labelForSource(ref: SourceRef): string {
+  const item = Zotero.Items.getByLibraryAndKey(ref.libraryID, ref.key);
+  return item ? labelForItem(item) : MISSING_ITEM_LABEL;
 }

@@ -16,7 +16,18 @@ import {
   TAG_INPUT_CLASS,
   TAG_REMOVE_BUTTON_CLASS,
   TITLE_INPUT_CLASS,
+  SOURCE_CLASS,
+  SOURCE_LABEL_TEXT_CLASS,
+  SOURCE_TYPE_SELECT_CLASS,
+  SOURCE_NAME_INPUT_CLASS,
+  SOURCE_REMOVE_BUTTON_CLASS,
+  SOURCE_ADD_BUTTON_CLASS,
 } from "../src/modules/timeline/eventEditor";
+import {
+  CURRENT_SCHEMA_VERSION,
+  DEFAULT_LINK_TYPES,
+} from "../src/modules/timeline/schema";
+import { UNKNOWN_TYPE_LABEL } from "../src/modules/timeline/vocabulary";
 import {
   canvasFixtureDocuments,
   createDocumentNote,
@@ -441,6 +452,409 @@ describe("event editor panel", function () {
       assert.isUndefined(
         updated.endDate,
         "an empty endDate field must clear the field, not save an empty string",
+      );
+    });
+  });
+
+  // selectItemsDialog is modal and cannot be opened in an automated run
+  // (sourcePicker.test.ts), so these stub Zotero.getMainWindow itself - a
+  // real Zotero global shared across the production and test bundles, unlike
+  // a local module import - to make openDialog hand back a chosen item
+  // synchronously, the same way a user's pick would.
+  describe("sources section", function () {
+    let extras: Zotero.Item[];
+
+    beforeEach(function () {
+      extras = [];
+    });
+
+    afterEach(async function () {
+      for (const item of extras) {
+        await item.eraseTx();
+      }
+    });
+
+    async function citableItem(title: string): Promise<Zotero.Item> {
+      const item = new Zotero.Item("document");
+      item.libraryID = libraryID;
+      item.setField("title", title);
+      await item.saveTx();
+      extras.push(item);
+      return item;
+    }
+
+    function stubPicker(item: Zotero.Item): () => void {
+      const original = Zotero.getMainWindow;
+      (Zotero as any).getMainWindow = () => ({
+        openDialog: (
+          _url: string,
+          _name: string,
+          _features: string,
+          io: { dataOut: number[] | null },
+        ) => {
+          io.dataOut = [item.id];
+        },
+      });
+      return () => {
+        (Zotero as any).getMainWindow = original;
+      };
+    }
+
+    function setValue(
+      doc: Document,
+      input: HTMLInputElement,
+      value: string,
+    ): void {
+      input.value = value;
+      input.dispatchEvent(
+        new (doc.defaultView as any).Event("input", { bubbles: true }),
+      );
+    }
+
+    it("renders no rows and an add control when the event has no sources", async function () {
+      const { panel, timeline } = await openPanel();
+      timeline.setSelection(["doc-sources:ev-truce"]);
+      await Zotero.Promise.delay(500);
+
+      assert.lengthOf(panel.querySelectorAll(`.${SOURCE_CLASS}`), 0);
+      const addButton = panel.querySelector(
+        `.${SOURCE_ADD_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      assert.ok(addButton, "no add-source control rendered");
+      assert.isTrue(addButton.hasAttribute("data-l10n-id"));
+    });
+
+    it("adds a source through the picker without writing, then Save writes it", async function () {
+      const { panel, timeline } = await openPanel();
+      timeline.setSelection(["doc-sources:ev-truce"]);
+      await Zotero.Promise.delay(500);
+
+      const item = await citableItem("A cited work");
+      const restore = stubPicker(item);
+      try {
+        const addButton = panel.querySelector(
+          `.${SOURCE_ADD_BUTTON_CLASS}`,
+        ) as HTMLButtonElement;
+        addButton.click();
+        await Zotero.Promise.delay(800);
+      } finally {
+        restore();
+      }
+
+      const rows = panel.querySelectorAll(`.${SOURCE_CLASS}`);
+      assert.lengthOf(rows, 1, "adding through the picker did not add a row");
+      assert.equal(
+        rows[0].querySelector(`.${SOURCE_LABEL_TEXT_CLASS}`)!.textContent,
+        "A cited work",
+      );
+
+      let { timelines } = await listTimelines(libraryID);
+      let stored = timelines
+        .find((t) => t.doc.id === "doc-sources")!
+        .doc.events.find((e) => e.id === "ev-truce")!;
+      assert.lengthOf(
+        stored.sources,
+        0,
+        "adding through the picker wrote before Save was clicked",
+      );
+
+      const saveButton = panel.querySelector(
+        `.${SAVE_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      saveButton.click();
+      await Zotero.Promise.delay(800);
+
+      ({ timelines } = await listTimelines(libraryID));
+      stored = timelines
+        .find((t) => t.doc.id === "doc-sources")!
+        .doc.events.find((e) => e.id === "ev-truce")!;
+      assert.lengthOf(stored.sources, 1);
+      assert.deepEqual(stored.sources[0], {
+        kind: "item",
+        libraryID,
+        key: item.key,
+        typeId: DEFAULT_LINK_TYPES[0].id,
+      });
+    });
+
+    // AC #2
+    it("keeps a row's typeId across a save when it resolves to no type", async function () {
+      const item = await citableItem("A cited work");
+      await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-unknown-type",
+        name: "Unknown type fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: item.key, typeId: "made-up" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+
+      const { panel, timeline } = await openPanel();
+      timeline.setSelection(["doc-unknown-type:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      const typeSelect = panel.querySelector(
+        `.${SOURCE_TYPE_SELECT_CLASS}`,
+      ) as HTMLSelectElement;
+      assert.equal(typeSelect.value, "made-up");
+      const selectedOption = typeSelect.options[typeSelect.selectedIndex];
+      assert.equal(selectedOption.textContent, UNKNOWN_TYPE_LABEL);
+
+      const saveButton = panel.querySelector(
+        `.${SAVE_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      saveButton.click();
+      await Zotero.Promise.delay(800);
+
+      const { timelines } = await listTimelines(libraryID);
+      const updated = timelines
+        .find((t) => t.doc.id === "doc-unknown-type")!
+        .doc.events.find((e) => e.id === "ev-1")!;
+      assert.equal(updated.sources[0].typeId, "made-up");
+    });
+
+    // AC #7
+    it("writes a row's new type on Save and rewrites nothing else on the event", async function () {
+      const item = await citableItem("A cited work");
+      await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-retype",
+        name: "Retype fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: item.key, typeId: "cites" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+
+      const { panel, doc, timeline } = await openPanel();
+      timeline.setSelection(["doc-retype:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      const typeSelect = panel.querySelector(
+        `.${SOURCE_TYPE_SELECT_CLASS}`,
+      ) as HTMLSelectElement;
+      typeSelect.value = "supports";
+      typeSelect.dispatchEvent(
+        new (doc.defaultView as any).Event("change", { bubbles: true }),
+      );
+
+      const saveButton = panel.querySelector(
+        `.${SAVE_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      saveButton.click();
+      await Zotero.Promise.delay(800);
+
+      const { timelines } = await listTimelines(libraryID);
+      const updated = timelines
+        .find((t) => t.doc.id === "doc-retype")!
+        .doc.events.find((e) => e.id === "ev-1")!;
+      assert.lengthOf(updated.sources, 1);
+      assert.deepEqual(updated.sources[0], {
+        kind: "item",
+        libraryID,
+        key: item.key,
+        typeId: "supports",
+      });
+      assert.equal(
+        updated.title,
+        "An event",
+        "a type-only change must not rewrite the rest of the event",
+      );
+    });
+
+    // AC #8
+    it("saves a free-text name, and clearing it removes the key rather than storing an empty string", async function () {
+      const item = await citableItem("A cited work");
+      await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-name",
+        name: "Name fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: item.key, typeId: "cites" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+
+      const { panel, doc, timeline } = await openPanel();
+      timeline.setSelection(["doc-name:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      let nameInput = panel.querySelector(
+        `.${SOURCE_NAME_INPUT_CLASS}`,
+      ) as HTMLInputElement;
+      setValue(doc, nameInput, "Primary account");
+
+      let saveButton = panel.querySelector(
+        `.${SAVE_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      saveButton.click();
+      await Zotero.Promise.delay(800);
+
+      let { timelines } = await listTimelines(libraryID);
+      let updated = timelines
+        .find((t) => t.doc.id === "doc-name")!
+        .doc.events.find((e) => e.id === "ev-1")!;
+      assert.equal(updated.sources[0].name, "Primary account");
+
+      timeline.setSelection([]);
+      await Zotero.Promise.delay(300);
+      timeline.setSelection(["doc-name:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      nameInput = panel.querySelector(
+        `.${SOURCE_NAME_INPUT_CLASS}`,
+      ) as HTMLInputElement;
+      assert.equal(nameInput.value, "Primary account");
+      setValue(doc, nameInput, "");
+
+      saveButton = panel.querySelector(
+        `.${SAVE_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      saveButton.click();
+      await Zotero.Promise.delay(800);
+
+      ({ timelines } = await listTimelines(libraryID));
+      updated = timelines
+        .find((t) => t.doc.id === "doc-name")!
+        .doc.events.find((e) => e.id === "ev-1")!;
+      assert.isUndefined(
+        updated.sources[0].name,
+        "clearing the name must remove the key, not store an empty string",
+      );
+    });
+
+    // AC #9
+    it("drops a removed row on Save and leaves every other source in order", async function () {
+      const itemA = await citableItem("Source A");
+      const itemB = await citableItem("Source B");
+      await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-remove",
+        name: "Remove fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: itemA.key, typeId: "cites" },
+              { kind: "item", libraryID, key: itemB.key, typeId: "supports" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+
+      const { panel, timeline } = await openPanel();
+      timeline.setSelection(["doc-remove:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      const removeButtons = panel.querySelectorAll(
+        `.${SOURCE_REMOVE_BUTTON_CLASS}`,
+      );
+      assert.lengthOf(removeButtons, 2);
+      (removeButtons[0] as HTMLButtonElement).click();
+
+      const saveButton = panel.querySelector(
+        `.${SAVE_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      saveButton.click();
+      await Zotero.Promise.delay(800);
+
+      const { timelines } = await listTimelines(libraryID);
+      const updated = timelines
+        .find((t) => t.doc.id === "doc-remove")!
+        .doc.events.find((e) => e.id === "ev-1")!;
+      assert.lengthOf(updated.sources, 1);
+      assert.deepEqual(updated.sources[0], {
+        kind: "item",
+        libraryID,
+        key: itemB.key,
+        typeId: "supports",
+      });
+    });
+
+    // AC #10
+    it("leaves the stored document byte-identical when the panel is abandoned after adding, retyping and removing a source", async function () {
+      const item = await citableItem("A cited work");
+      const note = await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-abandon",
+        name: "Abandon fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: item.key, typeId: "cites" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+      const before = note.getNote();
+
+      const { panel, doc, timeline } = await openPanel();
+      timeline.setSelection(["doc-abandon:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      const typeSelect = panel.querySelector(
+        `.${SOURCE_TYPE_SELECT_CLASS}`,
+      ) as HTMLSelectElement;
+      typeSelect.value = "supports";
+      typeSelect.dispatchEvent(
+        new (doc.defaultView as any).Event("change", { bubbles: true }),
+      );
+
+      const other = await citableItem("Another work");
+      const restore = stubPicker(other);
+      try {
+        const addButton = panel.querySelector(
+          `.${SOURCE_ADD_BUTTON_CLASS}`,
+        ) as HTMLButtonElement;
+        addButton.click();
+        await Zotero.Promise.delay(800);
+      } finally {
+        restore();
+      }
+
+      const removeButtons = panel.querySelectorAll(
+        `.${SOURCE_REMOVE_BUTTON_CLASS}`,
+      );
+      assert.lengthOf(removeButtons, 2, "the added row did not render");
+      (removeButtons[removeButtons.length - 1] as HTMLButtonElement).click();
+
+      timeline.setSelection([]);
+      await Zotero.Promise.delay(500);
+
+      await note.reload(["note"], true);
+      assert.equal(
+        note.getNote(),
+        before,
+        "abandoning the panel after add/retype/remove rewrote the note",
       );
     });
   });

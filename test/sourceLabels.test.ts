@@ -1,7 +1,9 @@
 import { assert } from "chai";
 import {
   EMPTY_NOTE_LABEL,
+  MISSING_ITEM_LABEL,
   labelForItem,
+  labelForSource,
 } from "../src/modules/timeline/sourceLabels";
 import { eraseAllPluginItems } from "./support-pluginItems";
 
@@ -86,5 +88,32 @@ describe("sourceLabels: naming a picked source", function () {
       labelForItem(item),
       "a note under the parent — Truce negotiations",
     );
+  });
+
+  describe("labelForSource: resolving a stored ref", function () {
+    it("resolves a ref to the item it points at, the same as labelForItem", async function () {
+      const item = await regularItem("Union of Utrecht");
+      assert.equal(
+        labelForSource({
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        }),
+        "Union of Utrecht",
+      );
+    });
+
+    it("names a ref whose item is gone as missing", async function () {
+      assert.equal(
+        labelForSource({
+          kind: "item",
+          libraryID,
+          key: "MISSING1",
+          typeId: "cites",
+        }),
+        MISSING_ITEM_LABEL,
+      );
+    });
   });
 });
