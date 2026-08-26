@@ -1,7 +1,9 @@
 // No Zotero.* call and no window access anywhere in this file - these
 // mutations are pure, and this spec is what proves it, even though it still
 // runs inside this project's Zotero-hosted Mocha suite (there is no separate
-// non-Zotero runner here).
+// non-Zotero runner here). Every source below is built from plain data - kind,
+// libraryID, key, typeId, name - never a Zotero.Item, because addSource and
+// updateSource never ask for one.
 import { assert } from "chai";
 import {
   CURRENT_SCHEMA_VERSION,
@@ -10,9 +12,12 @@ import {
 } from "../src/modules/timeline/schema";
 import {
   addEvent,
+  addSource,
   mintEventId,
   removeEvent,
+  removeSource,
   updateEvent,
+  updateSource,
 } from "../src/modules/timeline/mutations";
 
 function fixtureDocument(): TimelineDocument {
@@ -173,6 +178,206 @@ describe("mutations", function () {
 
     it("returns null for an event id the document does not have", function () {
       const result = removeEvent(fixtureDocument(), "no-such-event");
+      assert.isNull(result);
+    });
+  });
+
+  describe("addSource", function () {
+    it("appends a SourceRef and returns a new document, leaving the input untouched", function () {
+      const doc = fixtureDocument();
+      const before = serializeDocument(doc);
+
+      const result = addSource(doc, "e-1", {
+        kind: "item",
+        libraryID: 1,
+        key: "ABCD1234",
+        typeId: "supports",
+        name: "Primary account",
+      });
+
+      assert.isNotNull(result);
+      if (result === null) return;
+      const event = result.events.find((e) => e.id === "e-1");
+      assert.deepEqual(event!.sources, [
+        {
+          kind: "item",
+          libraryID: 1,
+          key: "ABCD1234",
+          typeId: "supports",
+          name: "Primary account",
+        },
+      ]);
+
+      // The input document is untouched: addSource is pure.
+      assert.equal(serializeDocument(doc), before);
+      assert.deepEqual(
+        result.events.find((e) => e.id === "e-2"),
+        doc.events[1],
+      );
+    });
+
+    it("returns null for an event id the document does not have", function () {
+      const result = addSource(fixtureDocument(), "no-such-event", {
+        kind: "item",
+        libraryID: 1,
+        key: "ABCD1234",
+        typeId: "supports",
+      });
+      assert.isNull(result);
+    });
+
+    it("refuses an exact duplicate, but accepts one differing in typeId or in name", function () {
+      const doc = fixtureDocument();
+      const ref = {
+        kind: "item" as const,
+        libraryID: 1,
+        key: "ABCD1234",
+        typeId: "supports",
+        name: "Primary account",
+      };
+      const withFirst = addSource(doc, "e-1", ref);
+      assert.isNotNull(withFirst);
+      if (withFirst === null) return;
+
+      // Same kind, key, typeId and name: refused.
+      assert.isNull(addSource(withFirst, "e-1", { ...ref }));
+
+      // Differs in typeId only: accepted.
+      const differentType = addSource(withFirst, "e-1", {
+        ...ref,
+        typeId: "contradicts",
+      });
+      assert.isNotNull(differentType);
+
+      // Differs in name only: accepted.
+      const differentName = addSource(withFirst, "e-1", {
+        ...ref,
+        name: "Secondary account",
+      });
+      assert.isNotNull(differentName);
+    });
+  });
+
+  describe("updateSource", function () {
+    function fixtureWithSource(): TimelineDocument {
+      const withSource = addSource(fixtureDocument(), "e-1", {
+        kind: "item",
+        libraryID: 1,
+        key: "ABCD1234",
+        typeId: "supports",
+        name: "Primary account",
+      });
+      if (withSource === null) throw new Error("fixture setup failed");
+      return withSource;
+    }
+
+    it("changes typeId and name on the addressed source only", function () {
+      const doc = fixtureWithSource();
+
+      const result = updateSource(doc, "e-1", 0, {
+        typeId: "contradicts",
+        name: "Revised account",
+      });
+
+      assert.isNotNull(result);
+      if (result === null) return;
+      const source = result.events.find((e) => e.id === "e-1")!.sources[0];
+      assert.equal(source.typeId, "contradicts");
+      assert.equal(source.name, "Revised account");
+      assert.equal(source.kind, "item");
+      assert.equal(source.key, "ABCD1234");
+    });
+
+    it("returns null when nothing changed", function () {
+      const doc = fixtureWithSource();
+      const result = updateSource(doc, "e-1", 0, {
+        typeId: "supports",
+        name: "Primary account",
+      });
+      assert.isNull(result);
+    });
+
+    it("returns null for an event id the document does not have", function () {
+      const result = updateSource(fixtureWithSource(), "no-such-event", 0, {
+        typeId: "contradicts",
+      });
+      assert.isNull(result);
+    });
+
+    it("returns null for an index the event does not have", function () {
+      const result = updateSource(fixtureWithSource(), "e-1", 1, {
+        typeId: "contradicts",
+      });
+      assert.isNull(result);
+    });
+
+    it("omits a cleared name rather than setting it to undefined", function () {
+      const doc = fixtureWithSource();
+
+      const result = updateSource(doc, "e-1", 0, { name: undefined });
+
+      assert.isNotNull(result);
+      if (result === null) return;
+      const changedEvent = result.events.find((e) => e.id === "e-1")!;
+      // Literal that never mentions "name" at all - a key the parser would
+      // treat differently from one present with value undefined.
+      assert.equal(
+        serializeDocument({ ...result, events: [changedEvent] }),
+        serializeDocument({
+          ...result,
+          events: [
+            {
+              ...changedEvent,
+              sources: [
+                {
+                  kind: "item",
+                  libraryID: 1,
+                  key: "ABCD1234",
+                  typeId: "supports",
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      assert.notProperty(changedEvent.sources[0], "name");
+    });
+  });
+
+  describe("removeSource", function () {
+    function fixtureWithSource(): TimelineDocument {
+      const withSource = addSource(fixtureDocument(), "e-1", {
+        kind: "item",
+        libraryID: 1,
+        key: "ABCD1234",
+        typeId: "supports",
+      });
+      if (withSource === null) throw new Error("fixture setup failed");
+      return withSource;
+    }
+
+    it("drops the addressed source and nothing else", function () {
+      const doc = fixtureWithSource();
+
+      const result = removeSource(doc, "e-1", 0);
+
+      assert.isNotNull(result);
+      if (result === null) return;
+      assert.deepEqual(result.events.find((e) => e.id === "e-1")!.sources, []);
+      assert.deepEqual(
+        result.events.find((e) => e.id === "e-2"),
+        doc.events[1],
+      );
+    });
+
+    it("returns null when the index names none", function () {
+      const doc = fixtureWithSource();
+      assert.isNull(removeSource(doc, "e-1", 1));
+      assert.isNull(removeSource(doc, "e-1", -1));
+    });
+
+    it("returns null for an event id the document does not have", function () {
+      const result = removeSource(fixtureWithSource(), "no-such-event", 0);
       assert.isNull(result);
     });
   });

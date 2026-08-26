@@ -1,9 +1,13 @@
 /**
  * Pure in-memory operations on a TimelineDocument: add, update and remove an
- * event, and mint an event id unique within one document. No Zotero import
- * and no write - every export here is a valid `mutate` callback for
- * updateTimelineDocument, which is what keeps one edit to one note and keeps
- * the write path's read-modify-write honest.
+ * event or a source on one event, and mint an event id unique within one
+ * document. No Zotero import and no write - every export here is a valid
+ * `mutate` callback for updateTimelineDocument, which is what keeps one edit
+ * to one note and keeps the write path's read-modify-write honest.
+ *
+ * A source is addressed by its index within `event.sources` rather than by an
+ * id: a SourceRef has no id in project/data-model.md, and adding one would be
+ * a change to that file rather than a local convenience.
  *
  * Mirrors zoteroMindmap's mutations.ts, including its central rule: removing
  * an object and leaving a reference to it is the one way a document goes
@@ -19,7 +23,7 @@
  * mentions the field, and documentCache tells a write's own notifier echo
  * from a real edit by comparing serialised strings.
  */
-import type { Event, TimelineDocument } from "./schema";
+import type { Event, SourceRef, TimelineDocument } from "./schema";
 
 /**
  * A random id, retried until it doesn't collide with an id already in `doc`.
@@ -119,5 +123,132 @@ export function removeEvent(
   if (events.length === doc.events.length) {
     return null;
   }
+  return { ...doc, events };
+}
+
+export type SourceInput = {
+  kind: "item" | "note";
+  libraryID: number;
+  key: string;
+  typeId: string;
+  name?: string;
+};
+
+/**
+ * Whether two source refs make the same claim: same target, same type, same
+ * free-text name. `libraryID` identifies what a ref resolves to but is not
+ * part of what makes an add a duplicate - see the duplicates decision in
+ * project/backlog/plans/2026-08-22-m-3-source-links.md.
+ */
+function isSameClaim(
+  a: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
+  b: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
+): boolean {
+  return (
+    a.kind === b.kind &&
+    a.key === b.key &&
+    a.typeId === b.typeId &&
+    a.name === b.name
+  );
+}
+
+/**
+ * Appends a SourceRef to the named event. Returns null when `eventId` does
+ * not name an event in `doc`, or when `input` exactly duplicates a source
+ * already on that event (same kind, key, typeId and name). A ref differing in
+ * typeId or in name is a distinct claim and is allowed: one item can be both
+ * the primary source for an event and the thing the argument contradicts.
+ */
+export function addSource(
+  doc: TimelineDocument,
+  eventId: string,
+  input: SourceInput,
+): TimelineDocument | null {
+  const index = doc.events.findIndex((event) => event.id === eventId);
+  if (index === -1) {
+    return null;
+  }
+  const event = doc.events[index];
+  const source: SourceRef = {
+    kind: input.kind,
+    libraryID: input.libraryID,
+    key: input.key,
+    typeId: input.typeId,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+  };
+  if (event.sources.some((existing) => isSameClaim(existing, source))) {
+    return null;
+  }
+  const events = doc.events.slice();
+  events[index] = { ...event, sources: [...event.sources, source] };
+  return { ...doc, events };
+}
+
+export type SourceEdits = {
+  typeId?: string;
+  name?: string;
+};
+
+/**
+ * Applies `changes` to the source at `index` on the named event; every other
+ * source, and every other event, is untouched. A `name` key present in
+ * `changes` with value `undefined` clears it; a key absent from `changes`
+ * leaves the current value alone.
+ *
+ * Returns null when `eventId` does not name an event, when `index` does not
+ * name a source on it, or when the named source is byte-identical after
+ * applying `changes` - so a no-op edit never reaches updateTimelineDocument's
+ * write.
+ */
+export function updateSource(
+  doc: TimelineDocument,
+  eventId: string,
+  index: number,
+  changes: SourceEdits,
+): TimelineDocument | null {
+  const eventIndex = doc.events.findIndex((event) => event.id === eventId);
+  if (eventIndex === -1) {
+    return null;
+  }
+  const event = doc.events[eventIndex];
+  const current = event.sources[index];
+  if (current === undefined) {
+    return null;
+  }
+  const updated: SourceRef = { ...current, ...changes };
+  if ("name" in changes && changes.name === undefined) {
+    delete updated.name;
+  }
+  if (JSON.stringify(updated) === JSON.stringify(current)) {
+    return null;
+  }
+  const sources = event.sources.slice();
+  sources[index] = updated;
+  const events = doc.events.slice();
+  events[eventIndex] = { ...event, sources };
+  return { ...doc, events };
+}
+
+/**
+ * Drops the source at `index` on the named event, and nothing else. Returns
+ * null when `eventId` does not name an event in `doc`, or when `index` does
+ * not name a source on it.
+ */
+export function removeSource(
+  doc: TimelineDocument,
+  eventId: string,
+  index: number,
+): TimelineDocument | null {
+  const eventIndex = doc.events.findIndex((event) => event.id === eventId);
+  if (eventIndex === -1) {
+    return null;
+  }
+  const event = doc.events[eventIndex];
+  const sources = event.sources.filter((_, i) => i !== index);
+  if (sources.length === event.sources.length) {
+    return null;
+  }
+  const events = doc.events.slice();
+  events[eventIndex] = { ...event, sources };
   return { ...doc, events };
 }
