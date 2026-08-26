@@ -444,6 +444,14 @@ export async function openTimelineTab(): Promise<void> {
     const row = el(doc, "div");
     row.classList.add(SIDEBAR_ROW_CLASS);
     row.setAttribute("data-timeline-id", group.id);
+    // tabindex="0" rather than an incrementing value: the rows are already in
+    // the drawn order in the DOM, so tab order follows it for free, and a
+    // hand-numbered sequence would only be a second order to keep in sync
+    // with the first. This is the row itself as its own stop - the checkbox
+    // and the move buttons inside it keep their own default tab stops, so
+    // nothing here traps or steals them. No keydown handler is attached: this
+    // row is reachable by keyboard, not yet activatable by it.
+    row.tabIndex = 0;
 
     const label = el(doc, "label");
     label.classList.add(SIDEBAR_ROW_LABEL_CLASS);

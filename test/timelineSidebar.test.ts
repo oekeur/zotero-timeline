@@ -192,4 +192,56 @@ describe("timeline sidebar: visibility and order", function () {
       "the prompt stayed after a timeline was toggled back on",
     );
   });
+
+  // TASK-16 attaches Enter/Space activation to these rows through
+  // data-timeline-id; this only guards the property it depends on existing -
+  // that a row is a real tab stop, in the order it is drawn.
+  it("each sidebar row is keyboard-focusable, in the order the rows are drawn", async function () {
+    const { doc, sidebar } = await openSidebar();
+    await Zotero.Promise.delay(500);
+
+    const rows = Array.from(
+      sidebar.querySelectorAll(
+        ".zoterotimeline-sidebar-row:not(.zoterotimeline-sidebar-row-unreadable)",
+      ),
+    ) as HTMLElement[];
+    assert.deepEqual(
+      rows.map((row) => row.getAttribute("data-timeline-id")),
+      ["doc-revolt", "doc-sources"],
+      "rows are not drawn in the visible order",
+    );
+
+    for (const row of rows) {
+      assert.equal(
+        row.tabIndex,
+        0,
+        `${row.outerHTML} is not a keyboard tab stop`,
+      );
+    }
+
+    rows[0].focus();
+    assert.equal(
+      doc.activeElement,
+      rows[0],
+      "focus() did not land on the first row",
+    );
+    rows[1].focus();
+    assert.equal(
+      doc.activeElement,
+      rows[1],
+      "focus() did not land on the second row",
+    );
+
+    // The checkbox and move buttons inside the row keep their own stops -
+    // the row is not a focus trap around them.
+    const checkbox = rows[0].querySelector(
+      ".zoterotimeline-sidebar-row-visible",
+    ) as HTMLInputElement;
+    checkbox.focus();
+    assert.equal(
+      doc.activeElement,
+      checkbox,
+      "the row swallowed focus meant for its own checkbox",
+    );
+  });
 });

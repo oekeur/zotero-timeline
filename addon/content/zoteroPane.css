@@ -84,6 +84,20 @@
   padding: 2px 0;
 }
 
+/*
+ * Zotero's own focus ring, not the browser default outline: the double-ring
+ * shape (an outer border plus an inset box-shadow) and every dimension come
+ * from Zotero's own tokens, so it matches the ring Zotero draws around its
+ * own inputs on every platform and theme rather than inventing a fourth one.
+ * :focus-visible rather than :focus so a mouse click on the row does not draw
+ * a ring a pointer user never asked for.
+ */
+.zoterotimeline-sidebar-row:focus-visible {
+  outline: var(--color-focus-outer-border) solid var(--width-focus-outer-border);
+  outline-offset: var(--width-focus-border);
+  box-shadow: 0 0 0 var(--width-focus-border) var(--color-focus-border);
+}
+
 .zoterotimeline-sidebar-row-label {
   display: flex;
   align-items: center;
