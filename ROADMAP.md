@@ -31,7 +31,8 @@ click-empty-canvas to create. So m-4 is half built and out of order.
 
 What is left of m-4 is therefore smaller and differently shaped than its
 milestone description implies: telling the EDTF forms apart on the canvas,
-parking an unreadable date, the visibility and ordering sidebar, read-only mode,
+parking an unreadable date, the visibility and ordering sidebar, the active
+timeline that makes an edit's target legible, permission-based read-only,
 navigation chrome, the Tools entry and its shortcut, live refresh, and R13.
 `project/backlog/plans/2026-08-22-m-4-combined-view.md` lists what already
 exists so none of it is rebuilt.
@@ -50,7 +51,6 @@ by number rather than by the order the work happens in.
 | m-3     | Source links                | 0.1.0            |
 | m-4     | Combined view               | 0.1.0            |
 | m-5     | Timeline management         | 0.1.0            |
-| TASK-16 | Cross-timeline editing      | 0.2.0            |
 | m-6     | Item pane section           | 0.2.0            |
 | m-8     | Library context menu        | 0.3.0            |
 | m-7     | Tags and filtering          | 0.3.0            |
@@ -62,9 +62,10 @@ Which of these are done is a tracker question, not a roadmap one.
 ## 0.1.0: m-1 through m-5
 
 Storage, event authoring with EDTF dates, source links, the combined view, and
-timeline management. One canvas that renders every open timeline, accepting
-edits while exactly one is toggled on and going read-only with the reason shown
-when a second joins it.
+timeline management. One canvas that renders every open timeline and accepts
+edits on any of them, with one lane active at a time so a gesture's target is
+on screen before it is made. Read-only is left for the one case that earns it,
+a library the user cannot write, with the reason shown.
 
 ### m-1, the storage layer
 
@@ -94,18 +95,19 @@ soon as anything was drawn at all. The build order went the other way, so the
 canvas draws today with the clipping unaddressed. R13 is an open defect on a
 live surface rather than a property guaranteed by ordering.
 
-## 0.2.0: finish the combined view
+## 0.2.0: the item pane section
 
-TASK-16, cross-timeline editing, is the deferred half of the headline feature,
-and the charter puts it after v1 deliberately: it is the one place where an
-error writes an edit into the wrong timeline and looks like it worked, so it
-lands against a real chronology rather than a fixture. The 0.1.0 cycle is what
-produces that chronology, which is why this is the first release after it and
-not the last.
+Cross-timeline editing used to sit here, as the deferred half of the headline
+feature. It moved into 0.1.0 on 2026-08-26, once reading `canvas.ts` showed the
+hazard it was deferred for was already closed: every write derives its target
+document from the namespaced id, so attributing an edit never depended on how
+many timelines were drawn. What was left was making the target legible, which
+is the active timeline, and that belongs beside the canvas it acts on.
 
-m-6, the item pane section, rides along because it is small. It adds a reader
-over the parse cache that m-1 already ships, not an index, so the cost is the
-section chrome and the read timing.
+m-6, the item pane section, is what is left here. It adds a reader over the
+parse cache that m-1 already ships, not an index, so the cost is the section
+chrome and the read timing. It answers "which events cite this item" from the
+item pane, which is the question a reading session asks and the tab cannot.
 
 ## 0.3.0: more ways in
 

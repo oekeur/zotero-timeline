@@ -54,9 +54,20 @@ for, and related to. You can rename, add and remove types; see
 list is kept.
 
 **The combined view.** Toggle a second timeline on and both are drawn on the
-same axis. With more than one timeline visible the canvas becomes read-only,
-and says so, because an edit made across merged timelines has to be attributed
-back to exactly one document.
+same axis, and both stay editable. One timeline is active at a time: it is the
+one your edits land on, and it is marked on the canvas so you can see where a
+drag will go before you make it. Click a lane, an event in it, or its row in the
+sidebar to make that timeline active. Toggling a timeline on does not steal the
+active mark, so you can bring a second chronology up for reference without
+losing your place.
+
+Dragging an event from one lane into another does nothing on purpose. Moving an
+event between timelines is a delete and a create rather than an edit, so it goes
+through Duplicate in the event editor, which asks you where it should land.
+
+The canvas goes read-only in one case: a library you can read but not write, a
+group library shared with you being the usual one. It says so on the surface
+rather than leaving you to work it out from controls that do nothing.
 
 ## Where your data goes
 
