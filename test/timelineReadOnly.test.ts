@@ -135,7 +135,23 @@ describe("read-only when the library cannot be written", function () {
       Zotero.Libraries.get = originalGet;
     }
 
+    // closeTimelineTab clears the tab id synchronously but Zotero_Tabs.close
+    // does not take the old container out of the document in the same turn.
+    // This assertion queries the whole document, so reopening immediately can
+    // match the banner belonging to the tab just closed. Wait for the old one
+    // to actually go before building the writable tab to assert against.
+    const winBefore = Zotero.getMainWindows()[0] as any;
     (Zotero as any).ZoteroTimeline.api.closeTimelineTab();
+    await waitFor(
+      () =>
+        (winBefore.document as Document).querySelector(
+          `.${READ_ONLY_BANNER_CLASS}`,
+        )
+          ? null
+          : true,
+      "the closed tab's read-only banner to leave the document",
+    );
+
     const { doc } = await openTab();
     assert.notOk(
       doc.querySelector(`.${READ_ONLY_BANNER_CLASS}`),
