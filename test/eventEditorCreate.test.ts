@@ -176,7 +176,22 @@ describe("event creation through the typed form", function () {
     // Same default title the canvas click gesture writes for a blank title -
     // proves the two routes produce the same stored result on equivalent
     // (here: absent) input.
+    //
+    // The typed create above selected the new doc-sources event, which
+    // activated doc-sources (TASK-16) - doc-revolt is no longer the active
+    // lane, so the first click below only activates it (AC7) and a second
+    // click, now that it is active, is what actually creates.
     const revoltBeforeIds = new Set(["ev-fury", "ev-utrecht"]);
+    timeline.emit("click", {
+      item: null,
+      group: "doc-revolt",
+      time: new Date(Date.UTC(1580, 6, 13)),
+    });
+    await waitFor(
+      () =>
+        (Zotero as any).ZoteroTimeline.api.getActiveTimeline() === "doc-revolt",
+      "the priming click to activate doc-revolt",
+    );
     timeline.emit("click", {
       item: null,
       group: "doc-revolt",
