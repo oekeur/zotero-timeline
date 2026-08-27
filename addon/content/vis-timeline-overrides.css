@@ -156,6 +156,49 @@
   border: var(--material-border);
 }
 
+/* ---------- EDTF form stylings ---------- */
+
+/*
+ * Five stylings for seven EDTF forms (season draws as interval, list draws as
+ * one-of - both pairs make the same claim about what's known about the
+ * date). Two independent axes keep the five pairwise distinguishable without
+ * spending colour on a fixed, non-user-editable vocabulary: border style says
+ * how certain the date itself is (solid unless qualified), fill says whether
+ * the box claims a continuous span or one of several discrete candidates.
+ * Plain keeps the base look defined above - no rule of its own.
+ */
+
+.zoterotimeline-canvas .vis-item.zt-uncertain {
+  border-style: dashed;
+}
+
+.zoterotimeline-canvas .vis-item.zt-approximate {
+  border-style: dotted;
+}
+
+/*
+ * An interval or a season claims one continuous span, so it draws with a
+ * heavier, unbroken fill than the plain look.
+ */
+.zoterotimeline-canvas .vis-item.zt-interval {
+  background-color: var(--fill-quarternary);
+}
+
+/*
+ * A one-of set or a list claims one of several discrete candidates, not a
+ * continuous span - the hatch reads as "not fully filled in" against the
+ * interval styling's solid fill.
+ */
+.zoterotimeline-canvas .vis-item.zt-one-of {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--fill-quarternary) 0,
+    var(--fill-quarternary) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
 /* ---------- Markers ---------- */
 
 /*

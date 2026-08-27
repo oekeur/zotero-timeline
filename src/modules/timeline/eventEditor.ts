@@ -36,10 +36,13 @@
  * the vocabulary is valid data, not corruption, and is never rewritten just
  * for resolving to nothing.
  */
-import edtf from "edtf";
 import { getLocaleID, getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
-import { toTimelineRange, type TimelineRange } from "../../utils/edtfRange";
+import {
+  toTimelineRange,
+  type EdtfForm,
+  type TimelineRange,
+} from "../../utils/edtfRange";
 import {
   addEvent,
   addSource,
@@ -113,10 +116,8 @@ export const CREATE_DATE_FEEDBACK_CLASS =
   "zoterotimeline-event-create-date-feedback";
 export const CREATE_BUTTON_CLASS = "zoterotimeline-event-create";
 
-// One Fluent id per EDTF form edtf@4.11.1 can report via `.type` (plus
-// uncertain/approximate, which share type "Date" with the plain form and are
-// told apart only by their qualifiers).
-const DATE_FORM_LOCALE_IDS: Record<string, FluentMessageId> = {
+// One Fluent id per EDTF form edtfRange.ts's formOf can report.
+const DATE_FORM_LOCALE_IDS: Record<EdtfForm, FluentMessageId> = {
   plain: "event-editor-date-form-plain",
   uncertain: "event-editor-date-form-uncertain",
   approximate: "event-editor-date-form-approximate",
@@ -125,42 +126,6 @@ const DATE_FORM_LOCALE_IDS: Record<string, FluentMessageId> = {
   season: "event-editor-date-form-season",
   list: "event-editor-date-form-list",
 };
-
-function formOf(
-  type: string,
-  uncertain: boolean,
-  approximate: boolean,
-): string {
-  // The test bundler's scope hoisting renames some of edtf's classes to avoid
-  // colliding with an identically-named binding elsewhere in the bundle
-  // ("Date" collides with the global; "Set" doesn't and is left alone) -
-  // `.type` is `this.constructor.name`, so it inherits whatever name survived
-  // that pass. Verified empirically against the live bundle: "Date" comes
-  // back "_Date", "Interval" comes back "_Interval", "Set" comes back "Set"
-  // unchanged. Stripping a leading underscore is exact for every case seen
-  // and a no-op for every case that isn't.
-  const normalized = type.replace(/^_+/, "");
-  switch (normalized) {
-    case "Date":
-      if (uncertain) return "uncertain";
-      if (approximate) return "approximate";
-      return "plain";
-    case "Interval":
-      return "interval";
-    // EDTF Level 2's square-bracket notation ("[1580,1590]", "[1580..1590]")
-    // parses to type "Set": a discrete list of candidate dates, not a
-    // continuous span, even though toTimelineRange maps both onto a similar
-    // start/end for drawing.
-    case "Set":
-      return "one-of";
-    case "Season":
-      return "season";
-    case "List":
-      return "list";
-    default:
-      return normalized;
-  }
-}
 
 function formatDateRange(range: TimelineRange): string {
   const start = range.start.toLocaleDateString();
@@ -184,25 +149,20 @@ function updateDateFeedback(
     return;
   }
 
-  let value: ReturnType<typeof edtf>;
   let range: TimelineRange;
   try {
-    value = edtf(input);
     range = toTimelineRange(input);
   } catch (err) {
     feedback.textContent = (err as Error).message;
     return;
   }
 
-  const form = formOf(value.type, range.uncertain, range.approximate);
   const formSpan = doc.createElement("span");
   formSpan.classList.add(DATE_FEEDBACK_FORM_CLASS);
-  const localeId = DATE_FORM_LOCALE_IDS[form];
-  if (localeId) {
-    formSpan.setAttribute("data-l10n-id", getLocaleID(localeId));
-  } else {
-    formSpan.textContent = form;
-  }
+  formSpan.setAttribute(
+    "data-l10n-id",
+    getLocaleID(DATE_FORM_LOCALE_IDS[range.form]),
+  );
   feedback.appendChild(formSpan);
 
   const rangeSpan = doc.createElement("span");

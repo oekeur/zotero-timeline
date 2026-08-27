@@ -1,6 +1,23 @@
 import edtf from "edtf";
 
 /**
+ * The seven forms edtf@4.11.1 can parse a string as. "Uncertain" and
+ * "approximate" are qualifiers on a plain date rather than distinct grammar,
+ * but the qualified/unqualified distinction is exactly what a one-of and an
+ * interval need too: `[1580..1590]` (one-of, one year somewhere in that
+ * range) and `1580/1590` (interval, the whole span) resolve to the same
+ * start/end pair, and nothing past that pair can tell them apart.
+ */
+export type EdtfForm =
+  | "plain"
+  | "uncertain"
+  | "approximate"
+  | "interval"
+  | "one-of"
+  | "season"
+  | "list";
+
+/**
  * An EDTF value reduced to what vis-timeline needs to draw it.
  *
  * `end` is present whenever the value covers more than one instant, which for
@@ -15,6 +32,12 @@ export interface TimelineRange {
   uncertain: boolean;
   /** "1580~" - the date is deliberately imprecise. */
   approximate: boolean;
+  /**
+   * Which of EDTF's seven forms produced `start`/`end`. This is the only
+   * place a one-of and an interval sharing the same pair are still told
+   * apart - see the type's own docblock.
+   */
+  form: EdtfForm;
 }
 
 function qualifierIsSet(
@@ -53,6 +76,39 @@ export function boundsOf(
 }
 
 /**
+ * Names which of EDTF's seven forms `input` parsed as.
+ *
+ * Branches on the input string's own syntax for interval ("/"), one-of
+ * ("[...]") and list ("{...}") - the same technique boundsOf above and
+ * shiftEdtfDate below use, and for the same reason: esbuild's scope-hoisting
+ * has been observed renaming Interval's and Season's exported class names in
+ * the test bundle, and `.type` derives from exactly that name
+ * (`this.constructor.name`), so a branch on it is not reliable here either.
+ *
+ * A season carries no distinguishing bracket - "2001-21" parses identically
+ * to a plain year-month date at the string level, differing only in that its
+ * second component is a season code (21-41) rather than a calendar month -
+ * so it is told apart by `.season`, a property only a Season instance has.
+ * That is a structural check on the parsed value's own shape rather than a
+ * name-derived one, so it survives the same mangling.
+ */
+export function formOf(
+  input: string,
+  value: ReturnType<typeof edtf>,
+  uncertain: boolean,
+  approximate: boolean,
+): EdtfForm {
+  if (input.includes("/")) return "interval";
+  if (input.startsWith("[") && input.endsWith("]")) return "one-of";
+  if (input.startsWith("{") && input.endsWith("}")) return "list";
+  if (typeof (value as { season?: unknown }).season === "number")
+    return "season";
+  if (uncertain) return "uncertain";
+  if (approximate) return "approximate";
+  return "plain";
+}
+
+/**
  * Parses an EDTF string and maps it onto a vis-timeline start/end pair.
  *
  * Throws whatever edtf throws on an unparseable string; callers validating
@@ -62,12 +118,15 @@ export function boundsOf(
 export function toTimelineRange(input: string): TimelineRange {
   const value = edtf(input);
   const [min, max] = boundsOf(input, value);
+  const uncertain = qualifierIsSet(value.uncertain);
+  const approximate = qualifierIsSet(value.approximate);
 
   return {
     start: new Date(min),
     end: max > min ? new Date(max) : undefined,
-    uncertain: qualifierIsSet(value.uncertain),
-    approximate: qualifierIsSet(value.approximate),
+    uncertain,
+    approximate,
+    form: formOf(input, value, uncertain, approximate),
   };
 }
 

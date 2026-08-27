@@ -14,6 +14,7 @@ import {
   dateAtViewportPrecision,
   shiftEdtfDate,
   toTimelineRange,
+  type EdtfForm,
 } from "../../utils/edtfRange";
 import { getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
@@ -97,6 +98,26 @@ export function parseVisItemId(id: string): {
 }
 
 /**
+ * Seven EDTF forms map onto five canvas stylings (project/backlog/plans,
+ * 2026-08-22 m-4 decision, resolved by gap review after the count was stated
+ * three different ways across the charter, the milestone and TASK-37's own
+ * acceptance criteria): a season has real bounds, so it draws as the interval
+ * styling that already depicts a real span, and a list makes the same claim a
+ * one-of set does, so it draws as that styling. Plain, uncertain and
+ * approximate keep their own. `undefined` for plain leaves the base
+ * `.vis-item` look untouched.
+ */
+const FORM_STYLING: Record<EdtfForm, string | undefined> = {
+  plain: undefined,
+  uncertain: "zt-uncertain",
+  approximate: "zt-approximate",
+  interval: "zt-interval",
+  "one-of": "zt-one-of",
+  season: "zt-interval",
+  list: "zt-one-of",
+};
+
+/**
  * The vis-timeline item for one event, shared by the initial render and a
  * refresh after an edit.
  *
@@ -105,6 +126,11 @@ export function parseVisItemId(id: string): {
  * `date` alone still supplies the end when `endDate` is absent, which is what
  * keeps a range authored entirely inside `date` as an EDTF Interval or Set
  * (no `endDate`) rendering exactly as it always has.
+ *
+ * The styling class always comes from `date`'s own form, never from
+ * `endDate`: a separate endDate makes an unambiguous span out of two plain
+ * instants, so there is no one-of/interval claim in `date` itself for the
+ * styling to draw apart.
  */
 export function buildTimelineItem(documentId: string, event: Event) {
   const dateRange = toTimelineRange(event.date);
@@ -119,11 +145,7 @@ export function buildTimelineItem(documentId: string, event: Event) {
     start: dateRange.start,
     ...(end ? { end } : {}),
     title: `${event.title} (${event.date})`,
-    className: dateRange.approximate
-      ? "zt-approximate"
-      : dateRange.uncertain
-        ? "zt-uncertain"
-        : undefined,
+    className: FORM_STYLING[dateRange.form],
   };
 }
 

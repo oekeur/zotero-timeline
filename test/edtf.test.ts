@@ -3,6 +3,7 @@ import edtf from "edtf";
 import {
   boundsOf,
   dateAtViewportPrecision,
+  formOf,
   precisionForViewportSpan,
   shiftEdtfDate,
   toTimelineRange,
@@ -77,6 +78,51 @@ describe("edtf", function () {
 
   it("rejects a string EDTF does not accept", function () {
     assert.throws(() => toTimelineRange("not a date"));
+  });
+
+  describe("formOf", function () {
+    it("names each of the seven forms", function () {
+      assert.equal(toTimelineRange("1621").form, "plain");
+      assert.equal(toTimelineRange("1621?").form, "uncertain");
+      assert.equal(toTimelineRange("1580~").form, "approximate");
+      assert.equal(toTimelineRange("1580/1590").form, "interval");
+      assert.equal(toTimelineRange("[1580..1590]").form, "one-of");
+      assert.equal(toTimelineRange("2001-21").form, "season");
+      assert.equal(toTimelineRange("{1667,1668,1670}").form, "list");
+    });
+
+    it("tells a one-of and an interval apart even though they share a start/end pair", function () {
+      const interval = toTimelineRange("1580/1590");
+      const oneOf = toTimelineRange("[1580..1590]");
+      assert.equal(interval.form, "interval");
+      assert.equal(oneOf.form, "one-of");
+      assert.equal(interval.start.getTime(), oneOf.start.getTime());
+      assert.equal(interval.end?.getTime(), oneOf.end?.getTime());
+    });
+
+    it("derives interval and season correctly even when .type cannot be trusted", function () {
+      // Regression guard for the same bundler class-name mangling risk
+      // boundsOf's own test guards against: Interval's and Season's .type
+      // getters derive from this.constructor.name, which esbuild's
+      // scope-hoisting has been observed renaming. formOf must never consult
+      // .type at all, so corrupting it here changes nothing.
+      const intervalProbe = edtf("1580/1590");
+      Object.defineProperty(intervalProbe, "type", {
+        configurable: true,
+        value: "_Interval",
+      });
+      assert.equal(
+        formOf("1580/1590", intervalProbe, false, false),
+        "interval",
+      );
+
+      const seasonProbe = edtf("2001-21");
+      Object.defineProperty(seasonProbe, "type", {
+        configurable: true,
+        value: "_Season",
+      });
+      assert.equal(formOf("2001-21", seasonProbe, false, false), "season");
+    });
   });
 
   describe("shiftEdtfDate", function () {
