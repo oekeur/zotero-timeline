@@ -1,4 +1,5 @@
 import { getString, initLocale } from "./utils/locale";
+import { logFailure } from "./utils/logging";
 import {
   closeTimelineTab,
   getCurrentTimeline,
@@ -14,6 +15,11 @@ import {
   registerContainerObserver,
   unregisterContainerObserver,
 } from "./modules/timeline/containerGuard";
+import {
+  registerTimelineContextAction,
+  resolveSelection,
+} from "./modules/timeline/libraryContextMenu";
+import { openAddSourcesDialog } from "./modules/timeline/addSourcesDialog";
 
 import {
   parsesSoFar,
@@ -41,6 +47,10 @@ import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 let containerObserverID: string | null = null;
 let cacheObserverID: string | null = null;
 let sourcePruneObserverID: string | null = null;
+// Guards registerTimelineContextAction the same way the observer ids above
+// guard their own registration: onMainWindowLoad runs once per main window,
+// but a menuitem id is registered once for the process, not once per window.
+let addSourcesActionRegistered = false;
 
 // The plugin's own main-window sheet: the tab shell and the event editor, and
 // whatever m-6's item-pane section adds. Per window, because a link belongs to
@@ -91,6 +101,7 @@ async function onStartup() {
     setTimelineDeleteConfirmForTests,
     getVisibleTimelines,
     parsesSoFar,
+    openAddSourcesDialog,
   };
 
   await Promise.all(
@@ -133,6 +144,34 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     sourcePruneObserverID = registerSourcePruneObserver();
   }
   registerLibraryFilter();
+
+  if (!addSourcesActionRegistered) {
+    addSourcesActionRegistered = true;
+    registerTimelineContextAction(
+      win,
+      "zotero-timeline-menuitem-add-sources",
+      {
+        flat: getString("context-add-sources-flat"),
+        submenu: getString("context-add-sources-submenu"),
+      },
+      "chrome://zotero/skin/16/universal/link.svg",
+      "…",
+      (entry) => {
+        const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
+        if (!selection.ok) {
+          return;
+        }
+        void openAddSourcesDialog(entry, selection.items).catch((err) => {
+          logFailure(
+            `[zoteroTimeline] failed to open the add-as-sources dialog: ${
+              (err as Error).message
+            }`,
+            err,
+          );
+        });
+      },
+    );
+  }
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {

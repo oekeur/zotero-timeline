@@ -68,3 +68,35 @@ vocabulary-delete-confirm-unknown = Could not check how many source links use th
 vocabulary-error-not-writable = This library can't be edited, so the change was not saved.
 vocabulary-error-empty = A library's link types can't be empty. Add another type before deleting the last one.
 vocabulary-error-generic = Zotero Timeline could not save this change: { $message }
+
+# The library context menu entries that attach the selection to an event that
+# already exists. The flat form is generic because the library holds only one
+# timeline when it shows, so nothing else needs naming; the submenu form
+# completes with a timeline's own name, one per row.
+context-add-sources-flat = Add as Sources to Timeline…
+context-add-sources-submenu = Add as Sources to…
+
+# The standalone "Add as sources" window opened from that menu. Its own text
+# is read through getString rather than data-l10n-id, the same choice
+# vocabularySettings.ts makes: the whole form is rebuilt from scratch once its
+# data has loaded, so there is nothing for a static <linkset> to translate in
+# place.
+add-sources-dialog-title = Add as sources
+add-sources-dialog-context =
+    { $count ->
+        [one] Add { $count } item as sources to an event in "{ $timeline }"
+       *[other] Add { $count } items as sources to an event in "{ $timeline }"
+    }
+add-sources-dialog-empty = This timeline has no events yet.
+add-sources-dialog-event-label = Event
+add-sources-dialog-type-label = Type
+add-sources-dialog-attach-button = Attach
+add-sources-dialog-cancel-button = Cancel
+add-sources-dialog-close-button = Close
+add-sources-dialog-result-success =
+    { $count ->
+        [0] Nothing attached: every selected item was already cited under this type.
+        [one] Attached { $count } source.
+       *[other] Attached { $count } sources.
+    }
+add-sources-dialog-result-skipped = Already cited under this type, so not attached again: { $names }.

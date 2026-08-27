@@ -3,7 +3,19 @@
 /* eslint-disable */
 // @ts-nocheck
 export type FluentMessageId =
+  | 'add-sources-dialog-attach-button'
+  | 'add-sources-dialog-cancel-button'
+  | 'add-sources-dialog-close-button'
+  | 'add-sources-dialog-context'
+  | 'add-sources-dialog-empty'
+  | 'add-sources-dialog-event-label'
+  | 'add-sources-dialog-result-skipped'
+  | 'add-sources-dialog-result-success'
+  | 'add-sources-dialog-title'
+  | 'add-sources-dialog-type-label'
   | 'container-trashed-now'
+  | 'context-add-sources-flat'
+  | 'context-add-sources-submenu'
   | 'event-editor-create-button'
   | 'event-editor-create-document-label'
   | 'event-editor-date-form-approximate'

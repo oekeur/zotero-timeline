@@ -454,6 +454,46 @@
   font-style: italic;
 }
 
+/* ---------- Add sources dialog ---------- */
+
+.zoterotimeline-add-sources-dialog {
+  padding: 12px;
+}
+
+.zoterotimeline-add-sources-context {
+  margin-top: 0;
+  color: var(--fill-secondary);
+}
+
+.zoterotimeline-add-sources-empty {
+  color: var(--fill-secondary);
+}
+
+/* Two columns, label then field, following project/ui-design.md's form
+ * pattern rather than stacking labels above fields the way the narrower
+ * editor panel does: this window has no item-pane width to survive. */
+.zoterotimeline-add-sources-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.zoterotimeline-add-sources-form select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.zoterotimeline-add-sources-result p {
+  margin: 8px 0 0;
+}
+
+.zoterotimeline-add-sources-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* ---------- Glyphs ---------- */
 
 /*

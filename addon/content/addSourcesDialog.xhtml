@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!--
+  Shell for the standalone "Add as sources" window opened from the library
+  context menu. Carries no script of its own: openAddSourcesDialog renders
+  the picker form into the container below once the window has loaded.
+
+  A real chrome document rather than the blank window a ztoolkit.Dialog
+  opens - addSourcesDialog.ts's own top-of-file comment records why: that
+  blank window carries no Fluent strings, sizes itself on a timer an async
+  render outlasts, and will not open an HTML select's dropdown at all, and
+  this picker needs exactly that dropdown to choose an event.
+
+  No <linkset> localization resource: every string here is read through
+  getString rather than data-l10n-id, so nothing in this document needs a
+  Fluent resource linked to it.
+-->
+<window
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+  id="zoterotimeline-add-sources-window"
+  width="440"
+  height="260"
+>
+  <linkset>
+    <html:link rel="stylesheet" href="chrome://global/skin/global.css" />
+    <html:link
+      rel="stylesheet"
+      href="chrome://zotero-platform/content/zotero.css"
+    />
+    <html:link
+      rel="stylesheet"
+      href="chrome://zoterotimeline/content/zoteroPane.css"
+    />
+  </linkset>
+
+  <html:div
+    id="zoterotimeline-add-sources-dialog-content"
+    class="zoterotimeline-add-sources-dialog"
+  />
+</window>
