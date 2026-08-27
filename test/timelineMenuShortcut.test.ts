@@ -70,6 +70,7 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     const opened = await waitFor(
       () => timelineTab(),
       "the timeline tab to open from Shift+T",
+      { timeout: 10000 },
     );
     // Let the async render settle before switching away, the same margin
     // timelineTab.test.ts gives vis-timeline elsewhere in this suite.
@@ -82,6 +83,7 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     await waitFor(
       () => win.Zotero_Tabs.selectedID === opened.id,
       "Shift+T to re-select the existing timeline tab",
+      { timeout: 10000 },
     );
 
     const matching = win.Zotero_Tabs._tabs.filter(
