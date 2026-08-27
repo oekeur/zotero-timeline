@@ -91,9 +91,21 @@ fi
 # process group and the test profile is CWD-relative, so the dev instance is
 # left alone. clear_stale_test_zotero below still matches any `scaffold/test`
 # profile, including another worktree's in-flight test run.
+#
+# The suite drives a live Zotero GUI, so it competes for the desktop display
+# with every other run and with whatever is on screen. `xvfb-run -a` gives each
+# run its own virtual display on a free number, which is what makes concurrent
+# gates across worktrees safe rather than merely usually-fine. Absent xvfb-run
+# (CI images without it, macOS) the suite still runs on the real display, so
+# this is a wrapper and not a requirement.
 if [ "$RUN_TEST" = 1 ]; then
   clear_stale_test_zotero
-  run_stage test npm run test:fast
+  if command -v xvfb-run >/dev/null 2>&1; then
+    run_stage test xvfb-run -a npm run test:fast
+  else
+    warn "xvfb-run not found; running the suite on the real display"
+    run_stage test npm run test:fast
+  fi
 fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then

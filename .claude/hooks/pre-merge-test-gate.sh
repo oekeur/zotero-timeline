@@ -42,13 +42,33 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
 
 # The ref being merged: first non-flag token after `merge`, skipping the
 # values of flags that take one. shlex keeps quoted -m messages in one piece.
+#
+# Three outcomes, and the difference between the last two is the whole point:
+#   <ref>    a merge whose target we resolved
+#   NOMERGE  the command invokes no merge at all, so there is nothing to gate
+#   NOREF    a merge we could not read the ref out of
+# The settings.json `if` filter is looser than it looks and hands this hook
+# plain `git log`, `echo`, and pipelines that never mention merging. Treating
+# those as an unreadable merge blocked eleven read-only commands across one
+# 24h run before the default was inverted; absence of a merge is now an allow.
 ref=$(printf '%s' "$cmd" | python3 -c '
-import shlex, sys
+import re, shlex, sys
+
+cmd = sys.stdin.read()
 try:
-    t = shlex.split(sys.stdin.read())
+    t = shlex.split(cmd)
+except ValueError:
+    # Unbalanced quoting: fall back to the raw text. Only the presence of the
+    # word decides, so an unparseable command still cannot smuggle a merge past.
+    print("NOREF" if re.search(r"\bmerge\b", cmd) else "NOMERGE")
+    sys.exit(0)
+
+try:
     i = t.index("merge") + 1
 except ValueError:
+    print("NOMERGE")
     sys.exit(0)
+
 takes_value = {"-m", "--message", "-F", "--file", "-s", "--strategy",
                "-X", "--strategy-option", "-S", "--gpg-sign"}
 skip = False
@@ -63,9 +83,18 @@ for tok in t[i:]:
         continue
     print(tok)
     break
+else:
+    print("NOREF")
 ')
 
-if [ -z "$ref" ]; then
+if [ "$ref" = "NOMERGE" ]; then
+  allow
+fi
+
+# Empty means the extractor itself failed to run (no python3, a crash), not
+# that the command is merge-free: every parse path above prints something.
+# Block, so a broken extractor cannot silently stop gating real merges.
+if [ "$ref" = "NOREF" ] || [ -z "$ref" ]; then
   block "pre-merge gate could not determine which ref '$cmd' merges, so it could not test the merge result. Merge manually if this is intended."
 fi
 
@@ -172,7 +201,18 @@ if ! ( cd "$work" && ./scripts/verify.sh --no-test >"$static_log" 2>&1 ); then
   block "build or lint failed on the result of merging '$ref' into main: ${failed_stages:-see log}. Full log: $keep"
 fi
 
-( cd "$work" && npm test >"$log" 2>&1 ) &
+# On its own virtual display where one is available, for the same reason
+# verify.sh does it: two gates running in different worktrees otherwise drive
+# two Zotero GUIs onto the one desktop and compete for focus, which produced a
+# run of layout-dependent spec failures that were read as flakiness and then as
+# three successive wrong mechanisms. The kill machinery below is unaffected: it
+# matches Zotero by the $work path in its arguments, which xvfb-run does not
+# change. Absent xvfb-run the suite runs on the real display, as before.
+if command -v xvfb-run >/dev/null 2>&1; then
+  ( cd "$work" && xvfb-run -a npm test >"$log" 2>&1 ) &
+else
+  ( cd "$work" && npm test >"$log" 2>&1 ) &
+fi
 test_pid=$!
 
 # Wait up to 12 minutes for the summary line to appear, polling every 2s.
