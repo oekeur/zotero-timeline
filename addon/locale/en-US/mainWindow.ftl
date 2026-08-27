@@ -4,6 +4,17 @@ timeline-menu-open =
 timeline-sidebar-heading = Timelines
 timeline-sidebar-unreadable-label = Unreadable timeline
 
+timeline-sidebar-create-button =
+    .title = Create a timeline
+timeline-sidebar-create-button-read-only =
+    .title = This library can't be edited
+
+timeline-sidebar-create-name-input =
+    .placeholder = Timeline name
+
+timeline-sidebar-create-confirm-button = Create
+timeline-sidebar-create-cancel-button = Cancel
+
 timeline-sidebar-visible-checkbox =
     .title = Show or hide this timeline
 

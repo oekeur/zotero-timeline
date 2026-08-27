@@ -167,6 +167,35 @@ export async function findContainers(
   );
 }
 
+/**
+ * Whether the library holds plugin data a listing cannot reach. Trashing
+ * hides data rather than removing it: a trashed storage note drops out of a
+ * search, and a trashed container takes its child notes with it. Either way
+ * the library looks empty while its timelines still exist, and answering
+ * "empty" by creating a replacement writes a second copy nobody can reconcile
+ * with the first.
+ *
+ * The two cases are tested separately rather than through one search.
+ * Trashing a parent does not flag its children, so a count of trashed notes
+ * alone would miss the timelines that went down with a trashed container.
+ */
+export async function hasHiddenTimelineData(
+  libraryID: number,
+): Promise<boolean> {
+  const [visibleNotes, allNotes] = await Promise.all([
+    searchStorageNotes(libraryID),
+    searchStorageNotes(libraryID, { includeTrashed: true }),
+  ]);
+  if (allNotes.length > visibleNotes.length) {
+    return true;
+  }
+  const [liveContainers, allContainers] = await Promise.all([
+    findContainers(libraryID),
+    findContainers(libraryID, { includeTrashed: true }),
+  ]);
+  return allContainers.length > liveContainers.length;
+}
+
 // Zotero re-serialises a note's HTML through its own ProseMirror schema after
 // save, wrapping the body in a data-schema-version div and dropping attributes
 // the schema does not know, including an id on our <pre>. That happens without
@@ -691,6 +720,54 @@ export async function createTaggedNote(
   html: string,
 ): Promise<Zotero.Item> {
   return enqueue(() => createNoteUnqueued(libraryID, tag, html));
+}
+
+function emptyTimelineDocument(name: string): TimelineDocument {
+  return {
+    version: CURRENT_SCHEMA_VERSION,
+    id: Zotero.Utilities.generateObjectKey(),
+    name,
+    events: [],
+  };
+}
+
+/**
+ * Creates a timeline: a fresh id, the given name, no events yet. Touches
+ * nothing but the note it creates, so an existing timeline cannot be
+ * disturbed by it.
+ *
+ * Refuses before the write reaches the queue when the library is not
+ * writable or the name is empty or whitespace, the same two refusals
+ * updateVocabulary makes for the vocabulary note - a doomed write should
+ * never reach saveTx.
+ *
+ * The container can still land in the trash between this call and the write
+ * createTaggedNote makes: findOrCreateContainer's own check runs right at
+ * write time and throws `container-trashed` rather than creating a
+ * replacement. That is for the caller to catch, not this function - a
+ * warning is UI, and this module only writes.
+ */
+export async function createTimeline(
+  name: string,
+  libraryID: number,
+): Promise<{ item: Zotero.Item; doc: TimelineDocument }> {
+  const library = Zotero.Libraries.get(libraryID);
+  if (!library || !library.editable) {
+    throw new StorageError(
+      "not-writable",
+      `library ${libraryID} is not writable`,
+    );
+  }
+  if (name.trim() === "") {
+    throw new StorageError("invalid-schema", "a timeline needs a name");
+  }
+  const doc = emptyTimelineDocument(name);
+  const item = await createTaggedNote(
+    libraryID,
+    STORAGE_TAG,
+    buildNoteHtml(doc),
+  );
+  return { item, doc };
 }
 
 /**

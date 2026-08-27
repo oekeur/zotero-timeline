@@ -10,6 +10,12 @@ timeline-trashed-now = The timeline "{ $name }" was moved to the trash. Restore 
 
 timeline-trashed-now-unnamed = A timeline was moved to the trash. Restore it from the trash to get it back.
 
+# Shown instead of creating a library's first timeline when the tab opens.
+# The library's storage note or container is only in the trash, so it looks
+# empty rather than actually being empty; creating here would hand the user a
+# blank timeline while the one they had sat unreachable.
+timeline-data-trashed-open = Timeline data for this library is in the trash. Nothing new was created; restore it to get your timelines back.
+
 # Shown after the link-type list was rebuilt from the defaults because the
 # library had none. Naming the trash is what makes it actionable: the labels
 # come back if the old note is restored, because links store type ids.

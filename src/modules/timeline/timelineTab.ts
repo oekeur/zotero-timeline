@@ -15,8 +15,17 @@ import {
   ensureWindowGlobals,
 } from "../../utils/windowGlobals";
 import { ensureStylesheet } from "../../utils/stylesheet";
+import { logFailure } from "../../utils/logging";
 import { listTimelinesCached } from "./documentCache";
-import type { StoredTimeline, UnreadableTimeline } from "./storage";
+import {
+  createTimeline,
+  hasHiddenTimelineData,
+  searchStorageNotes,
+  StorageError,
+  type StoredTimeline,
+  type UnreadableTimeline,
+} from "./storage";
+import { warn } from "./containerGuard";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
 import type { TimelineDocument } from "./schema";
 
@@ -35,7 +44,19 @@ export const TAB_ROW_CLASS = "zoterotimeline-tab-row";
 export const CANVAS_CLASS = "zoterotimeline-canvas";
 export const EDITOR_CLASS = "zoterotimeline-editor";
 export const SIDEBAR_CLASS = "zoterotimeline-sidebar";
+export const SIDEBAR_HEADING_ROW_CLASS = "zoterotimeline-sidebar-heading-row";
 export const SIDEBAR_HEADING_CLASS = "zoterotimeline-sidebar-heading";
+export const SIDEBAR_CREATE_BUTTON_CLASS =
+  "zoterotimeline-sidebar-create-button";
+export const SIDEBAR_CREATE_FORM_CLASS = "zoterotimeline-sidebar-create-form";
+export const SIDEBAR_CREATE_NAME_INPUT_CLASS =
+  "zoterotimeline-sidebar-create-name";
+export const SIDEBAR_CREATE_ACTIONS_CLASS =
+  "zoterotimeline-sidebar-create-actions";
+export const SIDEBAR_CREATE_CONFIRM_CLASS =
+  "zoterotimeline-sidebar-create-confirm";
+export const SIDEBAR_CREATE_CANCEL_CLASS =
+  "zoterotimeline-sidebar-create-cancel";
 export const SIDEBAR_ROW_CLASS = "zoterotimeline-sidebar-row";
 export const SIDEBAR_ROW_UNREADABLE_CLASS =
   "zoterotimeline-sidebar-row-unreadable";
@@ -122,6 +143,65 @@ function resolveLibraryID(win: Window): number {
   return (
     zoteroPane?.getSelectedLibraryIDs?.()[0] ?? Zotero.Libraries.userLibraryID
   );
+}
+
+// Stored, synced data rather than UI text, so it stays untranslated - the same
+// reason storage.ts's CONTAINER_TITLE does.
+const DEFAULT_TIMELINE_NAME = "Timeline";
+
+/**
+ * Creates a timeline, or warns instead when the container turned out to be
+ * trashed.
+ *
+ * The container can land in the trash between an earlier emptiness check and
+ * this call - a real ordering, not a theoretical one - so the write path's
+ * own container-trashed refusal is caught here rather than left to surface as
+ * an unhandled rejection in the tab.
+ */
+async function createTimelineOrWarn(
+  name: string,
+  libraryID: number,
+): Promise<{ item: Zotero.Item; doc: TimelineDocument } | null> {
+  try {
+    return await createTimeline(name, libraryID);
+  } catch (err) {
+    if (err instanceof StorageError && err.reason === "container-trashed") {
+      warn(getString("timeline-data-trashed-open"));
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Gives a library with no timeline yet its first one, so the tab lands on a
+ * usable canvas rather than an empty state nobody asked for.
+ *
+ * An empty listing has two causes needing opposite answers. A library that
+ * genuinely holds nothing wants a timeline. A library whose container or
+ * notes are only in the trash looks identical from a listing's side, and
+ * creating there would hand the user a blank timeline while the one they had
+ * sat unreachable - which reads as the plugin having erased their work. So
+ * that case is reported and left alone; restoring from the trash is the only
+ * fix, and that is the user's to do.
+ *
+ * Creates nothing in a library the user cannot write, the same rule every
+ * other control that writes a document follows: opening the tab is the
+ * request, not a bypass of it.
+ */
+async function createDefaultTimelineIfNeeded(libraryID: number): Promise<void> {
+  if ((await searchStorageNotes(libraryID)).length > 0) {
+    return;
+  }
+  if (await hasHiddenTimelineData(libraryID)) {
+    warn(getString("timeline-data-trashed-open"));
+    return;
+  }
+  const library = Zotero.Libraries.get(libraryID);
+  if (!library || !library.editable) {
+    return;
+  }
+  await createTimelineOrWarn(DEFAULT_TIMELINE_NAME, libraryID);
 }
 
 const VIS_STYLESHEET_ID = "zoterotimeline-vis-stylesheet";
@@ -273,6 +353,12 @@ export async function openTimelineTab(): Promise<void> {
   );
 
   const libraryID = resolveLibraryID(win);
+  // Opening the tab is itself the request for a timeline in this library, the
+  // one exception to every other surface's rule of creating nothing just by
+  // being opened - see createDefaultTimelineIfNeeded.
+  await createDefaultTimelineIfNeeded(libraryID);
+  const openedLibrary = Zotero.Libraries.get(libraryID);
+  const libraryEditable = openedLibrary ? openedLibrary.editable : false;
   const { timelines, unreadable } = await listTimelinesCached(libraryID);
   readableTimelines = timelines;
   // Keyed by document id, and kept up to date on every save/delete, so a
@@ -383,12 +469,46 @@ export async function openTimelineTab(): Promise<void> {
   function groupsDS() {
     return groups as unknown as {
       get: (opts: { order: string }) => GroupRow[];
+      add: (data: {
+        id: string;
+        content: string;
+        order: number;
+        visible?: boolean;
+      }) => unknown;
       update: (
         data:
           | { id: string; visible?: boolean; order?: number }
           | Array<{ id: string; visible?: boolean; order?: number }>,
       ) => unknown;
     };
+  }
+
+  // Toggled by the sidebar's create button; not module-level, since it must
+  // reset to closed every time the tab is opened fresh.
+  let creatingTimeline = false;
+
+  /**
+   * Adds a freshly created timeline to every place the sidebar and canvas
+   * already read from, rather than reloading the library: a reload would
+   * rebuild the canvas from scratch and lose the viewport and selection a
+   * create action has no reason to disturb.
+   */
+  function addCreatedTimeline(created: {
+    item: Zotero.Item;
+    doc: TimelineDocument;
+  }): void {
+    documents.set(created.doc.id, created.doc);
+    readableTimelines = [
+      ...readableTimelines,
+      { noteItemID: created.item.id, doc: created.doc, dateIssues: [] },
+    ];
+    const order = groupsDS().get({ order: "order" }).length;
+    groupsDS().add({
+      id: created.doc.id,
+      content: created.doc.name,
+      order,
+      visible: true,
+    });
   }
 
   const emptyPrompt = el(doc, "div");
@@ -399,6 +519,115 @@ export async function openTimelineTab(): Promise<void> {
   );
 
   /**
+   * The plus control in the section header (see project/ui-design.md's
+   * pattern for creation controls). Disabled rather than hidden when the
+   * library cannot be written, so the create action follows the same rule
+   * as every other control that writes a document.
+   */
+  function buildCreateButton(): HTMLElement {
+    const button = el(doc, "button");
+    button.type = "button";
+    button.classList.add(SIDEBAR_CREATE_BUTTON_CLASS);
+    button.textContent = "+";
+    button.disabled = !libraryEditable;
+    button.setAttribute(
+      "data-l10n-id",
+      getLocaleID(
+        libraryEditable
+          ? "timeline-sidebar-create-button"
+          : "timeline-sidebar-create-button-read-only",
+      ),
+    );
+    button.addEventListener("click", () => {
+      creatingTimeline = !creatingTimeline;
+      renderSidebar();
+    });
+    return button;
+  }
+
+  /**
+   * The inline name form the plus control reveals - an ellipsis would mean a
+   * further window, and this is a control that acts in place instead.
+   *
+   * The confirm button starts disabled and stays that way until the name is
+   * non-blank, which is what keeps validate.ts's own empty-name refusal from
+   * ever being the error message a user sees.
+   */
+  function buildCreateForm(): HTMLElement {
+    const form = el(doc, "div");
+    form.classList.add(SIDEBAR_CREATE_FORM_CLASS);
+
+    const nameInput = el(doc, "input");
+    nameInput.type = "text";
+    nameInput.classList.add(SIDEBAR_CREATE_NAME_INPUT_CLASS);
+    nameInput.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-create-name-input"),
+    );
+    form.appendChild(nameInput as unknown as Node);
+
+    const actions = el(doc, "div");
+    actions.classList.add(SIDEBAR_CREATE_ACTIONS_CLASS);
+
+    const confirmButton = el(doc, "button");
+    confirmButton.type = "button";
+    confirmButton.classList.add(SIDEBAR_CREATE_CONFIRM_CLASS);
+    confirmButton.disabled = true;
+    confirmButton.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-create-confirm-button"),
+    );
+    actions.appendChild(confirmButton as unknown as Node);
+
+    const cancelButton = el(doc, "button");
+    cancelButton.type = "button";
+    cancelButton.classList.add(SIDEBAR_CREATE_CANCEL_CLASS);
+    cancelButton.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-create-cancel-button"),
+    );
+    actions.appendChild(cancelButton as unknown as Node);
+
+    form.appendChild(actions as unknown as Node);
+
+    nameInput.addEventListener("input", () => {
+      confirmButton.disabled = nameInput.value.trim() === "";
+    });
+
+    cancelButton.addEventListener("click", () => {
+      creatingTimeline = false;
+      renderSidebar();
+    });
+
+    confirmButton.addEventListener("click", () => {
+      const name = nameInput.value.trim();
+      if (name === "") {
+        return;
+      }
+      confirmButton.disabled = true;
+      void (async () => {
+        try {
+          const created = await createTimelineOrWarn(name, libraryID);
+          if (created) {
+            addCreatedTimeline(created);
+          }
+          creatingTimeline = false;
+        } catch (err) {
+          logFailure(
+            `[zoteroTimeline] failed to create a timeline in library ${libraryID}: ${(err as Error).message}`,
+            err,
+          );
+        } finally {
+          renderSidebar();
+        }
+      })();
+    });
+
+    nameInput.focus();
+    return form;
+  }
+
+  /**
    * Rebuilds the sidebar from the vis groups DataSet, which is the ordered,
    * visible/hidden truth the toggle and reorder controls write straight into.
    * Rows carry `data-timeline-id`, the attachment point a later activation
@@ -407,13 +636,22 @@ export async function openTimelineTab(): Promise<void> {
   function renderSidebar(): void {
     sidebar.textContent = "";
 
+    const headingRow = el(doc, "div");
+    headingRow.classList.add(SIDEBAR_HEADING_ROW_CLASS);
+
     const heading = el(doc, "div");
     heading.classList.add(SIDEBAR_HEADING_CLASS);
     heading.setAttribute(
       "data-l10n-id",
       getLocaleID("timeline-sidebar-heading"),
     );
-    sidebar.appendChild(heading as unknown as Node);
+    headingRow.appendChild(heading as unknown as Node);
+    headingRow.appendChild(buildCreateButton() as unknown as Node);
+    sidebar.appendChild(headingRow as unknown as Node);
+
+    if (creatingTimeline) {
+      sidebar.appendChild(buildCreateForm() as unknown as Node);
+    }
 
     const rows = groupsDS().get({ order: "order" });
     rows.forEach((group, index) => {
