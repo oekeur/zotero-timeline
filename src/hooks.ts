@@ -32,6 +32,10 @@ import {
   renderVocabularySettings,
   setConfirmDeleteForTests,
 } from "./modules/timeline/vocabularySettings";
+import {
+  registerItemPaneSection,
+  unregisterItemPaneSection,
+} from "./modules/timeline/itemPaneSection";
 import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 
 let containerObserverID: string | null = null;
@@ -54,6 +58,7 @@ async function onStartup() {
   initLocale();
 
   registerTimelineMenu();
+  registerItemPaneSection();
 
   // Without this the preferences.xhtml in addon/content is never shown, and
   // the hide-plugin-items preference has no way to be turned off: it defaults
@@ -150,6 +155,7 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 
 function onShutdown(): void {
   closeTimelineTab();
+  unregisterItemPaneSection();
   // Every window, not just one: onMainWindowUnload does not fire for a window
   // that is still open when the plugin is disabled, and a link left behind
   // outlives the plugin that owns the file it points at.

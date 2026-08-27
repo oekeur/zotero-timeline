@@ -384,6 +384,62 @@
   margin-inline-start: auto;
 }
 
+/* ---------- Item-pane citing-events section ---------- */
+
+/*
+ * The item pane is user-resizable and commonly sits at 300 to 340px, so
+ * nothing here may assume a second column or scroll horizontally at that
+ * width; every row elides with the same overflow rule the sidebar uses.
+ */
+
+.zoterotimeline-citing-empty,
+.zoterotimeline-citing-unreadable-note {
+  color: var(--fill-secondary);
+}
+
+.zoterotimeline-citing-group + .zoterotimeline-citing-group {
+  margin-top: 8px;
+}
+
+.zoterotimeline-citing-group-heading {
+  font-weight: 600;
+  color: var(--fill-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoterotimeline-citing-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.zoterotimeline-citing-row {
+  padding: 3px 0;
+}
+
+.zoterotimeline-citing-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fill-primary);
+}
+
+.zoterotimeline-citing-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+}
+
+.zoterotimeline-citing-unreadable-note {
+  margin-top: 8px;
+  font-size: 0.9em;
+  font-style: italic;
+}
+
 /* ---------- Glyphs ---------- */
 
 /*

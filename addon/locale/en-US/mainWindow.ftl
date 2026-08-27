@@ -70,3 +70,9 @@ event-editor-save-button = Save
 event-editor-delete-button = Delete
 event-editor-create-document-label = Timeline
 event-editor-create-button = Create event
+
+item-citing-events-section-head-text = Timelines
+item-citing-events-section-sidenav-tooltip = Timelines
+item-citing-events-empty-state = Not cited by any event.
+item-citing-events-unreadable-state = A timeline in this library could not be read.
+item-citing-events-unreadable-note = A timeline in this library could not be read; this list may be incomplete.
