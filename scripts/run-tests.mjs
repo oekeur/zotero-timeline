@@ -25,6 +25,11 @@ const child = spawn("npx", ["zotero-plugin", "test"], {
 
 let settled = false;
 let buffer = "";
+// Zotero's own exit code says whether the GUI shut down cleanly, never whether
+// the suite passed, which is why the completion line is parsed at all. Without
+// this flag an exit that beats the completion line down the pipe reports the
+// run as green having verified nothing.
+let sawCompletion = false;
 
 function killRun() {
   if (!child.pid) return;
@@ -55,6 +60,7 @@ function handleChunk(chunk) {
   buffer += chunk.toString();
   const match = buffer.match(DONE_PATTERN);
   if (match) {
+    sawCompletion = true;
     const failed = Number(match[2] ?? 0);
     console.log(
       `run-tests: completion line seen, killing Zotero instead of waiting for its own exit (failed=${failed})`,
@@ -74,6 +80,15 @@ const hangTimer = setTimeout(() => {
 }, HANG_TIMEOUT_MS);
 
 child.on("exit", (code) => {
-  // Zotero exited on its own (exitOnFinish) before we saw the completion line
+  // Zotero exited on its own (exitOnFinish) before we saw the completion line.
+  // That is not a pass: the summary is the only thing that reports failures,
+  // and a run whose output was cut short can exit 0 having asserted nothing.
+  if (!sawCompletion) {
+    console.error(
+      `run-tests: Zotero exited (code ${code}) before printing a completion line; no test summary was seen, so the run is not a pass`,
+    );
+    finish(1);
+    return;
+  }
   finish(code ?? 1);
 });
