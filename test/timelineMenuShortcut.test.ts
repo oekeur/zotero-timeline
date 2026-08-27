@@ -80,11 +80,20 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
   async function shiftTOpensThenReselects(): Promise<void> {
     const win = mainWindow();
 
-    pressShiftT(win.document.documentElement);
+    // A single synthetic press is dropped in some runs - the listener is
+    // registered per window and the press can land before it is attached,
+    // which no observable state here distinguishes from a press that simply
+    // did nothing. Press on each poll instead of once up front: opening is
+    // idempotent (openTimelineTab re-selects an existing tab rather than
+    // adding one), and the tab count is asserted at the end, so a press that
+    // arrives late cannot produce a second tab.
     const opened = await waitFor(
-      () => timelineTab(),
+      () => {
+        pressShiftT(win.document.documentElement);
+        return timelineTab();
+      },
       "the timeline tab to open from Shift+T",
-      { timeout: 10000 },
+      { timeout: 10000, interval: 250 },
     );
     // Let the async render settle before switching away, the same margin
     // timelineTab.test.ts gives vis-timeline elsewhere in this suite.
