@@ -71,8 +71,16 @@ event-editor-delete-button = Delete
 event-editor-create-document-label = Timeline
 event-editor-create-button = Create event
 
-item-citing-events-section-head-text = Timelines
-item-citing-events-section-sidenav-tooltip = Timelines
+# Both of these carry their text as an attribute rather than as a value.
+# Fluent writes a message's value into the element's textContent, which on a
+# collapsible-section replaces the body it is supposed to head, and on a
+# sidenav button paints the label across a strip only wide enough for an icon.
+# Zotero's own section-* and sidenav-* messages are attribute-only for the
+# same reason.
+item-citing-events-section-head-text =
+    .label = Timelines
+item-citing-events-section-sidenav-tooltip =
+    .tooltiptext = Timelines
 item-citing-events-empty-state = Not cited by any event.
 item-citing-events-unreadable-state = A timeline in this library could not be read.
 item-citing-events-unreadable-note = A timeline in this library could not be read; this list may be incomplete.
