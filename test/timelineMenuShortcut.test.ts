@@ -76,7 +76,15 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     // timelineTab.test.ts gives vis-timeline elsewhere in this suite.
     await Zotero.Promise.delay(1500);
 
+    // Zotero_Tabs.select does not land synchronously, and pressing again
+    // mid-transition is dropped rather than queued: wait for the switch to
+    // take before asking the shortcut to undo it.
     win.Zotero_Tabs.select("zotero-pane");
+    await waitFor(
+      () => win.Zotero_Tabs.selectedID === "zotero-pane",
+      "the library tab to become selected before the second press",
+      { timeout: 10000 },
+    );
     assert.notEqual(win.Zotero_Tabs.selectedID, opened.id);
 
     pressShiftT(win.document.documentElement);
