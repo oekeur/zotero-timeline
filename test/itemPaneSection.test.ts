@@ -27,6 +27,7 @@ import {
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 describe("item-pane section: which events cite this item", function () {
   this.timeout(60000);
@@ -321,14 +322,21 @@ describe("item-pane section: which events cite this item", function () {
       await documentCiting("Timeline A", "tl-a", cited);
 
       await win.ZoteroPane.selectItem(cited.id);
-      await Zotero.Promise.delay(500);
-
-      const section = win.document.querySelector(
-        'item-pane-custom-section[data-pane*="citing-events"]',
+      // onRender starts renderCitingEventsContent detached (it cannot itself
+      // be async) and there is no signal the caller can await; a fixed sleep
+      // encodes a guess at how long the read takes instead of the real
+      // condition. Poll the body the render actually writes to.
+      const section = await waitFor(
+        () =>
+          win.document.querySelector(
+            'item-pane-custom-section[data-pane*="citing-events"]',
+          ),
+        "the section to register in the real item pane",
       );
-      assert.isNotNull(
-        section,
-        "the section did not register in the real item pane",
+      const body = section.querySelector('[data-type="body"]');
+      await waitFor(
+        () => (body.children.length > 0 ? true : null),
+        "the section body to render for the cited item",
       );
 
       const itemDetails = win.ZoteroPane.itemPane._itemDetails;
@@ -337,13 +345,6 @@ describe("item-pane section: which events cite this item", function () {
         "this only proves the fix if the section is actually below the fold; " +
           "if the item pane grew tall enough to always show it, widen the test window",
       );
-
-      const body = section.querySelector('[data-type="body"]');
-      assert.isAbove(
-        body.children.length,
-        0,
-        "the section body never rendered for a cited item selected through the real item pane",
-      );
     });
 
     it("shows the empty state through the same real path for an item cited by nothing", async function () {
@@ -351,17 +352,18 @@ describe("item-pane section: which events cite this item", function () {
       const item = await regularItem();
 
       await win.ZoteroPane.selectItem(item.id);
-      await Zotero.Promise.delay(500);
-
-      const section = win.document.querySelector(
-        'item-pane-custom-section[data-pane*="citing-events"]',
-      );
-      assert.isNotNull(
-        section,
-        "the section did not register in the real item pane",
+      const section = await waitFor(
+        () =>
+          win.document.querySelector(
+            'item-pane-custom-section[data-pane*="citing-events"]',
+          ),
+        "the section to register in the real item pane",
       );
       const body = section.querySelector('[data-type="body"]');
-      assert.isNotNull(body.querySelector(`.${EMPTY_CLASS}`));
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the empty state to render for an item cited by nothing",
+      );
     });
   });
 });
