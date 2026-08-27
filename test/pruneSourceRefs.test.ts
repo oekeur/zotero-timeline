@@ -17,6 +17,7 @@ import {
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 describe("source prune", function () {
   this.timeout(60000);
@@ -162,12 +163,20 @@ describe("source prune", function () {
       )!;
       await createDocumentNote(libraryID, STORAGE_TAG, withBoth);
 
-      await eraseAndWaitForPrune(cited);
+      await cited.eraseTx();
 
-      const docA = await documentById("tl-a");
+      const [docA, docB] = await waitFor(async () => {
+        const a = await documentById("tl-a");
+        const b = await documentById("tl-b");
+        return a &&
+          a.events[0].sources.length === 0 &&
+          b &&
+          b.events[0].sources.length === 1
+          ? ([a, b] as const)
+          : null;
+      }, "tl-a and tl-b to finish pruning the erased source");
+
       assert.lengthOf(docA!.events[0].sources, 0);
-
-      const docB = await documentById("tl-b");
       assert.lengthOf(docB!.events[0].sources, 1);
       assert.equal(docB!.events[0].sources[0].key, otherItem.key);
     });
