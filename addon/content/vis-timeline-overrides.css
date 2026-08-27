@@ -103,6 +103,22 @@
 }
 
 /*
+ * The active lane (TASK-16) - exactly one lane accepts write gestures at a
+ * time, and which one has to read at a glance. The settled selected-row
+ * pattern (project/ui-design.md): a tint across the lane and a 2px accent bar
+ * on its label, never a fill of --color-accent itself (unpredictable hue) and
+ * never dimming the other lanes, which stay just as readable and selectable.
+ */
+.zoterotimeline-canvas .vis-labelset .vis-label.zt-lane-active {
+  background: var(--fill-quarternary);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.zoterotimeline-canvas .vis-foreground .vis-group.zt-lane-active {
+  background: var(--fill-quarternary);
+}
+
+/*
  * Nested-group shading. The vendored sheet ramps ten hardcoded black alphas
  * for sub-lane depth, which reads as ten shades of nothing on a dark theme.
  * Collapsed to the two steps the fill ramp already provides; TASK-15 defines

@@ -2,6 +2,7 @@ import { getString, initLocale } from "./utils/locale";
 import { logFailure } from "./utils/logging";
 import {
   closeTimelineTab,
+  getActiveTimeline,
   getCurrentTimeline,
   getLastMovePayload,
   getModuleEvalEnv,
@@ -102,6 +103,7 @@ async function onStartup() {
     setConfirmDeleteForTests,
     setTimelineDeleteConfirmForTests,
     getVisibleTimelines,
+    getActiveTimeline,
     parsesSoFar,
     openAddSourcesDialog,
   };

@@ -199,6 +199,17 @@ describe("event creation on the canvas", function () {
       "1607-05-01T00:00:00.000Z",
     );
 
+    // doc-revolt loads first and starts as the active lane (TASK-16), so a
+    // click aimed at doc-sources only activates it - the priming click AC7
+    // requires - and needs a second click, now that doc-sources is active,
+    // to actually create.
+    timeline.emit("click", {
+      item: null,
+      group: "doc-sources",
+      time: new Date(Date.UTC(1607, 3, 15)),
+    });
+    await Zotero.Promise.delay(300);
+
     const before = await eventIdsByDoc();
     const beforeIds = before.get("doc-sources") ?? new Set();
 

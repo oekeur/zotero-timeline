@@ -96,9 +96,23 @@ let canvasModule: unknown;
 // module.
 let timelineGroups: unknown;
 let readableTimelines: StoredTimeline[] = [];
+// canvas.ts's own accessor for its active-document state (TASK-16) - kept as
+// a function reference, the same reason timelineGroups is module-level,
+// rather than a mirrored id here that could drift from the one canvas.ts
+// actually acts on.
+let getActiveDocumentId: (() => string | null) | undefined;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
+}
+
+/**
+ * The document id of the timeline every write gesture currently applies to,
+ * or null when nothing is visible to be active. Exposed for the live-Zotero
+ * suite; canvas.ts's own `getActiveDocument` is the actual source.
+ */
+export function getActiveTimeline(): string | null {
+  return getActiveDocumentId?.() ?? null;
 }
 
 type ConfirmDeleteFn = (
@@ -306,6 +320,7 @@ export async function openTimelineTab(): Promise<void> {
       currentTimeline = undefined;
       timelineGroups = undefined;
       readableTimelines = [];
+      getActiveDocumentId = undefined;
     },
   });
   timelineTabID = id;
@@ -508,7 +523,13 @@ export async function openTimelineTab(): Promise<void> {
   // After the container is in the document. vis-timeline measures its parent
   // immediately, and a detached element measures zero, which renders as a
   // blank tab rather than an error.
-  const { timeline, items, groups } = renderCanvas(
+  const {
+    timeline,
+    items,
+    groups,
+    activateDocument: activateTimeline,
+    getActiveDocument,
+  } = renderCanvas(
     canvas as unknown as HTMLElement,
     timelines,
     libraryID,
@@ -523,6 +544,7 @@ export async function openTimelineTab(): Promise<void> {
   );
   currentTimeline = timeline;
   timelineGroups = groups;
+  getActiveDocumentId = getActiveDocument;
   teardownTimeline = () => {
     try {
       timeline.destroy();
@@ -767,9 +789,41 @@ export async function openTimelineTab(): Promise<void> {
     // hand-numbered sequence would only be a second order to keep in sync
     // with the first. This is the row itself as its own stop - the checkbox
     // and the move buttons inside it keep their own default tab stops, so
-    // nothing here traps or steals them. No keydown handler is attached: this
-    // row is reachable by keyboard, not yet activatable by it.
+    // nothing here traps or steals them.
     row.tabIndex = 0;
+
+    // Clicking the row activates its timeline (TASK-16) - but only when the
+    // click landed on the row itself, not on one of its own controls. The
+    // visibility checkbox is the one that matters: toggling a timeline on
+    // must never also activate it (project/backlog/plans, 2026-08-22 m-4
+    // decision), and the move/rename/delete buttons already have their own
+    // dedicated actions.
+    row.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      if (target.closest("input") || target.closest("button")) {
+        return;
+      }
+      activateTimeline(group.id);
+    });
+
+    // The keyboard equivalent of clicking the row, and only the row: Enter or
+    // Space while a descendant control (the checkbox, a move/rename/delete
+    // button) has focus is that control's own native behaviour, not this
+    // row's, so this only fires when the row itself is the event's target.
+    row.addEventListener("keydown", (event) => {
+      if (event.target !== row) {
+        return;
+      }
+      // The sandbox's generated event map types every "keydown" listener's
+      // event as the bare Event interface rather than KeyboardEvent, which is
+      // an imprecision in that generated map rather than anything true at
+      // runtime - a real keydown is always a KeyboardEvent.
+      const key = (event as KeyboardEvent).key;
+      if (key === "Enter" || key === " ") {
+        event.preventDefault();
+        activateTimeline(group.id);
+      }
+    });
 
     const label = el(doc, "label");
     label.classList.add(SIDEBAR_ROW_LABEL_CLASS);

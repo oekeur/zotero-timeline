@@ -71,6 +71,16 @@ import type { Event, TimelineDocument } from "./schema";
  *   checkbox and plain buttons, both natively operable by click or by
  *   keyboard focus plus Enter/Space, so nothing here is mouse-only and the
  *   audit has nothing to extend for it.
+ * - Click-to-activate (the "click" handler below, and the "select" handler
+ *   for clicking an existing item): mutates which lane accepts write
+ *   gestures, not stored data, so this is the one gesture the parity rule
+ *   itself does not obligate a typed equivalent for - there is no document
+ *   field "which lane is active" for a form to edit. It still has a
+ *   keyboard-reachable route, TASK-39's focusable sidebar row
+ *   (timelineTab.ts), which activates on Enter/Space - the same documented
+ *   exception a parked event's typing-only correction already uses: a
+ *   keyboard-only route is allowed, a mouse-only one is not, and this one is
+ *   neither.
  */
 
 /**
@@ -121,6 +131,12 @@ const FORM_STYLING: Record<EdtfForm, string | undefined> = {
 // FORM_STYLING's form-based class (a flagged event still has a readable
 // `date` and keeps its form styling) rather than replacing it.
 const UNREADABLE_CLASS = "zt-unreadable";
+
+// Applied to a vis group's own `className` field (not an item's), which
+// vis-timeline mirrors onto that group's label, foreground row, background
+// row and axis DOM - see project/ui-design.md for the tint-plus-bar the
+// stylesheet paints from it.
+const ACTIVE_LANE_CLASS = "zt-lane-active";
 
 function edtfErrorMessage(err: unknown): string {
   return err instanceof Error && err.message
@@ -345,12 +361,33 @@ export function getLastMovePayload(): Record<string, unknown> | undefined {
  * one input the read-only rule follows, never the count of timelines this
  * call was handed. It reaches every item through buildTimelineItem's own
  * `editable` parameter rather than through vis-timeline's global
- * `options.editable`, because that is the one mechanism a per-lane active
- * timeline can later narrow further without this function changing: a
- * global option would have to be re-decided per gesture, a per-item flag
- * just gets a stricter input. It also refuses the click-to-create gesture
- * directly, since that gesture has no vis-level editable flag of its own to
- * gate it - see the "click" handler below.
+ * `options.editable`, composed with which lane is active (below): an item's
+ * effective editable is `libraryEditable && <its document is the active
+ * one>`, recomputed through the same per-item flag whenever activation
+ * changes rather than through a second, global mechanism. A parked item
+ * still ignores both and stays non-editable regardless (buildTimelineItem's
+ * own doc, and TASK-38) - non-editable wins wherever any reason applies. It
+ * also refuses the click-to-create gesture directly, since that gesture has
+ * no vis-level editable flag of its own to gate it - see the "click" handler
+ * below.
+ *
+ * Exactly one visible lane is active at a time, never expressed as vis
+ * state: `activeDocumentId` below is a plain closure variable, restored on
+ * every activation change rather than read back off vis, so a future rebuild
+ * of the vis instance (TASK-43) has something plain to restore it from. It
+ * starts as the topmost of `timelines` (index 0, the same array order the
+ * groups below draw as `order: 0`), which is what makes a single visible
+ * timeline behave exactly as it did before this task existed - it is the
+ * only lane there is to be active. Activation follows an explicit act -
+ * clicking a lane, an event in it, or (timelineTab.ts) its sidebar row -
+ * never a visibility toggle turning a lane on, which is the ordinary "bring
+ * up a reference chronology while editing another" gesture and must not move
+ * the drag handles out from under the user. The `groups.on("update", ...)`
+ * listener below is the one place activation moves on its own: whenever the
+ * active document stops being visible - toggled off, or (the zero-then-one
+ * recovery case) never chosen because nothing was visible at all - it falls
+ * back to the topmost still-visible timeline, or to no active timeline when
+ * none is.
  */
 export function renderCanvas(
   container: HTMLElement,
@@ -359,13 +396,23 @@ export function renderCanvas(
   libraryEditable: boolean,
   onSelect: (id: string | null) => void,
   onDocumentChange?: (doc: TimelineDocument) => void,
-): { timeline: Timeline; items: DataSet<any>; groups: DataSet<any> } {
+): {
+  timeline: Timeline;
+  items: DataSet<any>;
+  groups: DataSet<any>;
+  activateDocument: (documentId: string | null) => void;
+  getActiveDocument: () => string | null;
+} {
   // Keyed by document id and shared with `onMove` below, so a write updates
   // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
   // its own map over the same `doc` references for the event editor).
   const documents = new Map<string, TimelineDocument>(
     timelines.map(({ doc }) => [doc.id, doc]),
   );
+
+  // See the docblock above: the topmost timeline starts active, so a single
+  // visible timeline is always the active one.
+  let activeDocumentId: string | null = timelines[0]?.doc.id ?? null;
 
   // Every group starts visible (below), so the initial anchors are computed
   // against every loaded document.
@@ -381,7 +428,7 @@ export function renderCanvas(
           doc.id,
           event,
           initialAnchors.get(doc.id),
-          libraryEditable,
+          libraryEditable && doc.id === activeDocumentId,
         ),
       ),
     ),
@@ -393,8 +440,69 @@ export function renderCanvas(
       content: doc.name,
       order,
       visible: true,
+      className: doc.id === activeDocumentId ? ACTIVE_LANE_CLASS : undefined,
     })),
   );
+
+  /** Every group id currently visible, read straight off the live groups DataSet. */
+  function visibleDocumentIds(): Set<string> {
+    return new Set(
+      (
+        groups.get({ order: "order" }) as Array<{
+          id: string;
+          visible?: boolean;
+        }>
+      )
+        .filter((group) => group.visible !== false)
+        .map((group) => String(group.id)),
+    );
+  }
+
+  /**
+   * Rebuilds every item of `documentId` with its current parked anchor (if
+   * any of its events are parked) and its current editable state - the same
+   * shape buildTimelineItem always produces, just re-derived rather than
+   * re-read from storage. Called after activation changes, on exactly the
+   * two documents it affects (the previously and newly active one), never on
+   * every loaded document.
+   */
+  function rebuildDocumentItems(documentId: string): void {
+    const doc = documents.get(documentId);
+    if (!doc) {
+      return;
+    }
+    const anchor = computeParkedAnchors(documents, visibleDocumentIds()).get(
+      documentId,
+    );
+    const editable = libraryEditable && documentId === activeDocumentId;
+    for (const event of doc.events) {
+      items.update(buildTimelineItem(documentId, event, anchor, editable));
+    }
+  }
+
+  /**
+   * The one place `activeDocumentId` changes. Composes with libraryEditable
+   * (never bypasses it) and with a parked event's own hardcoded
+   * non-editability (rebuildDocumentItems goes through buildTimelineItem,
+   * which never looks at the editable it's handed for a parked item) - so
+   * the two reasons an item might refuse a drag stay independent, per the
+   * plan's "non-editable wins wherever either reason applies".
+   */
+  function activateDocument(documentId: string | null): void {
+    if (documentId === activeDocumentId) {
+      return;
+    }
+    const previous = activeDocumentId;
+    activeDocumentId = documentId;
+    if (previous !== null && documents.has(previous)) {
+      groups.update({ id: previous, className: undefined });
+      rebuildDocumentItems(previous);
+    }
+    if (documentId !== null && documents.has(documentId)) {
+      groups.update({ id: documentId, className: ACTIVE_LANE_CLASS });
+      rebuildDocumentItems(documentId);
+    }
+  }
 
   const timeline = new Timeline(container, items, groups, {
     editable: {
@@ -516,7 +624,7 @@ export function renderCanvas(
               derived.documentId,
               updatedEvent,
               undefined,
-              libraryEditable,
+              libraryEditable && derived.documentId === activeDocumentId,
             ),
           );
         } catch (err) {
@@ -543,35 +651,59 @@ export function renderCanvas(
    * Reads only `documents`, already held in memory from the initial render or
    * updated in place by onMove/click-to-create above - no document is
    * re-read, which is what TASK-39's carried-in criterion requires.
+   *
+   * The same listener also carries the active-lane fallback (TASK-16): if
+   * the active document just stopped being visible - toggled off directly,
+   * or (activeDocumentId already null) never chosen because nothing was
+   * visible until this update - activation moves to the topmost still-
+   * visible timeline, the rows' own `order` already sorted ascending by the
+   * `groups.get({ order: "order" })` read below. Ordinary reordering or
+   * toggling a lane *on* while the active one stays visible leaves this
+   * condition false and activation untouched, which is what keeps a toggle-on
+   * from stealing the handles out from under whoever is mid-edit elsewhere.
    */
   groups.on("update", () => {
-    const visibleDocumentIds = new Set(
-      (
-        groups.get({ order: "order" }) as Array<{
-          id: string;
-          visible?: boolean;
-        }>
-      )
-        .filter((group) => group.visible !== false)
-        .map((group) => String(group.id)),
+    const rows = groups.get({ order: "order" }) as Array<{
+      id: string;
+      visible?: boolean;
+    }>;
+    const visibleIds = new Set(
+      rows.filter((group) => group.visible !== false).map((g) => String(g.id)),
     );
-    const anchors = computeParkedAnchors(documents, visibleDocumentIds);
+
+    if (activeDocumentId === null || !visibleIds.has(activeDocumentId)) {
+      const topmostVisible = rows.find((group) => group.visible !== false);
+      activateDocument(topmostVisible ? String(topmostVisible.id) : null);
+    }
+
+    const anchors = computeParkedAnchors(documents, visibleIds);
     for (const [documentId, doc] of documents) {
       if (readableExtent(doc) !== null) {
         continue; // this document's own anchor never depends on visibility
       }
       const anchor = anchors.get(documentId)!;
+      const editable = libraryEditable && documentId === activeDocumentId;
       for (const event of doc.events) {
         try {
           toTimelineRange(event.date);
         } catch {
-          items.update(
-            buildTimelineItem(documentId, event, anchor, libraryEditable),
-          );
+          items.update(buildTimelineItem(documentId, event, anchor, editable));
         }
       }
     }
   });
+
+  // Selecting a single item also activates its document (clicking an event
+  // activates its lane, per the plan) - both routes below funnel through
+  // here, so a real click and a scripted setSelection() activate exactly the
+  // same way. Selecting nothing, or several items, leaves activation alone:
+  // there is no single document a cleared or multi-item selection names.
+  function handleSelectionChange(ids: string[]): void {
+    onSelect(ids.length === 1 ? ids[0] : null);
+    if (ids.length === 1) {
+      activateDocument(parseVisItemId(ids[0]).documentId);
+    }
+  }
 
   // A real pointer selection emits vis-timeline's own "select" event, but its
   // setSelection() (used by tests, and by anything driving selection
@@ -579,16 +711,16 @@ export function renderCanvas(
   // vis-timeline@8.5.4's source, where a click's own handler emits the event
   // itself after calling a different, internal setSelection. Wrapping the
   // public method here is what makes a scripted selection change reach the
-  // editor the same way a click does.
+  // editor, and now activation, the same way a click does.
   const setSelection = timeline.setSelection.bind(timeline);
   (timeline as any).setSelection = (ids: unknown, options?: unknown) => {
     setSelection(ids as any, options as any);
     const list = ids == null ? [] : Array.isArray(ids) ? ids : [ids];
-    onSelect(list.length === 1 ? String(list[0]) : null);
+    handleSelectionChange(list.map(String));
   };
 
   timeline.on("select", (props: { items: string[] }) => {
-    onSelect(props.items.length === 1 ? props.items[0] : null);
+    handleSelectionChange(props.items);
   });
 
   // Clicking empty space inside a document's row is how an event gets
@@ -605,9 +737,24 @@ export function renderCanvas(
   // above); `group` absent means the click landed outside any document's row
   // (e.g. the time axis), and there is no target document to create into -
   // both cases do nothing, since creating a timeline itself is out of scope.
+  //
+  // A click that lands on empty space in a document's row activates that
+  // row's lane first (only "select" handles an item click, above). When that
+  // click found the lane already inactive, activating it is the click's
+  // entire effect: the same click that would have created an event in an
+  // active lane instead just arms this one, so one click into a document the
+  // user was only reading never also writes into it. A second click, now
+  // that the lane is active, falls through to create as usual.
   timeline.on(
     "click",
     (props: { item?: unknown; group?: unknown; time: Date }) => {
+      if (props.item == null && props.group != null) {
+        const documentId = String(props.group);
+        if (documentId !== activeDocumentId) {
+          activateDocument(documentId);
+          return;
+        }
+      }
       if (props.item != null || props.group == null) {
         return;
       }
@@ -651,7 +798,12 @@ export function renderCanvas(
           onDocumentChange?.(result);
           const newEvent = result.events.find((e) => e.id === newEventId)!;
           items.add(
-            buildTimelineItem(documentId, newEvent, undefined, libraryEditable),
+            buildTimelineItem(
+              documentId,
+              newEvent,
+              undefined,
+              libraryEditable && documentId === activeDocumentId,
+            ),
           );
           // The wrapped setSelection above notifies onSelect, which is what
           // opens the editor panel on the event just created.
@@ -666,5 +818,11 @@ export function renderCanvas(
     },
   );
 
-  return { timeline, items, groups };
+  return {
+    timeline,
+    items,
+    groups,
+    activateDocument,
+    getActiveDocument: () => activeDocumentId,
+  };
 }
