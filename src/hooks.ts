@@ -8,6 +8,7 @@ import {
   getVisibleTimelines,
   openTimelineTab,
   registerTimelineMenu,
+  registerTimelineShortcut,
   setTimelineDeleteConfirmForTests,
 } from "./modules/timeline/timelineTab";
 import { createZToolkit } from "./utils/ztoolkit";
@@ -68,6 +69,7 @@ async function onStartup() {
   initLocale();
 
   registerTimelineMenu();
+  registerTimelineShortcut();
   registerItemPaneSection();
 
   // Without this the preferences.xhtml in addon/content is never shown, and

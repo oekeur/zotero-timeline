@@ -34,6 +34,7 @@ import type { TimelineDocument } from "./schema";
 const TAB_TYPE = "zoterotimeline-timeline";
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
 const HTML_NS = "http://www.w3.org/1999/xhtml";
+const TIMELINE_SHORTCUT = "shift,t";
 
 // The tab shell's classes, styled in addon/content/zoteroPane.css. Exported
 // rather than written as literals at the point of use so a test or a later
@@ -1049,7 +1050,7 @@ export async function openTimelineTab(): Promise<void> {
 }
 
 export function registerTimelineMenu(): void {
-  ztoolkit.Menu.register("menuFile", {
+  ztoolkit.Menu.register("menuTools", {
     tag: "menuitem",
     id: MENU_ID,
     label: getString("timeline-tab-label"),
@@ -1062,6 +1063,31 @@ export function registerTimelineMenu(): void {
         );
       });
     },
+  });
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) {
+    return false;
+  }
+  const tag = element.tagName?.toLowerCase();
+  return element.isContentEditable || tag === "input" || tag === "textarea";
+}
+
+export function registerTimelineShortcut(): void {
+  ztoolkit.Keyboard.register((ev, keyOptions) => {
+    if (!keyOptions.keyboard?.equals(TIMELINE_SHORTCUT)) {
+      return;
+    }
+    if (isTextEntryTarget(ev.target)) {
+      return;
+    }
+    void openTimelineTab().catch((err) => {
+      Zotero.debug(
+        `[ZoteroTimeline] openTimelineTab failed: ${err?.stack ?? String(err)}`,
+      );
+    });
   });
 }
 
