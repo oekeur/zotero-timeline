@@ -201,9 +201,15 @@ describe("the active timeline (TASK-16)", function () {
     const { doc, sidebar } = await openTab();
     assert.equal(api.getActiveTimeline(), "doc-revolt");
 
-    const sourcesName = rowFor(sidebar, "doc-sources").querySelector(
+    const sourcesRow = rowFor(sidebar, "doc-sources");
+    assert.ok(
+      sourcesRow,
+      `no sidebar row for doc-sources; sidebar.innerHTML=${sidebar.innerHTML}`,
+    );
+    const sourcesName = sourcesRow.querySelector(
       `.${SIDEBAR_ROW_NAME_CLASS}`,
     ) as HTMLElement;
+    assert.ok(sourcesName, "no name element inside the doc-sources row");
     sourcesName.click();
     await waitFor(
       () => api.getActiveTimeline() === "doc-sources",
@@ -211,6 +217,7 @@ describe("the active timeline (TASK-16)", function () {
     );
 
     const revoltRow = rowFor(sidebar, "doc-revolt");
+    assert.ok(revoltRow, "no sidebar row for doc-revolt");
     revoltRow.focus();
     assert.equal(
       doc.activeElement,
@@ -360,13 +367,19 @@ describe("the active timeline (TASK-16)", function () {
 
     const { sidebar, timeline } = await openTab();
 
-    const row = rowFor(sidebar, "doc-parked-active").querySelector(
+    const parkedRow = rowFor(sidebar, "doc-parked-active");
+    assert.ok(
+      parkedRow,
+      `no sidebar row for doc-parked-active; sidebar.innerHTML=${sidebar.innerHTML}`,
+    );
+    const row = parkedRow.querySelector(
       `.${SIDEBAR_ROW_NAME_CLASS}`,
     ) as HTMLElement;
+    assert.ok(row, "no name element inside the doc-parked-active row");
     row.click();
     await waitFor(
       () => api.getActiveTimeline() === "doc-parked-active",
-      "activating the parked event's own lane",
+      `activating the parked event's own lane (current=${api.getActiveTimeline()})`,
     );
 
     assert.strictEqual(

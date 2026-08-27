@@ -798,11 +798,21 @@ export async function openTimelineTab(): Promise<void> {
     // must never also activate it (project/backlog/plans, 2026-08-22 m-4
     // decision), and the move/rename/delete buttons already have their own
     // dedicated actions.
+    //
+    // The name span sits inside the same <label> as the checkbox (below), so
+    // a click there is, natively, ALSO a click on the checkbox: a <label>'s
+    // own activation behaviour relays an uncancelled click to the control it
+    // wraps. Left alone, clicking the row's name to activate it would silently
+    // toggle that timeline's visibility off too. preventDefault() here is
+    // what a label checks before relaying - it stops there being a second,
+    // synthetic click on the checkbox at all, rather than something this
+    // handler would otherwise have to detect and undo after the fact.
     row.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
       if (target.closest("input") || target.closest("button")) {
         return;
       }
+      event.preventDefault();
       activateTimeline(group.id);
     });
 
