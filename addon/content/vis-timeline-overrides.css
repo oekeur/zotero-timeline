@@ -199,6 +199,21 @@
   );
 }
 
+/*
+ * A parked event's position is fabricated and a flagged event has lost its
+ * span, so neither may ever look like an ordinary date. --accent-red is the
+ * one colour this plugin spends on "this is broken" rather than on the
+ * EDTF-form distinctions above, which never touch colour - the same reuse the
+ * vocabulary editor's own error text makes. Composes alongside a
+ * zt-uncertain/zt-approximate/zt-interval/zt-one-of class rather than
+ * replacing it: a flagged event still has a readable `date` and keeps its own
+ * form styling underneath.
+ */
+.zoterotimeline-canvas .vis-item.zt-unreadable {
+  border-color: var(--accent-red);
+  border-width: 2px;
+}
+
 /* ---------- Markers ---------- */
 
 /*

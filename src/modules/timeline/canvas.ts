@@ -117,6 +117,115 @@ const FORM_STYLING: Record<EdtfForm, string | undefined> = {
   list: "zt-one-of",
 };
 
+// The class every parked or flagged item carries, composed alongside
+// FORM_STYLING's form-based class (a flagged event still has a readable
+// `date` and keeps its form styling) rather than replacing it.
+const UNREADABLE_CLASS = "zt-unreadable";
+
+function edtfErrorMessage(err: unknown): string {
+  return err instanceof Error && err.message
+    ? err.message
+    : "no further detail";
+}
+
+type Extent = { min: number; max: number };
+
+const PARK_OFFSET_ZERO_SPAN_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Every instant `doc` can be read at, from `date` and `endDate` of every
+ * event that parses, or null when none of them do. This is "the document's
+ * own readable span" the parked-position rule offsets from - never the
+ * viewport, and never limited to the events that are themselves parked or
+ * flagged, since an event with a perfectly readable date still contributes to
+ * where a broken sibling's date gets parked.
+ */
+function readableExtent(doc: TimelineDocument): Extent | null {
+  const instants: number[] = [];
+  const collect = (value: string) => {
+    try {
+      const range = toTimelineRange(value);
+      instants.push(range.start.getTime());
+      if (range.end) {
+        instants.push(range.end.getTime());
+      }
+    } catch {
+      // Contributes nothing - an unreadable date is not part of the span it
+      // is itself offset from.
+    }
+  };
+  for (const event of doc.events) {
+    collect(event.date);
+    if (event.endDate !== undefined) {
+      collect(event.endDate);
+    }
+  }
+  return instants.length === 0
+    ? null
+    : { min: Math.min(...instants), max: Math.max(...instants) };
+}
+
+function unionExtent(extents: Array<Extent | null>): Extent | null {
+  const present = extents.filter((extent): extent is Extent => extent !== null);
+  if (present.length === 0) {
+    return null;
+  }
+  return {
+    min: Math.min(...present.map((extent) => extent.min)),
+    max: Math.max(...present.map((extent) => extent.max)),
+  };
+}
+
+/**
+ * The position every parked event in one document shares: the latest
+ * readable point in `extent` plus five per cent of its span, or one day past
+ * it where the span is zero (a document whose only readable dates are
+ * instants).
+ */
+function anchorFromExtent(extent: Extent): Date {
+  const span = extent.max - extent.min;
+  const offset = span === 0 ? PARK_OFFSET_ZERO_SPAN_MS : span * 0.05;
+  return new Date(extent.max + offset);
+}
+
+/**
+ * Where every parked event in each of `documents` draws, keyed by document
+ * id. A document with a readable date of its own is offset from that (see
+ * anchorFromExtent); one with none borrows the readable extent of every other
+ * document in `visibleDocumentIds`, and falls back to today when nothing
+ * anywhere is readable (gap review, 2026-08-23).
+ *
+ * Callers recompute this on every visibility change rather than caching it
+ * across one - the borrowed case is the one place a parked position depends
+ * on something outside its own document, so toggling an unrelated timeline
+ * has to move it even though zooming never does.
+ */
+export function computeParkedAnchors(
+  documents: Map<string, TimelineDocument>,
+  visibleDocumentIds: Set<string>,
+): Map<string, Date> {
+  const ownExtents = new Map<string, Extent | null>();
+  for (const [id, doc] of documents) {
+    ownExtents.set(id, readableExtent(doc));
+  }
+  const anchors = new Map<string, Date>();
+  for (const [id, extent] of ownExtents) {
+    if (extent) {
+      anchors.set(id, anchorFromExtent(extent));
+      continue;
+    }
+    const borrowed = unionExtent(
+      Array.from(ownExtents.entries())
+        .filter(
+          ([otherId]) => otherId !== id && visibleDocumentIds.has(otherId),
+        )
+        .map(([, otherExtent]) => otherExtent),
+    );
+    anchors.set(id, borrowed ? anchorFromExtent(borrowed) : new Date());
+  }
+  return anchors;
+}
+
 /**
  * The vis-timeline item for one event, shared by the initial render and a
  * refresh after an edit.
@@ -131,21 +240,65 @@ const FORM_STYLING: Record<EdtfForm, string | undefined> = {
  * `endDate`: a separate endDate makes an unambiguous span out of two plain
  * instants, so there is no one-of/interval claim in `date` itself for the
  * styling to draw apart.
+ *
+ * A `date` that will not parse has no start to draw at, so the canvas
+ * fabricates one at `parkedAnchor` (the document-wide position every parked
+ * event in it shares - see computeParkedAnchors) and marks the item
+ * non-editable through vis-timeline's own per-item `editable` flag, which
+ * gates the drag handle itself: a delta measured from a fabricated position
+ * is not a date. Callers that never hand an unreadable `date` to this
+ * function (every one besides the initial render and the toggle listener,
+ * since a freshly typed or dragged date is always readable) need not supply
+ * `parkedAnchor` at all; today is used if the rare case still hits it.
+ *
+ * An unreadable `endDate` does not park the event: `date` is real
+ * information the document holds, so the event draws at its own start as a
+ * flagged point, losing its span rather than its place.
  */
-export function buildTimelineItem(documentId: string, event: Event) {
-  const dateRange = toTimelineRange(event.date);
-  const end =
-    event.endDate !== undefined
-      ? toTimelineRange(event.endDate).start
-      : dateRange.end;
+export function buildTimelineItem(
+  documentId: string,
+  event: Event,
+  parkedAnchor?: Date,
+) {
+  let dateRange: ReturnType<typeof toTimelineRange>;
+  try {
+    dateRange = toTimelineRange(event.date);
+  } catch (err) {
+    return {
+      id: visItemId(documentId, event.id),
+      group: documentId,
+      content: event.title,
+      start: parkedAnchor ?? new Date(),
+      editable: false,
+      title: `${event.title} - ${edtfErrorMessage(err)}`,
+      className: UNREADABLE_CLASS,
+    };
+  }
+
+  let end = dateRange.end;
+  let endDateError: string | undefined;
+  if (event.endDate !== undefined) {
+    try {
+      end = toTimelineRange(event.endDate).start;
+    } catch (err) {
+      end = undefined;
+      endDateError = edtfErrorMessage(err);
+    }
+  }
+
+  const formClass = FORM_STYLING[dateRange.form];
   return {
     id: visItemId(documentId, event.id),
     group: documentId,
     content: event.title,
     start: dateRange.start,
     ...(end ? { end } : {}),
-    title: `${event.title} (${event.date})`,
-    className: FORM_STYLING[dateRange.form],
+    title: endDateError
+      ? `${event.title} (${event.date}) - ${endDateError}`
+      : `${event.title} (${event.date})`,
+    className: endDateError
+      ? [formClass, UNREADABLE_CLASS].filter(Boolean).join(" ")
+      : formClass,
   };
 }
 
@@ -191,9 +344,18 @@ export function renderCanvas(
     timelines.map(({ doc }) => [doc.id, doc]),
   );
 
+  // Every group starts visible (below), so the initial anchors are computed
+  // against every loaded document.
+  const initialAnchors = computeParkedAnchors(
+    documents,
+    new Set(documents.keys()),
+  );
+
   const items = new DataSet(
     timelines.flatMap(({ doc }) =>
-      doc.events.map((event) => buildTimelineItem(doc.id, event)),
+      doc.events.map((event) =>
+        buildTimelineItem(doc.id, event, initialAnchors.get(doc.id)),
+      ),
     ),
   );
 
@@ -331,6 +493,47 @@ export function renderCanvas(
         }
       })();
     },
+  });
+
+  /**
+   * A parked event's position depends on which other timelines are visible
+   * only when its own document has no readable date at all (computeParkedAnchors)
+   * - every other parked event's anchor comes solely from its own document and
+   * never moves here. Listening on the groups DataSet itself, rather than
+   * requiring the sidebar's toggle handler to call back in, is what makes this
+   * work without the sidebar (timelineTab.ts) knowing parked events exist:
+   * `visible` already flows through this DataSet for every reason TASK-39
+   * built it, and this just reads the same field.
+   *
+   * Reads only `documents`, already held in memory from the initial render or
+   * updated in place by onMove/click-to-create above - no document is
+   * re-read, which is what TASK-39's carried-in criterion requires.
+   */
+  groups.on("update", () => {
+    const visibleDocumentIds = new Set(
+      (
+        groups.get({ order: "order" }) as Array<{
+          id: string;
+          visible?: boolean;
+        }>
+      )
+        .filter((group) => group.visible !== false)
+        .map((group) => String(group.id)),
+    );
+    const anchors = computeParkedAnchors(documents, visibleDocumentIds);
+    for (const [documentId, doc] of documents) {
+      if (readableExtent(doc) !== null) {
+        continue; // this document's own anchor never depends on visibility
+      }
+      const anchor = anchors.get(documentId)!;
+      for (const event of doc.events) {
+        try {
+          toTimelineRange(event.date);
+        } catch {
+          items.update(buildTimelineItem(documentId, event, anchor));
+        }
+      }
+    }
   });
 
   // A real pointer selection emits vis-timeline's own "select" event, but its
