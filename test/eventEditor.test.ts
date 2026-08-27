@@ -34,6 +34,7 @@ import {
   createDocumentNote,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // The editor panel beside the canvas. Driven through timeline.setSelection
 // rather than a real click, since a synthesised pointer gesture in this XUL
@@ -70,11 +71,97 @@ describe("event editor panel", function () {
     const api = (Zotero as any).ZoteroTimeline.api;
     const win = Zotero.getMainWindows()[0] as any;
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
     const doc = win.document as Document;
-    const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+    const panel = (await waitFor(
+      () => doc.getElementById("zoterotimeline-editor"),
+      "the editor panel to render",
+    )) as HTMLElement;
+    await waitForResolvedLabels(panel);
     const timeline = api.getCurrentTimeline();
     return { win, doc, panel, timeline };
+  }
+
+  // Fluent's DOM observer translates newly inserted data-l10n-id nodes
+  // asynchronously; every label and button in this panel carries real text
+  // once resolved (the "carries data-l10n-id..." spec below is what proves
+  // that invariant), so waiting for all of them beats a fixed guess at how
+  // long Fluent takes. Inputs and selects are excluded: their own
+  // data-l10n-id targets an attribute (placeholder, aria-label), never
+  // textContent, so they would never satisfy this check at all.
+  async function waitForResolvedLabels(panel: HTMLElement): Promise<void> {
+    await waitFor(() => {
+      const labeled = Array.from(
+        panel.querySelectorAll("[data-l10n-id]"),
+      ).filter((el) => el.tagName !== "INPUT" && el.tagName !== "SELECT");
+      return labeled.every((el) => (el.textContent ?? "").trim() !== "")
+        ? true
+        : null;
+    }, "the panel's Fluent-backed labels to resolve");
+  }
+
+  // Selects an event and waits for the title field to actually show its
+  // title, not just for the field to exist - the same input persists across
+  // a selection change, so its mere presence proves nothing about which
+  // event it is currently showing. Also waits for any rendered source's type
+  // select to have its vocabulary options loaded, a separate async chain
+  // (peekVocabulary) from the title's own render.
+  async function selectEvent(
+    timeline: any,
+    panel: HTMLElement,
+    id: string,
+    expectedTitle: string,
+  ): Promise<HTMLInputElement> {
+    timeline.setSelection([id]);
+    const input = (await waitFor(() => {
+      const el = panel.querySelector(
+        `.${TITLE_INPUT_CLASS}`,
+      ) as HTMLInputElement | null;
+      return el && el.value === expectedTitle ? el : null;
+    }, `the title field to read "${expectedTitle}"`)) as HTMLInputElement;
+    await waitFor(() => {
+      const typeSelects = Array.from(
+        panel.querySelectorAll(`.${SOURCE_TYPE_SELECT_CLASS}`),
+      ) as HTMLSelectElement[];
+      return typeSelects.every((select) => select.options.length > 0)
+        ? true
+        : null;
+    }, "every source's type select to have its vocabulary loaded");
+    await waitForResolvedLabels(panel);
+    return input;
+  }
+
+  async function clearSelection(
+    timeline: any,
+    panel: HTMLElement,
+  ): Promise<HTMLElement> {
+    timeline.setSelection([]);
+    return (await waitFor(
+      () => panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
+      "the panel to revert to the empty prompt",
+    )) as HTMLElement;
+  }
+
+  // Some saves round-trip to content that looks identical to what was there
+  // before, so there is nothing new to poll for in the stored document
+  // itself. Waiting on the underlying Zotero.Item#save() call resolving is
+  // the real condition: updateTimelineDocument awaits exactly that call
+  // before the click handler's own promise settles.
+  async function waitForSave(trigger: () => void): Promise<void> {
+    const original = (Zotero.Item.prototype as any).save;
+    let resolved = false;
+    (Zotero.Item.prototype as any).save = function (...args: unknown[]) {
+      const result = original.apply(this, args);
+      Promise.resolve(result).then(() => {
+        resolved = true;
+      });
+      return result;
+    };
+    try {
+      trigger();
+      await waitFor(() => (resolved ? true : null), "the note save to resolve");
+    } finally {
+      (Zotero.Item.prototype as any).save = original;
+    }
   }
 
   it("prompts naming both routes when nothing is selected", async function () {
@@ -95,19 +182,21 @@ describe("event editor panel", function () {
   it("shows the selected event and follows the selection as it changes", async function () {
     const { panel, timeline } = await openPanel();
 
-    timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(500);
-    let titleInput = panel.querySelector(
-      `.${TITLE_INPUT_CLASS}`,
-    ) as HTMLInputElement;
+    let titleInput = await selectEvent(
+      timeline,
+      panel,
+      "doc-sources:ev-truce",
+      "Truce negotiations",
+    );
     assert.ok(titleInput, "no title field after selecting an event");
     assert.equal(titleInput.value, "Truce negotiations");
 
-    timeline.setSelection(["doc-revolt:ev-fury"]);
-    await Zotero.Promise.delay(500);
-    titleInput = panel.querySelector(
-      `.${TITLE_INPUT_CLASS}`,
-    ) as HTMLInputElement;
+    titleInput = await selectEvent(
+      timeline,
+      panel,
+      "doc-revolt:ev-fury",
+      "Iconoclastic Fury",
+    );
     assert.ok(titleInput, "no title field after changing the selection");
     assert.equal(
       titleInput.value,
@@ -115,8 +204,7 @@ describe("event editor panel", function () {
       "the panel did not follow the selection change",
     );
 
-    timeline.setSelection([]);
-    await Zotero.Promise.delay(500);
+    await clearSelection(timeline, panel);
     assert.ok(
       panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
       "clearing the selection did not bring back the prompt",
@@ -125,8 +213,12 @@ describe("event editor panel", function () {
 
   it("carries data-l10n-id on every label and button, none rendering raw or empty", async function () {
     const { panel, timeline } = await openPanel();
-    timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(500);
+    await selectEvent(
+      timeline,
+      panel,
+      "doc-sources:ev-truce",
+      "Truce negotiations",
+    );
 
     const labelsAndButtons = Array.from(
       panel.querySelectorAll("label, button"),
@@ -164,8 +256,12 @@ describe("event editor panel", function () {
 
   it("authors tags as discrete tokens: Enter commits one, commas are not split on", async function () {
     const { panel, doc, timeline } = await openPanel();
-    timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(500);
+    await selectEvent(
+      timeline,
+      panel,
+      "doc-sources:ev-truce",
+      "Truce negotiations",
+    );
 
     const tagInput = panel.querySelector(
       `.${TAG_INPUT_CLASS}`,
@@ -212,12 +308,13 @@ describe("event editor panel", function () {
 
   it("saves through the mutation and the write path, writing exactly one note", async function () {
     const { panel, timeline } = await openPanel();
-    timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(500);
+    const titleInput = await selectEvent(
+      timeline,
+      panel,
+      "doc-sources:ev-truce",
+      "Truce negotiations",
+    );
 
-    const titleInput = panel.querySelector(
-      `.${TITLE_INPUT_CLASS}`,
-    ) as HTMLInputElement;
     titleInput.value = "Truce negotiations, revised";
 
     const original = (Zotero.Item.prototype as any).save;
@@ -232,7 +329,10 @@ describe("event editor panel", function () {
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
       saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitFor(
+        () => (saveCalls > 0 ? true : null),
+        "the note save to fire",
+      );
     } finally {
       (Zotero.Item.prototype as any).save = original;
     }
@@ -248,15 +348,23 @@ describe("event editor panel", function () {
 
   it("clears the selection and removes the event on delete", async function () {
     const { panel, timeline } = await openPanel();
-    timeline.setSelection(["doc-revolt:ev-fury"]);
-    await Zotero.Promise.delay(500);
+    await selectEvent(
+      timeline,
+      panel,
+      "doc-revolt:ev-fury",
+      "Iconoclastic Fury",
+    );
 
     const deleteButton = panel.querySelector(
       `.${DELETE_BUTTON_CLASS}`,
     ) as HTMLButtonElement;
     assert.ok(deleteButton, "no delete button rendered");
     deleteButton.click();
-    await Zotero.Promise.delay(800);
+
+    await waitFor(
+      () => panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
+      "the panel to revert to the prompt after deleting",
+    );
 
     assert.ok(
       panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
@@ -280,18 +388,32 @@ describe("event editor panel", function () {
       );
     }
 
+    async function waitForFeedbackForm(
+      panel: HTMLElement,
+      expectedForm: string,
+    ): Promise<Element> {
+      return waitFor(() => {
+        const feedback = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`);
+        const form = feedback?.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`);
+        return form && form.textContent === expectedForm ? feedback : null;
+      }, `date feedback form to read "${expectedForm}"`) as Promise<Element>;
+    }
+
     it("names a plain date and resolves the same range toTimelineRange does", async function () {
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-revolt:ev-utrecht",
+        "Union of Utrecht",
+      );
 
       const dateInput = panel.querySelector(
         `.${DATE_INPUT_CLASS}`,
       ) as HTMLInputElement;
       setValue(doc, dateInput, "1621-03-09");
-      await Zotero.Promise.delay(500);
+      const feedback = await waitForFeedbackForm(panel, "Plain");
 
-      const feedback = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`)!;
       const formText = feedback.querySelector(
         `.${DATE_FEEDBACK_FORM_CLASS}`,
       )!.textContent;
@@ -308,23 +430,26 @@ describe("event editor panel", function () {
 
     it("names uncertain and approximate distinctly, both still type Date", async function () {
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-revolt:ev-utrecht",
+        "Union of Utrecht",
+      );
 
       const dateInput = panel.querySelector(
         `.${DATE_INPUT_CLASS}`,
       ) as HTMLInputElement;
-      const feedback = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`)!;
 
       setValue(doc, dateInput, "1621?");
-      await Zotero.Promise.delay(500);
+      let feedback = await waitForFeedbackForm(panel, "Uncertain");
       assert.equal(
         feedback.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`)!.textContent,
         "Uncertain",
       );
 
       setValue(doc, dateInput, "1580~");
-      await Zotero.Promise.delay(500);
+      feedback = await waitForFeedbackForm(panel, "Approximate");
       assert.equal(
         feedback.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`)!.textContent,
         "Approximate",
@@ -333,23 +458,26 @@ describe("event editor panel", function () {
 
     it("names an interval and a one-of set differently, even though both resolve to a similar-looking range", async function () {
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-revolt:ev-utrecht",
+        "Union of Utrecht",
+      );
 
       const dateInput = panel.querySelector(
         `.${DATE_INPUT_CLASS}`,
       ) as HTMLInputElement;
-      const feedback = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`)!;
 
       setValue(doc, dateInput, "1580/1590");
-      await Zotero.Promise.delay(500);
+      let feedback = await waitForFeedbackForm(panel, "Interval");
       assert.equal(
         feedback.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`)!.textContent,
         "Interval",
       );
 
       setValue(doc, dateInput, "[1580..1590]");
-      await Zotero.Promise.delay(500);
+      feedback = await waitForFeedbackForm(panel, "One of");
       assert.equal(
         feedback.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`)!.textContent,
         "One of",
@@ -359,14 +487,17 @@ describe("event editor panel", function () {
 
     it("shows edtf's own message verbatim on a rejected string, and saves it unchanged", async function () {
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-revolt:ev-utrecht",
+        "Union of Utrecht",
+      );
 
       const dateInput = panel.querySelector(
         `.${DATE_INPUT_CLASS}`,
       ) as HTMLInputElement;
       setValue(doc, dateInput, "not-a-date");
-      await Zotero.Promise.delay(500);
 
       let expectedMessage: string;
       try {
@@ -376,7 +507,10 @@ describe("event editor panel", function () {
         expectedMessage = (err as Error).message;
       }
 
-      const feedback = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`)!;
+      const feedback = (await waitFor(() => {
+        const el = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`);
+        return el && el.textContent === expectedMessage ? el : null;
+      }, "the date feedback to show edtf's rejection message")) as Element;
       assert.equal(feedback.textContent, expectedMessage);
       assert.isNull(
         feedback.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`),
@@ -386,8 +520,7 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       const { timelines } = await listTimelines(libraryID);
       const updated = timelines
@@ -402,8 +535,12 @@ describe("event editor panel", function () {
 
     it("clears endDate to no endDate (a point, not a range) when saved empty", async function () {
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-revolt:ev-utrecht",
+        "Union of Utrecht",
+      );
 
       const endDateInput = panel.querySelector(
         `.${END_DATE_INPUT_CLASS}`,
@@ -414,13 +551,11 @@ describe("event editor panel", function () {
         "fixture event starts with no endDate",
       );
       setValue(doc, endDateInput, "1580");
-      await Zotero.Promise.delay(300);
 
       let saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       let { timelines } = await listTimelines(libraryID);
       let updated = timelines
@@ -428,23 +563,21 @@ describe("event editor panel", function () {
         .doc.events.find((e) => e.id === "ev-utrecht")!;
       assert.equal(updated.endDate, "1580");
 
-      timeline.setSelection([]);
-      await Zotero.Promise.delay(300);
+      await clearSelection(timeline, panel);
       timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      await Zotero.Promise.delay(500);
-
-      const reopenedEndDateInput = panel.querySelector(
-        `.${END_DATE_INPUT_CLASS}`,
-      ) as HTMLInputElement;
+      const reopenedEndDateInput = (await waitFor(() => {
+        const input = panel.querySelector(
+          `.${END_DATE_INPUT_CLASS}`,
+        ) as HTMLInputElement | null;
+        return input && input.value === "1580" ? input : null;
+      }, 'the reopened endDate field to read "1580"')) as HTMLInputElement;
       assert.equal(reopenedEndDateInput.value, "1580");
       setValue(doc, reopenedEndDateInput, "");
-      await Zotero.Promise.delay(300);
 
       saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       ({ timelines } = await listTimelines(libraryID));
       updated = timelines
@@ -514,8 +647,12 @@ describe("event editor panel", function () {
 
     it("renders no rows and an add control when the event has no sources", async function () {
       const { panel, timeline } = await openPanel();
-      timeline.setSelection(["doc-sources:ev-truce"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-sources:ev-truce",
+        "Truce negotiations",
+      );
 
       assert.lengthOf(panel.querySelectorAll(`.${SOURCE_CLASS}`), 0);
       const addButton = panel.querySelector(
@@ -527,8 +664,12 @@ describe("event editor panel", function () {
 
     it("adds a source through the picker without writing, then Save writes it", async function () {
       const { panel, timeline } = await openPanel();
-      timeline.setSelection(["doc-sources:ev-truce"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(
+        timeline,
+        panel,
+        "doc-sources:ev-truce",
+        "Truce negotiations",
+      );
 
       const item = await citableItem("A cited work");
       const restore = stubPicker(item);
@@ -537,7 +678,13 @@ describe("event editor panel", function () {
           `.${SOURCE_ADD_BUTTON_CLASS}`,
         ) as HTMLButtonElement;
         addButton.click();
-        await Zotero.Promise.delay(800);
+        await waitFor(
+          () =>
+            panel.querySelectorAll(`.${SOURCE_CLASS}`).length === 1
+              ? true
+              : null,
+          "the picked source row to render",
+        );
       } finally {
         restore();
       }
@@ -562,8 +709,7 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       ({ timelines } = await listTimelines(libraryID));
       stored = timelines
@@ -599,8 +745,7 @@ describe("event editor panel", function () {
       });
 
       const { panel, timeline } = await openPanel();
-      timeline.setSelection(["doc-unknown-type:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-unknown-type:ev-1", "An event");
 
       const typeSelect = panel.querySelector(
         `.${SOURCE_TYPE_SELECT_CLASS}`,
@@ -612,8 +757,7 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       const { timelines } = await listTimelines(libraryID);
       const updated = timelines
@@ -643,8 +787,7 @@ describe("event editor panel", function () {
       });
 
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-retype:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-retype:ev-1", "An event");
 
       const typeSelect = panel.querySelector(
         `.${SOURCE_TYPE_SELECT_CLASS}`,
@@ -657,8 +800,7 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       const { timelines } = await listTimelines(libraryID);
       const updated = timelines
@@ -699,8 +841,7 @@ describe("event editor panel", function () {
       });
 
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-name:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-name:ev-1", "An event");
 
       let nameInput = panel.querySelector(
         `.${SOURCE_NAME_INPUT_CLASS}`,
@@ -710,8 +851,7 @@ describe("event editor panel", function () {
       let saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       let { timelines } = await listTimelines(libraryID);
       let updated = timelines
@@ -719,22 +859,21 @@ describe("event editor panel", function () {
         .doc.events.find((e) => e.id === "ev-1")!;
       assert.equal(updated.sources[0].name, "Primary account");
 
-      timeline.setSelection([]);
-      await Zotero.Promise.delay(300);
-      timeline.setSelection(["doc-name:ev-1"]);
-      await Zotero.Promise.delay(500);
-
-      nameInput = panel.querySelector(
-        `.${SOURCE_NAME_INPUT_CLASS}`,
-      ) as HTMLInputElement;
+      await clearSelection(timeline, panel);
+      await selectEvent(timeline, panel, "doc-name:ev-1", "An event");
+      nameInput = (await waitFor(() => {
+        const input = panel.querySelector(
+          `.${SOURCE_NAME_INPUT_CLASS}`,
+        ) as HTMLInputElement | null;
+        return input && input.value === "Primary account" ? input : null;
+      }, 'the reopened name field to read "Primary account"')) as HTMLInputElement;
       assert.equal(nameInput.value, "Primary account");
       setValue(doc, nameInput, "");
 
       saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       ({ timelines } = await listTimelines(libraryID));
       updated = timelines
@@ -769,8 +908,7 @@ describe("event editor panel", function () {
       });
 
       const { panel, timeline } = await openPanel();
-      timeline.setSelection(["doc-remove:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-remove:ev-1", "An event");
 
       const removeButtons = panel.querySelectorAll(
         `.${SOURCE_REMOVE_BUTTON_CLASS}`,
@@ -781,8 +919,7 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      saveButton.click();
-      await Zotero.Promise.delay(800);
+      await waitForSave(() => saveButton.click());
 
       const { timelines } = await listTimelines(libraryID);
       const updated = timelines
@@ -819,8 +956,7 @@ describe("event editor panel", function () {
       const before = note.getNote();
 
       const { panel, doc, timeline } = await openPanel();
-      timeline.setSelection(["doc-abandon:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-abandon:ev-1", "An event");
 
       const typeSelect = panel.querySelector(
         `.${SOURCE_TYPE_SELECT_CLASS}`,
@@ -837,7 +973,13 @@ describe("event editor panel", function () {
           `.${SOURCE_ADD_BUTTON_CLASS}`,
         ) as HTMLButtonElement;
         addButton.click();
-        await Zotero.Promise.delay(800);
+        await waitFor(
+          () =>
+            panel.querySelectorAll(`.${SOURCE_CLASS}`).length === 2
+              ? true
+              : null,
+          "the added source row to render",
+        );
       } finally {
         restore();
       }
@@ -848,8 +990,7 @@ describe("event editor panel", function () {
       assert.lengthOf(removeButtons, 2, "the added row did not render");
       (removeButtons[removeButtons.length - 1] as HTMLButtonElement).click();
 
-      timeline.setSelection([]);
-      await Zotero.Promise.delay(500);
+      await clearSelection(timeline, panel);
 
       await note.reload(["note"], true);
       assert.equal(
@@ -881,8 +1022,7 @@ describe("event editor panel", function () {
       });
 
       const { panel, win, timeline } = await openPanel();
-      timeline.setSelection(["doc-jump:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-jump:ev-1", "An event");
 
       const rows = Array.from(panel.querySelectorAll(`.${SOURCE_CLASS}`));
       assert.lengthOf(rows, 2);
@@ -914,7 +1054,10 @@ describe("event editor panel", function () {
       );
 
       showButton.click();
-      await Zotero.Promise.delay(800);
+      await waitFor(
+        () => (Zotero_Tabs.selectedID === "zotero-pane" ? true : null),
+        "the jump to leave the timeline tab",
+      );
 
       assert.equal(
         Zotero_Tabs.selectedID,
@@ -951,8 +1094,7 @@ describe("event editor panel", function () {
       });
 
       const { panel, win, timeline } = await openPanel();
-      timeline.setSelection(["doc-no-row-jump:ev-1"]);
-      await Zotero.Promise.delay(500);
+      await selectEvent(timeline, panel, "doc-no-row-jump:ev-1", "An event");
 
       const row = panel.querySelector(`.${SOURCE_CLASS}`) as HTMLElement;
       const labelSpan = row.querySelector(
@@ -960,6 +1102,7 @@ describe("event editor panel", function () {
       ) as HTMLElement;
       labelSpan.click();
       row.click();
+      // Asserting nothing happens has no condition to poll for.
       await Zotero.Promise.delay(500);
 
       assert.notEqual(

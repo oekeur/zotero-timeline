@@ -8,12 +8,14 @@ import {
   EMPTY_PROMPT_CLASS,
   TITLE_INPUT_CLASS,
 } from "../src/modules/timeline/eventEditor";
+import type { Event } from "../src/modules/timeline/schema";
 import {
   canvasFixtureDocuments,
   createDocumentNote,
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // The typed equivalent of clicking empty canvas (TASK-25's "click" handler in
 // canvas.ts) - see canvas.ts's own top-of-file gesture-parity audit
@@ -48,11 +50,27 @@ describe("event creation through the typed form", function () {
     const api = (Zotero as any).ZoteroTimeline.api;
     const win = Zotero.getMainWindows()[0] as any;
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
     const doc = win.document as Document;
-    const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+    const panel = (await waitFor(
+      () => doc.getElementById("zoterotimeline-editor"),
+      "the editor panel to render",
+    )) as HTMLElement;
     const timeline = api.getCurrentTimeline();
     return { panel, timeline };
+  }
+
+  /** Waits for exactly the effect a create drives: a new event id landing in
+   * `docId`'s stored document. */
+  async function waitForNewEvent(
+    docId: string,
+    beforeIds: Set<string>,
+  ): Promise<Event> {
+    return waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const doc = timelines.find((t) => t.doc.id === docId)?.doc;
+      const added = doc?.events.filter((e) => !beforeIds.has(e.id));
+      return added && added.length > 0 ? added[0] : null;
+    }, `a new event to appear in ${docId}`);
   }
 
   it("shows no document picker when exactly one timeline is loaded", async function () {
@@ -83,6 +101,7 @@ describe("event creation through the typed form", function () {
       `.${CREATE_BUTTON_CLASS}`,
     ) as HTMLButtonElement;
     createButton.click();
+    // Asserting nothing gets created has no condition to poll for.
     await Zotero.Promise.delay(500);
 
     const after = await listTimelines(libraryID);
@@ -119,25 +138,31 @@ describe("event creation through the typed form", function () {
       `.${CREATE_BUTTON_CLASS}`,
     ) as HTMLButtonElement;
     createButton.click();
-    await Zotero.Promise.delay(800);
-
-    const { timelines } = await listTimelines(libraryID);
-    const sourcesDoc = timelines.find((t) => t.doc.id === "doc-sources")!.doc;
-    const added = sourcesDoc.events.filter((e) => !beforeIds.has(e.id));
-    assert.lengthOf(added, 1, "expected exactly one new event in doc-sources");
-    const created = added[0];
+    const created = await waitForNewEvent("doc-sources", beforeIds);
     assert.equal(created.date, "1633");
 
+    // The write's own select-back is a separate effect from the write
+    // landing in storage, so it needs its own wait.
+    await waitFor(
+      () =>
+        timeline.getSelection().length === 1 &&
+        timeline.getSelection()[0] === `doc-sources:${created.id}`
+          ? true
+          : null,
+      "the new event to be selected after creation",
+    );
     assert.deepEqual(
       timeline.getSelection(),
       [`doc-sources:${created.id}`],
       "the newly created event was not selected after creation",
     );
 
-    await Zotero.Promise.delay(300);
-    const titleInput = panel.querySelector(
-      `.${TITLE_INPUT_CLASS}`,
-    ) as HTMLInputElement;
+    const titleInput = (await waitFor(() => {
+      const input = panel.querySelector(
+        `.${TITLE_INPUT_CLASS}`,
+      ) as HTMLInputElement | null;
+      return input && input.value === created.title ? input : null;
+    }, "the edit form to reflect the freshly created event")) as HTMLInputElement;
     assert.ok(
       titleInput,
       "selecting the new event should open the normal edit form",
@@ -151,17 +176,13 @@ describe("event creation through the typed form", function () {
     // Same default title the canvas click gesture writes for a blank title -
     // proves the two routes produce the same stored result on equivalent
     // (here: absent) input.
+    const revoltBeforeIds = new Set(["ev-fury", "ev-utrecht"]);
     timeline.emit("click", {
       item: null,
       group: "doc-revolt",
       time: new Date(Date.UTC(1580, 6, 13)),
     });
-    await Zotero.Promise.delay(600);
-    const { timelines: after } = await listTimelines(libraryID);
-    const revoltDoc = after.find((t) => t.doc.id === "doc-revolt")!.doc;
-    const clickCreated = revoltDoc.events.find(
-      (e) => e.id !== "ev-fury" && e.id !== "ev-utrecht",
-    )!;
+    const clickCreated = await waitForNewEvent("doc-revolt", revoltBeforeIds);
     assert.equal(
       created.title,
       clickCreated.title,
