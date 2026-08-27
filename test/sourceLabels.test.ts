@@ -2,6 +2,7 @@ import { assert } from "chai";
 import {
   EMPTY_NOTE_LABEL,
   MISSING_ITEM_LABEL,
+  UNTITLED_ITEM_LABEL,
   labelForItem,
   labelForSource,
 } from "../src/modules/timeline/sourceLabels";
@@ -56,6 +57,12 @@ describe("sourceLabels: naming a picked source", function () {
   it("labels a regular item by its title", async function () {
     const item = await regularItem("Union of Utrecht");
     assert.equal(labelForItem(item), "Union of Utrecht");
+  });
+
+  it("names a regular item with no title rather than rendering it blank", async function () {
+    const item = await regularItem("");
+    assert.equal(item.getDisplayTitle(), "");
+    assert.equal(labelForItem(item), UNTITLED_ITEM_LABEL);
   });
 
   it("labels a standalone note by a preview of its content, not its derived title", async function () {

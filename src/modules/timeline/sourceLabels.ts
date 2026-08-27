@@ -9,6 +9,7 @@ import type { SourceRef } from "./schema";
 
 export const MISSING_ITEM_LABEL = "(missing item)";
 export const EMPTY_NOTE_LABEL = "(empty note)";
+export const UNTITLED_ITEM_LABEL = "(untitled item)";
 
 // Long enough to tell two notes apart at a glance, short enough that the
 // label still fits on one line next to a validation message.
@@ -50,7 +51,10 @@ function notePreview(item: Zotero.Item): string {
  */
 export function labelForItem(item: Zotero.Item): string {
   if (!item.isNote()) {
-    return item.getDisplayTitle();
+    // Zotero allows an item with no title and derives an empty string for it,
+    // so a row named from this would render as nothing at all. Name it the way
+    // a missing item and an empty note are named rather than leaving a blank.
+    return item.getDisplayTitle() || UNTITLED_ITEM_LABEL;
   }
   const preview = notePreview(item);
   const parentID = item.parentID;
