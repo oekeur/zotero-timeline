@@ -775,15 +775,25 @@ export async function createTimeline(
  * read-modify-write updateTimelineDocument gives every other edit, so id,
  * version and events come back untouched.
  *
- * Refuses an empty or whitespace name before the write reaches the queue, the
- * same refusal createTimeline makes for the same reason: a blank name is
- * unpickable in the sidebar list.
+ * Refuses before the write reaches the queue when the library is not
+ * writable or the name is empty or whitespace, the same two refusals
+ * createTimeline makes and in the same order: checked here rather than left
+ * to updateTimelineDocument's note search, which would report a document it
+ * cannot find as `not-found` even when the true reason is that the library
+ * refused the write.
  */
 export async function renameTimeline(
   documentId: string,
   libraryID: number,
   name: string,
 ): Promise<TimelineDocument> {
+  const library = Zotero.Libraries.get(libraryID);
+  if (!library || !library.editable) {
+    throw new StorageError(
+      "not-writable",
+      `library ${libraryID} is not writable`,
+    );
+  }
   if (name.trim() === "") {
     throw new StorageError("invalid-schema", "a timeline needs a name");
   }

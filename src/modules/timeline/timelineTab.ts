@@ -948,6 +948,15 @@ export async function openTimelineTab(): Promise<void> {
       return;
     }
 
+    // Read before either DataSet is touched: vis-timeline drops its own
+    // selection as a side effect of removing the selected item, so asking
+    // getSelection() after items.remove() below would always see it already
+    // empty and never know there was anything to clear.
+    const selection = (timeline as any).getSelection() as string[];
+    const editorShowsThisTimeline =
+      selection.length === 1 &&
+      parseVisItemId(selection[0]).documentId === documentId;
+
     if (targetDoc) {
       (items as unknown as { remove: (ids: string[]) => void }).remove(
         targetDoc.events.map((e) => visItemId(documentId, e.id)),
@@ -958,11 +967,7 @@ export async function openTimelineTab(): Promise<void> {
     // Clears the editor panel's selection when it was showing an event from
     // this timeline - otherwise it keeps offering Save on an event in a
     // document that is about to stop existing.
-    const selection = (timeline as any).getSelection() as string[];
-    if (
-      selection.length === 1 &&
-      parseVisItemId(selection[0]).documentId === documentId
-    ) {
+    if (editorShowsThisTimeline) {
       (timeline as any).setSelection([]);
     }
 
