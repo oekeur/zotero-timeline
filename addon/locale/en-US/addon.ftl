@@ -26,6 +26,17 @@ vocabulary-recovered = Zotero Timeline rebuilt this library's link types from th
 # because a number alone is not something the user can act on.
 timeline-approaching-size-limit = The timeline "{ $name }" is getting close to the largest note Zotero will sync. Split it into two timelines to be safe.
 
+# Shown before a timeline is deleted, naming it and how many events go with
+# it. The erase goes through Zotero's trash rather than being permanent,
+# which is worth saying here rather than leaving the user to hope.
+timeline-delete-confirm-title = Delete timeline
+timeline-delete-confirm-message =
+    { $count ->
+        [0] Delete "{ $name }"? It has no events. It will move to Zotero's trash, where it can be restored.
+        [one] Delete "{ $name }"? It and its { $count } event will move to Zotero's trash, where they can be restored.
+       *[other] Delete "{ $name }"? It and its { $count } events will move to Zotero's trash, where they can be restored.
+    }
+
 # The vocabulary editor in the preference pane. Its container is rebuilt from
 # scratch on every state change, so its text is read through getString rather
 # than data-l10n-id - see vocabularySettings.ts's top-of-file comment.

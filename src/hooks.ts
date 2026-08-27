@@ -7,6 +7,7 @@ import {
   getVisibleTimelines,
   openTimelineTab,
   registerTimelineMenu,
+  setTimelineDeleteConfirmForTests,
 } from "./modules/timeline/timelineTab";
 import { createZToolkit } from "./utils/ztoolkit";
 import {
@@ -82,6 +83,7 @@ async function onStartup() {
     getModuleEvalEnv,
     renderVocabularySettings,
     setConfirmDeleteForTests,
+    setTimelineDeleteConfirmForTests,
     getVisibleTimelines,
     parsesSoFar,
   };

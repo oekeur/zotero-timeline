@@ -771,6 +771,67 @@ export async function createTimeline(
 }
 
 /**
+ * Renames a timeline: writes `name` and nothing else, through the same
+ * read-modify-write updateTimelineDocument gives every other edit, so id,
+ * version and events come back untouched.
+ *
+ * Refuses an empty or whitespace name before the write reaches the queue, the
+ * same refusal createTimeline makes for the same reason: a blank name is
+ * unpickable in the sidebar list.
+ */
+export async function renameTimeline(
+  documentId: string,
+  libraryID: number,
+  name: string,
+): Promise<TimelineDocument> {
+  if (name.trim() === "") {
+    throw new StorageError("invalid-schema", "a timeline needs a name");
+  }
+  const updated = await updateTimelineDocument(
+    (doc) => ({ ...doc, name }),
+    documentId,
+    libraryID,
+  );
+  // mutate always returns a document above, so updateTimelineDocument never
+  // reports "no change" here.
+  return updated as TimelineDocument;
+}
+
+/**
+ * Moves a timeline's storage note to Zotero's trash. Trashes rather than
+ * erases, unlike mindmap's deleteMindmap: the confirmation the caller shows
+ * promises the trash rather than a permanent erase, and this is what keeps
+ * that promise true.
+ *
+ * Refuses a library the user cannot write before the note is even searched
+ * for, the same refusal createTimeline and updateVocabulary make.
+ */
+export async function deleteTimeline(
+  documentId: string,
+  libraryID: number,
+): Promise<void> {
+  const library = Zotero.Libraries.get(libraryID);
+  if (!library || !library.editable) {
+    throw new StorageError(
+      "not-writable",
+      `library ${libraryID} is not writable`,
+    );
+  }
+  await enqueue(async () => {
+    // A plain search only. The queue is not reentrant.
+    const note = await findNoteForDocument(documentId, libraryID);
+    if (note === null) {
+      throw new StorageError(
+        "not-found",
+        `no timeline with id ${documentId} in library ${libraryID}`,
+      );
+    }
+    note.deleted = true;
+    await note.saveTx();
+  });
+}
+
+/**
  * Reads the library's one vocabulary note (lowest key, matching the tie-break
  * readVocabulary uses), applies `mutate`, and writes the result back through
  * the same queue as updateTimelineDocument. A library with no vocabulary note

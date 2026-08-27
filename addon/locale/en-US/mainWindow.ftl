@@ -24,6 +24,22 @@ timeline-sidebar-move-up-button =
 timeline-sidebar-move-down-button =
     .title = Move down
 
+timeline-sidebar-rename-button =
+    .title = Rename this timeline
+timeline-sidebar-rename-button-read-only =
+    .title = This library can't be edited
+
+timeline-sidebar-delete-button =
+    .title = Delete this timeline
+timeline-sidebar-delete-button-read-only =
+    .title = This library can't be edited
+
+timeline-sidebar-rename-name-input =
+    .placeholder = Timeline name
+
+timeline-sidebar-rename-confirm-button = Rename
+timeline-sidebar-rename-cancel-button = Cancel
+
 timeline-sidebar-none-visible = No timelines are visible. Toggle one on in the sidebar to see it here.
 
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.

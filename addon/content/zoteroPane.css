@@ -183,6 +183,37 @@
   cursor: default;
 }
 
+.zoterotimeline-sidebar-row-rename,
+.zoterotimeline-sidebar-row-delete {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fill-secondary);
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.zoterotimeline-sidebar-row-rename:hover:not(:disabled),
+.zoterotimeline-sidebar-row-delete:hover:not(:disabled) {
+  background: var(--fill-quinary);
+  color: var(--fill-primary);
+}
+
+.zoterotimeline-sidebar-row-rename:disabled,
+.zoterotimeline-sidebar-row-delete:disabled {
+  color: var(--fill-tertiary);
+  cursor: default;
+}
+
+.zoterotimeline-sidebar-row-rename-form {
+  gap: 4px;
+}
+
+.zoterotimeline-sidebar-row-rename-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /*
  * position: relative is a hard requirement rather than styling. vis-timeline
  * absolutely positions its own layers inside this element; with no positioning

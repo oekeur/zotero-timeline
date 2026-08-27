@@ -19,7 +19,9 @@ import { logFailure } from "../../utils/logging";
 import { listTimelinesCached } from "./documentCache";
 import {
   createTimeline,
+  deleteTimeline,
   hasHiddenTimelineData,
+  renameTimeline,
   searchStorageNotes,
   StorageError,
   type StoredTimeline,
@@ -66,6 +68,16 @@ export const SIDEBAR_ROW_NAME_CLASS = "zoterotimeline-sidebar-row-name";
 export const SIDEBAR_ROW_MOVE_UP_CLASS = "zoterotimeline-sidebar-row-move-up";
 export const SIDEBAR_ROW_MOVE_DOWN_CLASS =
   "zoterotimeline-sidebar-row-move-down";
+export const SIDEBAR_ROW_RENAME_CLASS = "zoterotimeline-sidebar-row-rename";
+export const SIDEBAR_ROW_DELETE_CLASS = "zoterotimeline-sidebar-row-delete";
+export const SIDEBAR_ROW_RENAME_FORM_CLASS =
+  "zoterotimeline-sidebar-row-rename-form";
+export const SIDEBAR_ROW_RENAME_NAME_INPUT_CLASS =
+  "zoterotimeline-sidebar-row-rename-name";
+export const SIDEBAR_ROW_RENAME_CONFIRM_CLASS =
+  "zoterotimeline-sidebar-row-rename-confirm";
+export const SIDEBAR_ROW_RENAME_CANCEL_CLASS =
+  "zoterotimeline-sidebar-row-rename-cancel";
 export const CANVAS_EMPTY_PROMPT_CLASS = "zoterotimeline-canvas-empty-prompt";
 
 let timelineTabID: string | undefined;
@@ -85,6 +97,28 @@ let readableTimelines: StoredTimeline[] = [];
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
+}
+
+type ConfirmDeleteFn = (
+  win: mozIDOMWindowProxy,
+  title: string,
+  message: string,
+) => boolean;
+
+const defaultConfirmTimelineDelete: ConfirmDeleteFn = (win, title, message) =>
+  Services.prompt.confirm(win, title, message);
+
+let confirmTimelineDelete: ConfirmDeleteFn = defaultConfirmTimelineDelete;
+
+/**
+ * Overrides the delete confirmation dialog, the same seam
+ * vocabularySettings.ts's setConfirmDeleteForTests gives its own delete flow
+ * and for the same reason: Services.prompt is native XPCOM, not a plugin-owned
+ * object, so a live spec cannot safely monkey-patch it directly. Called with
+ * no argument, this restores the real dialog.
+ */
+export function setTimelineDeleteConfirmForTests(fn?: ConfirmDeleteFn): void {
+  confirmTimelineDelete = fn ?? defaultConfirmTimelineDelete;
 }
 
 // Re-exported through the lazily loaded module rather than imported at the top
@@ -477,15 +511,25 @@ export async function openTimelineTab(): Promise<void> {
       }) => unknown;
       update: (
         data:
-          | { id: string; visible?: boolean; order?: number }
-          | Array<{ id: string; visible?: boolean; order?: number }>,
+          | { id: string; visible?: boolean; order?: number; content?: string }
+          | Array<{
+              id: string;
+              visible?: boolean;
+              order?: number;
+              content?: string;
+            }>,
       ) => unknown;
+      remove: (id: string) => unknown;
     };
   }
 
   // Toggled by the sidebar's create button; not module-level, since it must
   // reset to closed every time the tab is opened fresh.
   let creatingTimeline = false;
+
+  // The id of the row currently showing its inline rename form, or none. Not
+  // module-level for the same reason creatingTimeline is not.
+  let renamingDocumentId: string | null = null;
 
   /**
    * Adds a freshly created timeline to every place the sidebar and canvas
@@ -679,6 +723,10 @@ export async function openTimelineTab(): Promise<void> {
     index: number,
     total: number,
   ): HTMLElement {
+    if (group.id === renamingDocumentId) {
+      return buildRenameForm(group);
+    }
+
     const row = el(doc, "div");
     row.classList.add(SIDEBAR_ROW_CLASS);
     row.setAttribute("data-timeline-id", group.id);
@@ -742,7 +790,196 @@ export async function openTimelineTab(): Promise<void> {
     moveDown.addEventListener("click", () => reorderGroup(group.id, 1));
     row.appendChild(moveDown as unknown as Node);
 
+    const rename = el(doc, "button");
+    rename.type = "button";
+    rename.classList.add(SIDEBAR_ROW_RENAME_CLASS);
+    rename.textContent = "✎";
+    rename.disabled = !libraryEditable;
+    rename.setAttribute(
+      "data-l10n-id",
+      getLocaleID(
+        libraryEditable
+          ? "timeline-sidebar-rename-button"
+          : "timeline-sidebar-rename-button-read-only",
+      ),
+    );
+    rename.addEventListener("click", () => {
+      renamingDocumentId = group.id;
+      renderSidebar();
+    });
+    row.appendChild(rename as unknown as Node);
+
+    const del = el(doc, "button");
+    del.type = "button";
+    del.classList.add(SIDEBAR_ROW_DELETE_CLASS);
+    del.textContent = "×";
+    del.disabled = !libraryEditable;
+    del.setAttribute(
+      "data-l10n-id",
+      getLocaleID(
+        libraryEditable
+          ? "timeline-sidebar-delete-button"
+          : "timeline-sidebar-delete-button-read-only",
+      ),
+    );
+    del.addEventListener("click", () => {
+      void handleDeleteTimeline(group.id);
+    });
+    row.appendChild(del as unknown as Node);
+
     return row;
+  }
+
+  /**
+   * The inline rename form a row's rename control reveals, in place of that
+   * row's own label and actions - the same "acts in place" pattern as the
+   * create form, so a mis-click can't land on a different row's control while
+   * this one is mid-edit.
+   *
+   * The confirm button starts disabled only when the prefilled name is
+   * already blank, which cannot happen for a timeline that made it into the
+   * sidebar; the same live check as create's form keeps it that way for
+   * anything typed afterwards.
+   */
+  function buildRenameForm(group: GroupRow): HTMLElement {
+    const row = el(doc, "div");
+    row.classList.add(SIDEBAR_ROW_CLASS, SIDEBAR_ROW_RENAME_FORM_CLASS);
+    row.setAttribute("data-timeline-id", group.id);
+
+    const nameInput = el(doc, "input");
+    nameInput.type = "text";
+    nameInput.classList.add(SIDEBAR_ROW_RENAME_NAME_INPUT_CLASS);
+    nameInput.value = group.content;
+    nameInput.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-rename-name-input"),
+    );
+    row.appendChild(nameInput as unknown as Node);
+
+    const confirmButton = el(doc, "button");
+    confirmButton.type = "button";
+    confirmButton.classList.add(SIDEBAR_ROW_RENAME_CONFIRM_CLASS);
+    confirmButton.disabled = nameInput.value.trim() === "";
+    confirmButton.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-rename-confirm-button"),
+    );
+    row.appendChild(confirmButton as unknown as Node);
+
+    const cancelButton = el(doc, "button");
+    cancelButton.type = "button";
+    cancelButton.classList.add(SIDEBAR_ROW_RENAME_CANCEL_CLASS);
+    cancelButton.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-sidebar-rename-cancel-button"),
+    );
+    row.appendChild(cancelButton as unknown as Node);
+
+    nameInput.addEventListener("input", () => {
+      confirmButton.disabled = nameInput.value.trim() === "";
+    });
+
+    cancelButton.addEventListener("click", () => {
+      renamingDocumentId = null;
+      renderSidebar();
+    });
+
+    confirmButton.addEventListener("click", () => {
+      const name = nameInput.value.trim();
+      if (name === "") {
+        return;
+      }
+      confirmButton.disabled = true;
+      void (async () => {
+        try {
+          await renameTimeline(group.id, libraryID, name);
+          // Mutated in place, not replaced: documents and readableTimelines
+          // share the same object for every timeline loaded at tab-open, and
+          // an in-place write is what keeps both current with no separate
+          // reconciliation step.
+          const targetDoc = documents.get(group.id);
+          if (targetDoc) {
+            targetDoc.name = name;
+          }
+          const entry = readableTimelines.find((t) => t.doc.id === group.id);
+          if (entry && entry.doc !== targetDoc) {
+            entry.doc.name = name;
+          }
+          groupsDS().update({ id: group.id, content: name });
+          renamingDocumentId = null;
+        } catch (err) {
+          logFailure(
+            `[zoteroTimeline] failed to rename timeline ${group.id}: ${(err as Error).message}`,
+            err,
+          );
+        } finally {
+          renderSidebar();
+        }
+      })();
+    });
+
+    nameInput.focus();
+    return row;
+  }
+
+  /**
+   * Deletes the timeline the row's own control sits in, after confirming and
+   * naming what is lost.
+   *
+   * Detaches this timeline's own rendering from the canvas FIRST, before the
+   * note is erased: everything up to and including that detach runs
+   * synchronously in this handler, ahead of the first await, so a live-refresh
+   * observer watching the note has nothing left in the canvas to rebuild by
+   * the time the erase actually lands.
+   */
+  async function handleDeleteTimeline(documentId: string): Promise<void> {
+    const targetDoc = documents.get(documentId);
+    const confirmed = confirmTimelineDelete(
+      win as unknown as mozIDOMWindowProxy,
+      getString("timeline-delete-confirm-title"),
+      getString("timeline-delete-confirm-message", {
+        args: {
+          name: targetDoc?.name ?? "",
+          count: targetDoc?.events.length ?? 0,
+        },
+      }),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    if (targetDoc) {
+      (items as unknown as { remove: (ids: string[]) => void }).remove(
+        targetDoc.events.map((e) => visItemId(documentId, e.id)),
+      );
+    }
+    groupsDS().remove(documentId);
+
+    // Clears the editor panel's selection when it was showing an event from
+    // this timeline - otherwise it keeps offering Save on an event in a
+    // document that is about to stop existing.
+    const selection = (timeline as any).getSelection() as string[];
+    if (
+      selection.length === 1 &&
+      parseVisItemId(selection[0]).documentId === documentId
+    ) {
+      (timeline as any).setSelection([]);
+    }
+
+    try {
+      await deleteTimeline(documentId, libraryID);
+      documents.delete(documentId);
+      readableTimelines = readableTimelines.filter(
+        (t) => t.doc.id !== documentId,
+      );
+    } catch (err) {
+      logFailure(
+        `[zoteroTimeline] failed to delete timeline ${documentId}: ${(err as Error).message}`,
+        err,
+      );
+    } finally {
+      renderSidebar();
+    }
   }
 
   function buildUnreadableRow(entry: UnreadableTimeline): HTMLElement {
