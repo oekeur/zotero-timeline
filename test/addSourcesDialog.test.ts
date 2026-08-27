@@ -21,6 +21,7 @@ import {
   whenStorageIdle,
 } from "../src/modules/timeline/storage";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 describe("addSourcesDialog", function () {
   this.timeout(60000);
@@ -257,23 +258,33 @@ describe("addSourcesDialog", function () {
         [cited, fresh],
       ) as Promise<void>;
 
-      for (let i = 0; i < 150; i++) {
-        await Zotero.Promise.delay(100);
-        const win = dialogWindows()[0];
-        const content = win?.document.getElementById(
-          ADD_SOURCES_DIALOG_CONTENT_ID,
+      let content: { win: Window; found: Element };
+      try {
+        content = await waitFor(
+          () => {
+            const win = dialogWindows()[0];
+            const found = win?.document.getElementById(
+              ADD_SOURCES_DIALOG_CONTENT_ID,
+            );
+            return found?.querySelector("select") ? { win, found } : null;
+          },
+          "the Add as sources dialog to open",
+          { timeout: 15000, interval: 100 },
         );
-        if (content?.querySelector("select")) {
-          return {
-            result: { content: content as HTMLElement, win, closed },
-            noteItemID: note.id,
-            items: [cited, fresh],
-          };
-        }
+      } catch (err) {
+        throw new Error(
+          `${(err as Error).message}; errors:\n${Zotero.getErrors(true).join("\n")}`,
+        );
       }
-      throw new Error(
-        `the Add as sources dialog never opened; errors:\n${Zotero.getErrors(true).join("\n")}`,
-      );
+      return {
+        result: {
+          content: content.found as HTMLElement,
+          win: content.win,
+          closed,
+        },
+        noteItemID: note.id,
+        items: [cited, fresh],
+      };
     }
 
     // AC #1 - a real HTML select, in the namespace the item pane's own
@@ -331,14 +342,14 @@ describe("addSourcesDialog", function () {
       ) as HTMLButtonElement;
       attachButton.click();
 
-      let resultText = "";
-      for (let i = 0; i < 100; i++) {
-        await Zotero.Promise.delay(100);
-        resultText = result.content.textContent ?? "";
-        if (resultText.includes(labelForItem(cited))) {
-          break;
-        }
-      }
+      const resultText = await waitFor(
+        () => {
+          const text = result.content.textContent ?? "";
+          return text.includes(labelForItem(cited)) ? text : null;
+        },
+        "the attach result to name the already-cited item",
+        { timeout: 10000, interval: 100 },
+      );
       assert.include(resultText, "Attached 1");
       assert.include(resultText, labelForItem(cited));
 

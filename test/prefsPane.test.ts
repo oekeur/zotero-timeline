@@ -40,6 +40,7 @@ import {
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 describe("the preferences pane", function () {
   function pluginPanes() {
@@ -216,9 +217,12 @@ describe("the preferences pane", function () {
       ).click();
       // The write runs inside the real plugin's own bundle, not this spec's
       // copy of storage.ts, so whenStorageIdle here would watch the wrong
-      // queue and resolve immediately - eventEditor.test.ts hits the same
-      // constraint and settles it the same way.
-      await Zotero.Promise.delay(800);
+      // queue - waiting for the row itself is the real condition instead.
+      await waitFor(
+        () =>
+          rowLabels(container).includes("eyewitness account") ? true : null,
+        "the new vocabulary row to render",
+      );
 
       assert.include(rowLabels(container), "eyewitness account");
 
@@ -264,7 +268,10 @@ describe("the preferences pane", function () {
       (
         container.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement
       ).click();
-      await Zotero.Promise.delay(800);
+      await waitFor(
+        () => (rowLabels(container).includes("cites, directly") ? true : null),
+        "the renamed label to render",
+      );
 
       const notes = await searchVocabularyNotes(libraryID);
       const stored = readVocabularyFromNote(notes[0]);
@@ -321,7 +328,10 @@ describe("the preferences pane", function () {
             `.${DELETE_BUTTON_CLASS}`,
           ) as HTMLButtonElement
         ).click();
-        await Zotero.Promise.delay(1200);
+        await waitFor(
+          () => (!rowLabels(container).includes("cites") ? true : null),
+          "the deleted type to leave the list",
+        );
       } finally {
         api.setConfirmDeleteForTests();
       }
@@ -390,7 +400,10 @@ describe("the preferences pane", function () {
             `.${DELETE_BUTTON_CLASS}`,
           ) as HTMLButtonElement
         ).click();
-        await Zotero.Promise.delay(500);
+        await waitFor(
+          () => (confirmMessage !== undefined ? true : null),
+          "the delete confirmation to fire",
+        );
       } finally {
         api.setConfirmDeleteForTests();
       }
@@ -442,7 +455,10 @@ describe("the preferences pane", function () {
         (
           container.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement
         ).click();
-        await Zotero.Promise.delay(800);
+        await waitFor(
+          () => container.querySelector(`.${ERROR_CLASS}`),
+          "the rejected write's error message to render",
+        );
       } finally {
         Zotero.Libraries.get = originalGet;
       }
