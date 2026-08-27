@@ -1032,6 +1032,20 @@ describe("event editor panel", function () {
 
     // TASK-36 AC #1, #2
     it("offers a jump control only for a ref that resolves, and clicking it selects the item and leaves the timeline tab", async function () {
+      // The scaffold's reporter drops a plain Error's message and shows a
+      // bare `undefined`, while a chai AssertionError survives with its
+      // text. waitFor (used inside openPanel/selectEvent too) throws a plain
+      // Error, so a timeout anywhere in this spec is otherwise unreadable.
+      try {
+        await jumpControlSelectsItemAndLeavesTab();
+      } catch (error) {
+        assert.fail(
+          `jump control spec failed: ${(error as Error)?.message ?? String(error)}`,
+        );
+      }
+    });
+
+    async function jumpControlSelectsItemAndLeavesTab(): Promise<void> {
       const item = await citableItem("A cited work");
       await createDocumentNote(libraryID, STORAGE_TAG, {
         version: CURRENT_SCHEMA_VERSION,
@@ -1101,7 +1115,7 @@ describe("event editor panel", function () {
         item.id,
         "the jump did not select the source's own item",
       );
-    });
+    }
 
     // AC #3
     it("does not jump when the row itself is clicked, only when its own control is", async function () {
