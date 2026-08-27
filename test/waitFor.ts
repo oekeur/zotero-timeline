@@ -18,6 +18,30 @@
  * absence of an effect has no condition to poll, and a fixed delay stays the
  * honest way to express it.
  */
+/**
+ * An Error whose message survives the trip to the scaffold's reporter.
+ *
+ * The reporter prints `data?.error?.message`, and the Zotero side serialises
+ * the error as JSON to get it there. `Error` defines `message` as a
+ * non-enumerable own property, so `JSON.stringify(new Error("x"))` is `{}` and
+ * every timeout arrived as a bare `undefined` next to the spec title, saying
+ * nothing about what never happened. Chai's AssertionError survives only
+ * because it never calls `super()`, so its assigned `message` is enumerable.
+ *
+ * Redefining the property here buys the same survival while staying a real
+ * Error: `instanceof Error` still holds and the stack is untouched.
+ */
+function timeoutError(message: string): Error {
+  const error = new Error(message);
+  Object.defineProperty(error, "message", {
+    value: message,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return error;
+}
+
 export async function waitFor<T>(
   get: () => T | null | undefined | Promise<T | null | undefined>,
   description: string,
@@ -33,7 +57,7 @@ export async function waitFor<T>(
       return found;
     }
     if (Date.now() >= deadline) {
-      throw new Error(
+      throw timeoutError(
         `waitFor: timed out after ${timeout}ms waiting for ${description}`,
       );
     }
