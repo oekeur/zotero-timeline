@@ -7,11 +7,19 @@ export { initLocale, getString, getLocaleID };
  * Initialize locale data
  */
 function initLocale() {
+  // Every FTL a getString caller might name has to be listed here. A key in a
+  // file this instance does not load resolves to the key itself, which Fluent
+  // reports as success, so the raw id renders in the UI with nothing logged.
+  // preferences.ftl is here because the preference pane's own registered label
+  // is read through getString rather than through a data-l10n-id.
   const l10n = new (
     typeof Localization === "undefined"
       ? ztoolkit.getGlobal("Localization")
       : Localization
-  )([`${config.addonRef}-addon.ftl`], true);
+  )(
+    [`${config.addonRef}-addon.ftl`, `${config.addonRef}-preferences.ftl`],
+    true,
+  );
   addon.data.locale = {
     current: l10n,
   };

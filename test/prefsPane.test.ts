@@ -45,7 +45,15 @@ describe("the preferences pane", function () {
   function pluginPanes() {
     return (
       Zotero.PreferencePanes as unknown as {
-        pluginPanes: { id: string; pluginID: string; src: string }[];
+        // Zotero stores a plain-string label as rawLabel; `label` is the
+        // data-l10n-id path and stays undefined for a pane registered with a
+        // string, which is what this plugin does.
+        pluginPanes: {
+          id: string;
+          pluginID: string;
+          src: string;
+          rawLabel: string;
+        }[];
       }
     ).pluginPanes;
   }
@@ -61,6 +69,23 @@ describe("the preferences pane", function () {
       "the plugin registered no preferences pane, so its settings are unreachable",
     );
     assert.include(ours[0].src, "preferences.xhtml");
+  });
+
+  it("registers a resolved label rather than the raw Fluent key", function () {
+    const ours = pluginPanes().filter(
+      (pane) => pane.pluginID === config.addonID,
+    );
+
+    // getString returns the key itself when no loaded FTL defines it, and
+    // Fluent reports that as success, so the raw id reaches the settings
+    // sidebar with nothing logged anywhere. pref-title lives in
+    // preferences.ftl, which the Localization instance has to load for this.
+    assert.notInclude(
+      ours[0].rawLabel,
+      "pref-title",
+      "the pane's label is an unresolved Fluent key",
+    );
+    assert.equal(ours[0].rawLabel, "Zotero Timeline");
   });
 
   it("does not register the same pane twice", function () {
