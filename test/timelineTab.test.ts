@@ -5,6 +5,7 @@ import {
   createDocumentNote,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // Diagnostic harness for "the tab opens but nothing is visible". Each stage
 // reports what it actually found, so a failure names the layer that broke
@@ -61,10 +62,18 @@ describe("timeline tab", function () {
     );
     assert.ok(tab, "no tab of type zoterotimeline-timeline was added");
 
-    // Let layout settle; vis-timeline measures asynchronously in places.
-    await Zotero.Promise.delay(1500);
-
     const doc = win.document;
+    // A diagnostic harness: waiting for the real condition speeds up the
+    // pass path, but a genuine failure to render should still fall through
+    // to the rich report below rather than a bare waitFor timeout. The
+    // canvas gets a child (vis-timeline's own root) well before vis-timeline
+    // has actually populated it with the fixture's four items, so the wait
+    // targets the items themselves, not just any child.
+    await waitFor(() => {
+      const el = doc.getElementById("zoterotimeline-canvas");
+      return el && el.querySelectorAll(".vis-item").length === 4 ? el : null;
+    }, "the canvas to render the fixture's four items").catch(() => {});
+
     const canvas = doc.getElementById("zoterotimeline-canvas");
     assert.ok(canvas, "the canvas div is not in the document");
 

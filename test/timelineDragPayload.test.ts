@@ -5,6 +5,7 @@ import {
   createDocumentNote,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // Attempts a real pan gesture on a selected item's drag handle and reads the
 // onMove payload, then confirms the drag actually wrote back through
@@ -43,6 +44,69 @@ describe("timeline drag payload", function () {
       .doc.events.find((e) => e.id === "ev-truce")!;
   }
 
+  // vis-timeline computes its initial fit-to-content from the container's
+  // width at construction time. Zotero's own tab-switch is still animating
+  // when the tab is added, so the container can still be mid-transition -
+  // this is what the old fixed 1.5s delay was really buying before any
+  // pixel-based read.
+  async function waitForStableCanvasWidth(doc: Document): Promise<void> {
+    let last: number | null = null;
+    await waitFor(
+      () => {
+        const canvas = doc.getElementById("zoterotimeline-canvas");
+        const width = canvas?.clientWidth ?? 0;
+        const stable = last !== null && width === last && width > 0;
+        last = width;
+        return stable ? true : null;
+      },
+      "the canvas container's width to settle",
+      { interval: 50, timeout: 3000 },
+    );
+  }
+
+  // vis-timeline also runs its own initial fit-to-content on a deferred
+  // tick after construction, independent of the container's own width -
+  // waiting for the window it lands on to stop changing catches that too.
+  async function waitForStableWindow(timeline: any): Promise<void> {
+    let last: { start: number; end: number } | null = null;
+    await waitFor(
+      () => {
+        const window = timeline.getWindow();
+        const current = {
+          start: window.start.getTime(),
+          end: window.end.getTime(),
+        };
+        const stable =
+          last !== null &&
+          current.start === last.start &&
+          current.end === last.end;
+        last = current;
+        return stable ? current : null;
+      },
+      "the viewport window to settle",
+      { interval: 50 },
+    );
+  }
+
+  async function openAndSelect(
+    win: any,
+    doc: Document,
+    id: string,
+  ): Promise<any> {
+    const api = (Zotero as any).ZoteroTimeline.api;
+    await api.openTimelineTab();
+    const timeline = await waitFor(
+      () => api.getCurrentTimeline(),
+      "the timeline to render",
+    );
+    await waitForStableCanvasWidth(doc);
+    await waitForStableWindow(timeline);
+    timeline.setSelection([id]);
+    return timeline;
+  }
+
+  // Pointer-event pacing, not effect-waiting - see canvasRangeRendering's
+  // own drag() docblock for why this stays a fixed pace.
   function drag(
     win: any,
     handle: any,
@@ -91,16 +155,12 @@ describe("timeline drag payload", function () {
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document;
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-
-    const timeline = api.getCurrentTimeline();
     // The ranged item, so the payload can be checked for `end`.
-    timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(400);
-
-    const handle = doc.querySelector(".vis-drag-center") as any;
-    assert.ok(handle, "no drag handle after selecting the ranged item");
+    await openAndSelect(win, doc, "doc-sources:ev-truce");
+    const handle = await waitFor(
+      () => doc.querySelector(".vis-drag-center"),
+      "the drag handle to render for the ranged item",
+    );
 
     await drag(win, handle, 10, 14);
 
@@ -140,19 +200,14 @@ describe("timeline drag payload", function () {
   it("resizes only the dragged edge, leaving the other endpoint untouched", async function () {
     this.timeout(60000);
 
-    const api = (Zotero as any).ZoteroTimeline.api;
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document;
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-
-    const timeline = api.getCurrentTimeline();
-    timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(400);
-
-    const handle = doc.querySelector(".vis-drag-right") as any;
-    assert.ok(handle, "no right-edge drag handle after selecting the item");
+    await openAndSelect(win, doc, "doc-sources:ev-truce");
+    const handle = await waitFor(
+      () => doc.querySelector(".vis-drag-right"),
+      "the right-edge drag handle to render",
+    );
 
     await drag(win, handle, 6, 14);
 
@@ -171,6 +226,16 @@ describe("timeline drag payload", function () {
     assert.notEqual(newUpper, "1609-04", "the end endpoint did not move");
   });
 
+  // Unlike the other two specs in this file, converting this one's waits
+  // (the same openAndSelect plus a stability poll on the item's own rect)
+  // passed on its own but failed the same deterministic way inside the full
+  // suite every time - and the pre-conversion fixed-delay version of it,
+  // run in that same isolated harness immediately afterward, passed
+  // cleanly. That rules out load-driven flakiness as the explanation and
+  // points at a real gap in the waitFor conversion's condition rather than
+  // a masked product defect - not yet identified within this task's
+  // budget, so this one stays on the fixed delay pending that
+  // investigation.
   it("refuses the drag and leaves the canvas at its original position when the write fails", async function () {
     this.timeout(60000);
 

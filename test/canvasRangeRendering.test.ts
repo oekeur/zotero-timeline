@@ -6,6 +6,7 @@ import {
 } from "../src/modules/timeline/schema";
 import { STORAGE_TAG, listTimelines } from "../src/modules/timeline/storage";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 function eventWithDate(date: string) {
   return { id: "e", title: "t", date, sources: [], tags: [] };
@@ -109,6 +110,12 @@ function formsFixtureDocument(): TimelineDocument {
   };
 }
 
+// The pacing between pointer events (60ms after down, 40ms per move,
+// 700ms after up) is not waiting for an effect to appear - it is what
+// vis-timeline's Hammer-based gesture recogniser needs between events to
+// recognise a drag at all, plus the drag-end write it fires landing before a
+// caller reads storage. There is no DOM state to poll for that stands in for
+// "the gesture recogniser saw this as a drag", so this stays a fixed pace.
 function drag(
   win: any,
   handle: any,
@@ -174,6 +181,17 @@ describe("canvas range rendering", function () {
     return timelines[0].doc.events.find((e) => e.id === "ev-range")!;
   }
 
+  // This spec and the drag spec below measure vis-timeline's rendered pixel
+  // geometry. Converting their waits (getCurrentTimeline() plus a stability
+  // poll on the item's own rect and the canvas container's width) passed
+  // consistently on its own, but failed the same deterministic way inside
+  // the full suite every time - and the pre-conversion fixed-delay version
+  // of these two tests, run in that same isolated harness immediately
+  // afterward, passed cleanly. That rules out load-driven flakiness as the
+  // explanation and points at a real gap in the waitFor conversion's
+  // condition rather than a masked product defect - not yet identified
+  // within this task's budget, so these two stay on the fixed delay pending
+  // that investigation.
   it("renders a date+endDate event as a range spanning both endpoints", async function () {
     this.timeout(60000);
 
@@ -290,14 +308,17 @@ describe("canvas range rendering", function () {
     await createDocumentNote(libraryID, STORAGE_TAG, formsFixtureDocument());
 
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-
-    const timeline = api.getCurrentTimeline();
+    const timeline = await waitFor(
+      () => api.getCurrentTimeline(),
+      "the timeline to render",
+    );
 
     async function classesFor(eventId: string): Promise<DOMTokenList> {
       timeline.setSelection([`doc-forms:${eventId}`]);
-      await Zotero.Promise.delay(300);
-      const item = doc.querySelector(".vis-item.vis-selected") as HTMLElement;
+      const item = (await waitFor(
+        () => doc.querySelector(".vis-item.vis-selected"),
+        `the selected item to render for ${eventId}`,
+      )) as HTMLElement;
       assert.ok(item, `no selected item for ${eventId}`);
       return item.classList;
     }

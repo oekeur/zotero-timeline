@@ -11,6 +11,7 @@ import {
 } from "../src/modules/timeline/schema";
 import { STORAGE_TAG, listTimelines } from "../src/modules/timeline/storage";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 function event(id: string, date: string, extra: Partial<Event> = {}): Event {
   return { id, title: id, date, sources: [], tags: [], ...extra };
@@ -260,8 +261,10 @@ describe("parked and flagged events", function () {
       const win = Zotero.getMainWindows()[0] as any;
       const doc = win.document as Document;
       await api.openTimelineTab();
-      await Zotero.Promise.delay(1500);
-      const timeline = api.getCurrentTimeline();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
 
       // ev-readable has no endDate, but a day-precision date still spans its
       // whole day (edtf@4.11.1), so buildTimelineItem gives it a real `end`
@@ -272,9 +275,9 @@ describe("parked and flagged events", function () {
       // .vis-selected query can land on any of the three. Only dom.box ever
       // gets a drag handle, so that is the one to target for it.
       timeline.setSelection(["doc-parked-own-span:ev-readable"]);
-      await Zotero.Promise.delay(300);
-      const readableItem = doc.querySelector(
-        ".vis-item.vis-range.vis-selected",
+      const readableItem = await waitFor(
+        () => doc.querySelector(".vis-item.vis-range.vis-selected"),
+        "the readable event to render selected",
       );
       assert.ok(readableItem, "no selected item for the readable event");
       assert.ok(
@@ -283,8 +286,10 @@ describe("parked and flagged events", function () {
       );
 
       timeline.setSelection(["doc-parked-own-span:ev-broken"]);
-      await Zotero.Promise.delay(300);
-      const parkedItem = doc.querySelector(".vis-item.vis-box.vis-selected");
+      const parkedItem = await waitFor(
+        () => doc.querySelector(".vis-item.vis-box.vis-selected"),
+        "the parked event to render selected",
+      );
       assert.ok(parkedItem, "no selected item for the parked event");
       assert.notOk(
         parkedItem!.querySelector(".vis-drag-center"),
@@ -299,7 +304,7 @@ describe("parked and flagged events", function () {
     it("keeps the stored date string byte-identical after a parked event renders", async function () {
       await createDocumentNote(libraryID, STORAGE_TAG, ownSpanDocument());
       await api.openTimelineTab();
-      await Zotero.Promise.delay(1500);
+      await waitFor(() => api.getCurrentTimeline(), "the timeline to render");
 
       const { timelines } = await listTimelines(libraryID);
       const reread = timelines[0].doc.events.find((e) => e.id === "ev-broken");
@@ -312,12 +317,16 @@ describe("parked and flagged events", function () {
       const win = Zotero.getMainWindows()[0] as any;
       const doc = win.document as Document;
       await api.openTimelineTab();
-      await Zotero.Promise.delay(1500);
-      const timeline = api.getCurrentTimeline();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
 
       timeline.setSelection(["doc-flagged:ev-flagged"]);
-      await Zotero.Promise.delay(300);
-      const item = doc.querySelector(".vis-item.vis-box.vis-selected");
+      const item = await waitFor(
+        () => doc.querySelector(".vis-item.vis-box.vis-selected"),
+        "the flagged event to render selected",
+      );
       assert.ok(item, "no selected item for the flagged event");
       assert.isTrue(item!.classList.contains("zt-unreadable"));
       assert.isFalse(
@@ -353,8 +362,10 @@ describe("parked and flagged events", function () {
       const win = Zotero.getMainWindows()[0] as any;
       const doc = win.document as Document;
       await api.openTimelineTab();
-      await Zotero.Promise.delay(1500);
-      const timeline = api.getCurrentTimeline();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
 
       const expectedBorrowed = expectedAnchorMs(...extentOf("1990-01-01"));
 
@@ -374,7 +385,14 @@ describe("parked and flagged events", function () {
         ".zoterotimeline-sidebar-row-visible",
       ) as HTMLInputElement;
       checkbox.click();
-      await Zotero.Promise.delay(300);
+      await waitFor(
+        () =>
+          (timeline.itemsData.get(itemId).start as Date).getTime() !==
+          before.getTime()
+            ? true
+            : null,
+        "the parked event's anchor to move after the borrowed timeline is hidden",
+      );
 
       assert.equal(
         api.parsesSoFar(),
@@ -400,13 +418,16 @@ describe("parked and flagged events", function () {
       await createDocumentNote(libraryID, STORAGE_TAG, ownSpanDocument());
 
       await api.openTimelineTab();
-      await Zotero.Promise.delay(1500);
-      const timeline = api.getCurrentTimeline();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
 
       const itemId = "doc-parked-own-span:ev-broken";
       const before = (timeline.itemsData.get(itemId).start as Date).getTime();
 
       timeline.zoomIn(0.6);
+      // Asserting nothing moves has no condition to poll for.
       await Zotero.Promise.delay(300);
 
       const after = (timeline.itemsData.get(itemId).start as Date).getTime();

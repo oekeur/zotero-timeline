@@ -5,6 +5,7 @@ import {
   createDocumentNote,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // A range item is not draggable until it is selected. vis-timeline only builds
 // the .vis-drag-center handle - the element that actually carries the drag -
@@ -46,7 +47,7 @@ describe("timeline drag", function () {
     const doc = win.document;
 
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
+    await waitFor(() => api.getCurrentTimeline(), "the timeline to render");
 
     const errors: string[] = [];
     const onError = (ev: any) => {
@@ -70,9 +71,31 @@ describe("timeline drag", function () {
 
     // Does a click select? This is what Hammer's gesture recognition buys us,
     // and it only works if Hammer resolved a real window at module scope.
-    const item = doc.querySelector(".vis-item") as any;
+    // currentTimeline is assigned before vis-timeline's own initial redraw has
+    // put anything in the DOM, so the item itself needs its own wait.
+    const item = (await waitFor(
+      () => doc.querySelector(".vis-item"),
+      "the first item to render on the canvas",
+    )) as any;
     assert.ok(item, "no .vis-item present");
-    const r = item.getBoundingClientRect();
+    // vis-timeline also runs its own initial fit-to-content on a deferred
+    // tick after construction; a click position computed before it settles
+    // can miss the item once it moves.
+    let lastRect: DOMRect | null = null;
+    const stableRect = await waitFor(
+      () => {
+        const rect = item.getBoundingClientRect();
+        const stable =
+          lastRect !== null &&
+          rect.left === lastRect.left &&
+          rect.width === lastRect.width;
+        lastRect = rect;
+        return stable ? rect : null;
+      },
+      "the item's layout to stop changing",
+      { interval: 50, timeout: 3000 },
+    ).catch(() => item.getBoundingClientRect());
+    const r = stableRect;
     const cx = Math.round(r.left + r.width / 2);
     const cy = Math.round(r.top + r.height / 2);
     const PE = win.PointerEvent;
@@ -91,9 +114,17 @@ describe("timeline drag", function () {
           view: win,
         }),
       );
+      // Pointer-event pacing, not effect-waiting - Hammer's gesture
+      // recogniser needs the gap between down and up.
       await Zotero.Promise.delay(80);
     }
-    await Zotero.Promise.delay(400);
+    // A diagnostic harness: waiting for the real condition speeds up the
+    // pass path, but a genuine Hammer failure should still report through
+    // the informative assertions below rather than a bare waitFor timeout.
+    await waitFor(
+      () => (timeline.getSelection().length > 0 ? true : null),
+      "a click to select an item",
+    ).catch(() => {});
     const selectionAfterClick = timeline.getSelection();
     Zotero.debug(
       `[ZoteroTimeline][click] selection=${JSON.stringify(selectionAfterClick)}`,
@@ -102,14 +133,26 @@ describe("timeline drag", function () {
     // The click above selected an item, so clear it before measuring the
     // select -> handle cycle from a known state.
     timeline.setSelection([]);
-    await Zotero.Promise.delay(300);
+    await waitFor(
+      () =>
+        doc.querySelectorAll(".vis-drag-center").length === 0 ? true : null,
+      "the drag handle to clear",
+    ).catch(() => {});
     const before = doc.querySelectorAll(".vis-drag-center").length;
     timeline.setSelection(["doc-sources:ev-truce"]);
-    await Zotero.Promise.delay(400);
+    await waitFor(
+      () =>
+        doc.querySelectorAll(".vis-drag-center").length === 1 ? true : null,
+      "the drag handle to render for the selected item",
+    ).catch(() => {});
     const after = doc.querySelectorAll(".vis-drag-center").length;
 
     timeline.setSelection([]);
-    await Zotero.Promise.delay(400);
+    await waitFor(
+      () =>
+        doc.querySelectorAll(".vis-drag-center").length === 0 ? true : null,
+      "the drag handle to clear again",
+    ).catch(() => {});
     const afterDeselect = doc.querySelectorAll(".vis-drag-center").length;
 
     win.removeEventListener("error", onError, true);
