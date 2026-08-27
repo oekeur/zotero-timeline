@@ -273,4 +273,95 @@ describe("item-pane section: which events cite this item", function () {
       assert.isNotNull(body.querySelector(`.${UNREADABLE_NOTE_CLASS}`));
     });
   });
+
+  // The registration path itself: Zotero's item pane only calls
+  // onAsyncRender for a pane currently scrolled into the container's visible
+  // viewport (chrome/content/zotero/elements/itemDetails.js's own
+  // isPaneVisible gate, read from the running app). A freshly registered
+  // section is appended after every one of Zotero's own, so on any item pane
+  // with more than a handful of fields it sits below the fold and never
+  // receives an onAsyncRender call at all. These specs drive the actual
+  // registered section rather than calling renderCitingEventsContent with a
+  // caller-built container, which would pass whether or not the section ever
+  // renders inside Zotero.
+  describe("registration: the real item pane", function () {
+    function findRegisteredOption(): any {
+      const options = (Zotero.ItemPaneManager as any).customSectionData.options;
+      return options.find((o: any) =>
+        String(o.paneID).includes("citing-events"),
+      );
+    }
+
+    it("dispatches from onRender rather than onAsyncRender", function () {
+      const entry = findRegisteredOption();
+      assert.isDefined(entry, "the section is not registered");
+      assert.equal(typeof entry.onRender, "function");
+      assert.isUndefined(
+        entry.onAsyncRender,
+        "onAsyncRender is gated by scroll visibility; content must not depend on it",
+      );
+    });
+
+    it("populates body when the registered onRender is called directly", async function () {
+      const entry = findRegisteredOption();
+      const cited = await regularItem();
+      await documentCiting("Timeline A", "tl-a", cited);
+      const body = container();
+
+      entry.onRender({ body, item: cited, doc: body.ownerDocument });
+      // onRender cannot itself be async; it starts the read and returns.
+      await Zotero.Promise.delay(50);
+
+      assert.isAbove(body.children.length, 0);
+    });
+
+    it("populates the real registered section's body for a cited item selected through ZoteroPane, even though the section sits below the fold", async function () {
+      const win = Zotero.getMainWindows()[0] as any;
+      const cited = await regularItem();
+      await documentCiting("Timeline A", "tl-a", cited);
+
+      await win.ZoteroPane.selectItem(cited.id);
+      await Zotero.Promise.delay(500);
+
+      const section = win.document.querySelector(
+        'item-pane-custom-section[data-pane*="citing-events"]',
+      );
+      assert.isNotNull(
+        section,
+        "the section did not register in the real item pane",
+      );
+
+      const itemDetails = win.ZoteroPane.itemPane._itemDetails;
+      assert.isFalse(
+        itemDetails.isPaneVisible(section.dataset.pane),
+        "this only proves the fix if the section is actually below the fold; " +
+          "if the item pane grew tall enough to always show it, widen the test window",
+      );
+
+      const body = section.querySelector('[data-type="body"]');
+      assert.isAbove(
+        body.children.length,
+        0,
+        "the section body never rendered for a cited item selected through the real item pane",
+      );
+    });
+
+    it("shows the empty state through the same real path for an item cited by nothing", async function () {
+      const win = Zotero.getMainWindows()[0] as any;
+      const item = await regularItem();
+
+      await win.ZoteroPane.selectItem(item.id);
+      await Zotero.Promise.delay(500);
+
+      const section = win.document.querySelector(
+        'item-pane-custom-section[data-pane*="citing-events"]',
+      );
+      assert.isNotNull(
+        section,
+        "the section did not register in the real item pane",
+      );
+      const body = section.querySelector('[data-type="body"]');
+      assert.isNotNull(body.querySelector(`.${EMPTY_CLASS}`));
+    });
+  });
 });

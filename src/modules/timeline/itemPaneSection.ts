@@ -133,6 +133,17 @@ function sourceLine(
 }
 
 /**
+ * Which call is still owed the right to write into a given container. Keyed
+ * by container rather than by item: the item pane reuses the same body
+ * element across selections, and arrow-keying fires one call per selection
+ * that does not resolve in call order. Set synchronously at the top of every
+ * call, so dispatch order (not resolution order) decides which call's answer
+ * survives; a call whose generation no longer matches by the time it would
+ * write is a superseded selection and writes nothing.
+ */
+const renderGeneration = new WeakMap<HTMLElement, symbol>();
+
+/**
  * Draws the section body for `item`: nothing found, nothing readable, or the
  * matching events grouped by timeline. `unreadable` is reported alongside a
  * populated list too, not only when it explains an empty one, because a
@@ -142,6 +153,8 @@ export async function renderCitingEventsContent(
   container: HTMLElement,
   item: Zotero.Item,
 ): Promise<void> {
+  const generation = Symbol();
+  renderGeneration.set(container, generation);
   const doc = container.ownerDocument!;
   container.textContent = "";
 
@@ -149,6 +162,10 @@ export async function renderCitingEventsContent(
     findCitingEvents(item),
     peekVocabulary(item.libraryID),
   ]);
+
+  if (renderGeneration.get(container) !== generation) {
+    return;
+  }
 
   if (groups.length === 0) {
     appendL10nText(
@@ -230,11 +247,18 @@ export function registerItemPaneSection(): void {
       setEnabled(isEligibleItem(item));
       return true;
     },
-    onRender: ({ body }) => {
-      body.textContent = "";
-    },
-    onAsyncRender: async ({ body, item }) => {
-      await renderCitingEventsContent(body, item);
+    // Dispatched from onRender rather than onAsyncRender. Zotero's item pane
+    // only calls onAsyncRender for a pane currently scrolled into the
+    // container's visible viewport (chrome/content/zotero/elements/
+    // itemDetails.js's own isPaneVisible gate); a freshly registered section
+    // is appended after every one of Zotero's own, so on any item pane with
+    // more than a handful of fields it sits below the fold and never
+    // receives a call at all, leaving it permanently empty. onRender carries
+    // no such gate: it fires for every selection of an enabled section
+    // regardless of scroll position. It cannot itself be async, so it starts
+    // the read and lets it finish in the background.
+    onRender: ({ body, item }) => {
+      void renderCitingEventsContent(body, item);
     },
   });
 }
