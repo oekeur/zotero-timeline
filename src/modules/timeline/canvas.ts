@@ -138,6 +138,17 @@ const UNREADABLE_CLASS = "zt-unreadable";
 // stylesheet paints from it.
 const ACTIVE_LANE_CLASS = "zt-lane-active";
 
+// The inactive lane's own className - carries no styling of its own, and
+// exists only so a lane's className is always a real string. vis-timeline@
+// 8.5.4's own Group.setData (dist/vis-timeline-graph2d.esm.js) computes
+// `data && data.className || null` and, whenever that differs from the
+// group's previous className, unconditionally calls addClassName(dom, that
+// value) with no guard - addClassName does `classNames.split(" ")`, so
+// handing it back `null` (what an omitted or `undefined` className coerces
+// to) throws. A group deactivated by clearing its className to `undefined`
+// hits that path directly: every lane needs a real string in both states.
+const INACTIVE_LANE_CLASS = "zt-lane-inactive";
+
 function edtfErrorMessage(err: unknown): string {
   return err instanceof Error && err.message
     ? err.message
@@ -440,7 +451,8 @@ export function renderCanvas(
       content: doc.name,
       order,
       visible: true,
-      className: doc.id === activeDocumentId ? ACTIVE_LANE_CLASS : undefined,
+      className:
+        doc.id === activeDocumentId ? ACTIVE_LANE_CLASS : INACTIVE_LANE_CLASS,
     })),
   );
 
@@ -495,7 +507,7 @@ export function renderCanvas(
     const previous = activeDocumentId;
     activeDocumentId = documentId;
     if (previous !== null && documents.has(previous)) {
-      groups.update({ id: previous, className: undefined });
+      groups.update({ id: previous, className: INACTIVE_LANE_CLASS });
       rebuildDocumentItems(previous);
     }
     if (documentId !== null && documents.has(documentId)) {

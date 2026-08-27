@@ -149,6 +149,53 @@ describe("the active timeline (TASK-16)", function () {
     );
   });
 
+  // A real transition (not a no-op re-activation of the already-active lane)
+  // deactivates the previously active group by clearing its className -
+  // vis-timeline@8.5.4's own Group.setData throws when that value coerces to
+  // null (addClassName has no guard for it), so this exercises the exact
+  // path a stale className handling would crash. Round-tripping twice proves
+  // it survives repeated deactivation, not just the first one.
+  it("switching activation back and forth between two lanes never throws, and moves the DOM lane marker with it", async function () {
+    const { doc, timeline } = await openTab();
+
+    // vis's own group label carries no data-timeline-id (that is the
+    // sidebar row's own attribute, timelineTab.ts) - the group's name, set
+    // from the document's own name at render time, is what identifies it.
+    const laneNames: Record<string, string> = {
+      "doc-revolt": "Dutch Revolt",
+      "doc-sources": "Source production",
+    };
+    function laneClasses(documentId: string): DOMTokenList {
+      const labels = Array.from(
+        doc.querySelectorAll(".vis-labelset .vis-label"),
+      ) as HTMLElement[];
+      const label = labels.find(
+        (el) => el.textContent === laneNames[documentId],
+      );
+      assert.ok(label, `no lane label found for ${documentId}`);
+      return label!.classList;
+    }
+
+    assert.isTrue(laneClasses("doc-revolt").contains("zt-lane-active"));
+    assert.isFalse(laneClasses("doc-sources").contains("zt-lane-active"));
+
+    timeline.setSelection(["doc-sources:ev-truce"]);
+    await waitFor(
+      () => api.getActiveTimeline() === "doc-sources",
+      "selecting doc-sources' event to activate it",
+    );
+    assert.isTrue(laneClasses("doc-sources").contains("zt-lane-active"));
+    assert.isFalse(laneClasses("doc-revolt").contains("zt-lane-active"));
+
+    timeline.setSelection(["doc-revolt:ev-fury"]);
+    await waitFor(
+      () => api.getActiveTimeline() === "doc-revolt",
+      "selecting doc-revolt's event to reactivate it",
+    );
+    assert.isTrue(laneClasses("doc-revolt").contains("zt-lane-active"));
+    assert.isFalse(laneClasses("doc-sources").contains("zt-lane-active"));
+  });
+
   // AC #4 (sidebar row), AC #11 (keyboard).
   it("clicking a sidebar row's label activates its timeline, and so does Enter or Space when the row itself has focus", async function () {
     const { doc, sidebar } = await openTab();
