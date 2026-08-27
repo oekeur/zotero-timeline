@@ -66,13 +66,22 @@ export function labelForItem(item: Zotero.Item): string {
 }
 
 /**
+ * Resolves a stored SourceRef to the item it points at, or null when nothing
+ * resolves - reachable in normal use between an erase and the prune landing,
+ * and permanently in a group library the user has lost access to.
+ */
+export function resolveSourceItem(ref: SourceRef): Zotero.Item | null {
+  const item = Zotero.Items.getByLibraryAndKey(ref.libraryID, ref.key);
+  return item ? item : null;
+}
+
+/**
  * Labels a stored SourceRef by resolving it to the item it points at and
  * naming that, rather than reading ref.kind: a ref can outlive what it
  * points at being replaced, and the label should describe what is actually
- * there. Missing is reachable in normal use, between an erase and the prune
- * landing, and permanently in a group library the user has lost access to.
+ * there.
  */
 export function labelForSource(ref: SourceRef): string {
-  const item = Zotero.Items.getByLibraryAndKey(ref.libraryID, ref.key);
+  const item = resolveSourceItem(ref);
   return item ? labelForItem(item) : MISSING_ITEM_LABEL;
 }

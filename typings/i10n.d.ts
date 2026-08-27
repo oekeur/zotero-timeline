@@ -22,6 +22,7 @@ export type FluentMessageId =
   | 'event-editor-source-add-button'
   | 'event-editor-source-name-input'
   | 'event-editor-source-remove-button'
+  | 'event-editor-source-show-button'
   | 'event-editor-source-type-select'
   | 'event-editor-sources-label'
   | 'event-editor-tag-input-label'

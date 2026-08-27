@@ -18,6 +18,7 @@ import {
   TITLE_INPUT_CLASS,
   SOURCE_CLASS,
   SOURCE_LABEL_TEXT_CLASS,
+  SOURCE_SHOW_BUTTON_CLASS,
   SOURCE_TYPE_SELECT_CLASS,
   SOURCE_NAME_INPUT_CLASS,
   SOURCE_REMOVE_BUTTON_CLASS,
@@ -855,6 +856,116 @@ describe("event editor panel", function () {
         note.getNote(),
         before,
         "abandoning the panel after add/retype/remove rewrote the note",
+      );
+    });
+
+    // TASK-36 AC #1, #2
+    it("offers a jump control only for a ref that resolves, and clicking it selects the item and leaves the timeline tab", async function () {
+      const item = await citableItem("A cited work");
+      await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-jump",
+        name: "Jump fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: item.key, typeId: "cites" },
+              { kind: "item", libraryID, key: "MISSING1", typeId: "cites" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+
+      const { panel, win, timeline } = await openPanel();
+      timeline.setSelection(["doc-jump:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      const rows = Array.from(panel.querySelectorAll(`.${SOURCE_CLASS}`));
+      assert.lengthOf(rows, 2);
+      const resolvedRow = rows.find(
+        (row) =>
+          row.querySelector(`.${SOURCE_LABEL_TEXT_CLASS}`)!.textContent ===
+          "A cited work",
+      )!;
+      const missingRow = rows.find((row) => row !== resolvedRow)!;
+      assert.ok(resolvedRow, "no row rendered for the resolvable ref");
+      assert.ok(missingRow, "no row rendered for the unresolvable ref");
+
+      assert.isNull(
+        missingRow.querySelector(`.${SOURCE_SHOW_BUTTON_CLASS}`),
+        "a ref that resolves to nothing must not offer a jump control",
+      );
+
+      const showButton = resolvedRow.querySelector(
+        `.${SOURCE_SHOW_BUTTON_CLASS}`,
+      ) as HTMLButtonElement;
+      assert.ok(showButton, "no jump control rendered for a resolvable ref");
+      assert.isTrue(showButton.hasAttribute("data-l10n-id"));
+
+      const Zotero_Tabs = win.Zotero_Tabs;
+      assert.notEqual(
+        Zotero_Tabs.selectedID,
+        "zotero-pane",
+        "the timeline tab should still be active before the jump",
+      );
+
+      showButton.click();
+      await Zotero.Promise.delay(800);
+
+      assert.equal(
+        Zotero_Tabs.selectedID,
+        "zotero-pane",
+        "clicking the jump control did not leave the timeline tab",
+      );
+      const selected = win.ZoteroPane.getSelectedItems();
+      assert.lengthOf(selected, 1);
+      assert.equal(
+        selected[0].id,
+        item.id,
+        "the jump did not select the source's own item",
+      );
+    });
+
+    // AC #3
+    it("does not jump when the row itself is clicked, only when its own control is", async function () {
+      const item = await citableItem("A cited work");
+      await createDocumentNote(libraryID, STORAGE_TAG, {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "doc-no-row-jump",
+        name: "No row jump fixture",
+        events: [
+          {
+            id: "ev-1",
+            title: "An event",
+            date: "1600",
+            sources: [
+              { kind: "item", libraryID, key: item.key, typeId: "cites" },
+            ],
+            tags: [],
+          },
+        ],
+      });
+
+      const { panel, win, timeline } = await openPanel();
+      timeline.setSelection(["doc-no-row-jump:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      const row = panel.querySelector(`.${SOURCE_CLASS}`) as HTMLElement;
+      const labelSpan = row.querySelector(
+        `.${SOURCE_LABEL_TEXT_CLASS}`,
+      ) as HTMLElement;
+      labelSpan.click();
+      row.click();
+      await Zotero.Promise.delay(500);
+
+      assert.notEqual(
+        win.Zotero_Tabs.selectedID,
+        "zotero-pane",
+        "clicking the row itself must not leave the timeline tab",
       );
     });
   });

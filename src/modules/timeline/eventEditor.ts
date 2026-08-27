@@ -35,6 +35,11 @@
  * nothing on the surface saying which. A typeId that resolves to no type in
  * the vocabulary is valid data, not corruption, and is never rewritten just
  * for resolving to nothing.
+ *
+ * Each row's own button, never a click on the row, selects the source's item
+ * in the library pane - a read, so it bypasses the sources array entirely
+ * rather than going through Save. A ref that resolves to nothing renders no
+ * such button.
  */
 import { getLocaleID, getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
@@ -53,7 +58,11 @@ import {
   type SourceEdits,
 } from "./mutations";
 import { pickSource } from "./sourcePicker";
-import { labelForItem, labelForSource } from "./sourceLabels";
+import {
+  labelForItem,
+  labelForSource,
+  resolveSourceItem,
+} from "./sourceLabels";
 import { peekVocabulary, UNKNOWN_TYPE_LABEL } from "./vocabulary";
 import { updateTimelineDocument } from "./storage";
 import type { Event as TimelineEvent, LinkType, SourceRef } from "./schema";
@@ -96,6 +105,7 @@ export const TAG_LIST_CLASS = "zoterotimeline-event-tags";
 export const SOURCE_LIST_CLASS = "zoterotimeline-event-sources";
 export const SOURCE_CLASS = "zoterotimeline-event-source";
 export const SOURCE_LABEL_TEXT_CLASS = "zoterotimeline-event-source-label";
+export const SOURCE_SHOW_BUTTON_CLASS = "zoterotimeline-event-source-show";
 export const SOURCE_TYPE_SELECT_CLASS = "zoterotimeline-event-source-type";
 export const SOURCE_NAME_INPUT_CLASS = "zoterotimeline-event-source-name";
 export const SOURCE_REMOVE_BUTTON_CLASS = "zoterotimeline-event-source-remove";
@@ -285,6 +295,20 @@ function renderCreateForm(
       }
     })();
   });
+}
+
+/**
+ * Selects a source's item in the library pane, which switches Zotero away
+ * from the timeline tab. Only ever reached from a row's own button, never
+ * from clicking the row: losing the canvas has to be something the user
+ * asked for rather than a side effect of inspecting a source.
+ *
+ * ZoteroPane.selectItem is async in Zotero's own source (chrome/content/
+ * zotero/zoteroPane.js) despite the vendored zotero-types typing it as
+ * synchronous - awaited here to match the real behavior.
+ */
+async function showSourceItemInLibrary(item: Zotero.Item): Promise<void> {
+  await Zotero.getActiveZoteroPane().selectItem(item.id);
 }
 
 /**
@@ -521,6 +545,25 @@ export function renderEventEditor(
       labelSpan.classList.add(SOURCE_LABEL_TEXT_CLASS);
       labelSpan.textContent = labelForSource(row.ref);
       rowEl.appendChild(labelSpan);
+
+      // No button at all when the ref resolves to nothing: the label already
+      // reads "(missing item)", so a disabled button here would explain
+      // nothing a hidden one doesn't already cover, and there is nothing to
+      // jump to.
+      const resolvedItem = resolveSourceItem(row.ref);
+      if (resolvedItem) {
+        const showButton = doc.createElement("button");
+        showButton.type = "button";
+        showButton.classList.add(SOURCE_SHOW_BUTTON_CLASS);
+        showButton.setAttribute(
+          "data-l10n-id",
+          getLocaleID("event-editor-source-show-button"),
+        );
+        showButton.addEventListener("click", () => {
+          void showSourceItemInLibrary(resolvedItem);
+        });
+        rowEl.appendChild(showButton);
+      }
 
       const typeSelect = doc.createElement("select");
       typeSelect.classList.add(SOURCE_TYPE_SELECT_CLASS);

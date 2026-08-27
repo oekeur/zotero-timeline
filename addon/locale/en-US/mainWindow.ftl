@@ -44,6 +44,7 @@ event-editor-tag-remove-button = Remove
 event-editor-tag-input-label = Add a tag and press Enter
 event-editor-sources-label = Sources
 event-editor-source-add-button = Add source…
+event-editor-source-show-button = Show in library
 event-editor-source-remove-button = Remove
 event-editor-source-type-select =
     .title = Type
