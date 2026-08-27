@@ -128,16 +128,28 @@ describe("source prune", function () {
     }
 
     /**
-     * Erases `item` and waits for the prune it drives to finish.
-     *
-     * eraseTx() resolving is not enough: the delete notification arrives
-     * asynchronously afterward, not merely unawaited but not yet scheduled
-     * when the call returns, so whenStorageIdle() called immediately can see
-     * an empty queue the observer has not reached yet. The delay gives the
-     * notification and the deferred work up to its own enqueue() a turn
-     * before whenStorageIdle() waits out the write itself.
+     * Erases `item` and waits for tl-a's own prune to land - the real
+     * condition every caller below actually depends on, rather than a proxy
+     * for "the queue drained": eraseTx() resolving only means the
+     * transaction committed, not that the notification has reached the
+     * observer's own deferred enqueue() yet.
      */
-    async function eraseAndWaitForPrune(item: Zotero.Item): Promise<void> {
+    async function eraseAndWaitForPruneOfTlA(item: Zotero.Item): Promise<void> {
+      await item.eraseTx();
+      await waitFor(async () => {
+        const doc = await documentById("tl-a");
+        return doc && doc.events[0].sources.length === 0 ? true : null;
+      }, "tl-a's event to lose the erased source");
+    }
+
+    /**
+     * Erases `item` and waits for the prune it drives to finish, for a
+     * caller with nothing to poll: an item cited nowhere prunes no document
+     * at all, so there is no write and no persisted state to wait for -
+     * whenStorageIdle() would resolve immediately regardless of whether the
+     * observer's own deferred work has even started.
+     */
+    async function eraseAndWaitForNoopPrune(item: Zotero.Item): Promise<void> {
       await item.eraseTx();
       await Zotero.Promise.delay(200);
       await whenStorageIdle();
@@ -207,7 +219,7 @@ describe("source prune", function () {
       });
       assert.isUndefined(returned, "the observer returned a promise");
 
-      await eraseAndWaitForPrune(cited);
+      await eraseAndWaitForPruneOfTlA(cited);
 
       const laterWrite = await updateTimelineDocument(
         (doc) => ({ ...doc, name: "still writable" }),
@@ -239,7 +251,7 @@ describe("source prune", function () {
       uncited.setNote("<p>never cited</p>");
       await uncited.saveTx();
 
-      await eraseAndWaitForPrune(uncited);
+      await eraseAndWaitForNoopPrune(uncited);
 
       await note.reload(["note"], true);
       assert.equal(
@@ -260,7 +272,7 @@ describe("source prune", function () {
         version: CURRENT_SCHEMA_VERSION + 1,
       });
 
-      await eraseAndWaitForPrune(cited);
+      await eraseAndWaitForPruneOfTlA(cited);
 
       const doc = await documentById("tl-a");
       assert.lengthOf(doc!.events[0].sources, 0);
@@ -296,8 +308,16 @@ describe("source prune", function () {
         assert.isUndefined(returned, "the observer returned a promise");
         // The not-writable path returns before ever touching the write queue,
         // so whenStorageIdle cannot be used to wait for it the way the other
-        // tests here do.
-        await Zotero.Promise.delay(200);
+        // tests here do - the debug log call is the real, pollable signal.
+        await waitFor(
+          () =>
+            debugCalls.some((line) =>
+              line.includes(String(unwritableLibraryID)),
+            )
+              ? true
+              : null,
+          "the not-writable skip to be logged",
+        );
       } finally {
         Zotero.Libraries.get = originalGet;
         Zotero.debug = originalDebug;

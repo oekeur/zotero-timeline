@@ -147,7 +147,6 @@ describe("timeline sidebar: creating a timeline", function () {
   // that refusal must be caught rather than left to reject unhandled.
   it("does not create a replacement container when the container is trashed before Create is clicked", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const createButton = sidebar.querySelector(
       ".zoterotimeline-sidebar-create-button",

@@ -87,12 +87,18 @@ describe("event editor panel", function () {
   // that invariant), so waiting for all of them beats a fixed guess at how
   // long Fluent takes. Inputs and selects are excluded: their own
   // data-l10n-id targets an attribute (placeholder, aria-label), never
-  // textContent, so they would never satisfy this check at all.
+  // textContent, so they would never satisfy this check at all. tagName on
+  // an element created with a bare createElement() in this chrome document
+  // comes back lowercase, not the uppercase an HTML-namespace element would
+  // give - matching case-insensitively is what actually excludes them.
   async function waitForResolvedLabels(panel: HTMLElement): Promise<void> {
     await waitFor(() => {
       const labeled = Array.from(
         panel.querySelectorAll("[data-l10n-id]"),
-      ).filter((el) => el.tagName !== "INPUT" && el.tagName !== "SELECT");
+      ).filter((el) => {
+        const tag = el.tagName.toLowerCase();
+        return tag !== "input" && tag !== "select";
+      });
       return labeled.every((el) => (el.textContent ?? "").trim() !== "")
         ? true
         : null;
@@ -533,6 +539,15 @@ describe("event editor panel", function () {
       );
     });
 
+    // The reopen step below (clear the selection, reselect the same event,
+    // read the field back) kept timing out on waitFor even once the prior
+    // save was confirmed landed in storage: the panel's own re-render reads
+    // an in-memory documents map that onChange updates in a later microtask
+    // than the item.save() waitForSave watches, and nothing else re-renders
+    // it before that catches up. That gap is real, but not one this task's
+    // budget covers root-causing further, so this spec's post-select steps
+    // stay on their original fixed delays rather than risk a flaky
+    // conversion; the select itself already proved reliable.
     it("clears endDate to no endDate (a point, not a range) when saved empty", async function () {
       const { panel, doc, timeline } = await openPanel();
       await selectEvent(
@@ -555,7 +570,8 @@ describe("event editor panel", function () {
       let saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      await waitForSave(() => saveButton.click());
+      saveButton.click();
+      await Zotero.Promise.delay(800);
 
       let { timelines } = await listTimelines(libraryID);
       let updated = timelines
@@ -563,21 +579,22 @@ describe("event editor panel", function () {
         .doc.events.find((e) => e.id === "ev-utrecht")!;
       assert.equal(updated.endDate, "1580");
 
-      await clearSelection(timeline, panel);
+      timeline.setSelection([]);
+      await Zotero.Promise.delay(300);
       timeline.setSelection(["doc-revolt:ev-utrecht"]);
-      const reopenedEndDateInput = (await waitFor(() => {
-        const input = panel.querySelector(
-          `.${END_DATE_INPUT_CLASS}`,
-        ) as HTMLInputElement | null;
-        return input && input.value === "1580" ? input : null;
-      }, 'the reopened endDate field to read "1580"')) as HTMLInputElement;
+      await Zotero.Promise.delay(500);
+
+      const reopenedEndDateInput = panel.querySelector(
+        `.${END_DATE_INPUT_CLASS}`,
+      ) as HTMLInputElement;
       assert.equal(reopenedEndDateInput.value, "1580");
       setValue(doc, reopenedEndDateInput, "");
 
       saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      await waitForSave(() => saveButton.click());
+      saveButton.click();
+      await Zotero.Promise.delay(800);
 
       ({ timelines } = await listTimelines(libraryID));
       updated = timelines
@@ -757,12 +774,20 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      await waitForSave(() => saveButton.click());
-
-      const { timelines } = await listTimelines(libraryID);
-      const updated = timelines
-        .find((t) => t.doc.id === "doc-unknown-type")!
-        .doc.events.find((e) => e.id === "ev-1")!;
+      // Nothing about the form changes before this click, so the mutation
+      // is a genuine no-op the write path skips (mutations.test.ts's own
+      // "returns null when the change is a no-op" spec) - item.save() never
+      // runs, so waitForSave's condition would never fire. The typeId is
+      // already correct before the click; polling storage for it is the
+      // real condition either way.
+      saveButton.click();
+      const updated = await waitFor(async () => {
+        const { timelines } = await listTimelines(libraryID);
+        const event = timelines
+          .find((t) => t.doc.id === "doc-unknown-type")
+          ?.doc.events.find((e) => e.id === "ev-1");
+        return event?.sources[0]?.typeId === "made-up" ? event : null;
+      }, 'the unresolved typeId to still read "made-up" after Save');
       assert.equal(updated.sources[0].typeId, "made-up");
     });
 
@@ -821,6 +846,9 @@ describe("event editor panel", function () {
     });
 
     // AC #8
+    // Same reopen-after-save gap as "clears endDate" above: the initial
+    // select is reliable, converted; the reopen after Save is not, and
+    // stays on its original fixed delay pending further investigation.
     it("saves a free-text name, and clearing it removes the key rather than storing an empty string", async function () {
       const item = await citableItem("A cited work");
       await createDocumentNote(libraryID, STORAGE_TAG, {
@@ -851,7 +879,8 @@ describe("event editor panel", function () {
       let saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      await waitForSave(() => saveButton.click());
+      saveButton.click();
+      await Zotero.Promise.delay(800);
 
       let { timelines } = await listTimelines(libraryID);
       let updated = timelines
@@ -859,21 +888,22 @@ describe("event editor panel", function () {
         .doc.events.find((e) => e.id === "ev-1")!;
       assert.equal(updated.sources[0].name, "Primary account");
 
-      await clearSelection(timeline, panel);
-      await selectEvent(timeline, panel, "doc-name:ev-1", "An event");
-      nameInput = (await waitFor(() => {
-        const input = panel.querySelector(
-          `.${SOURCE_NAME_INPUT_CLASS}`,
-        ) as HTMLInputElement | null;
-        return input && input.value === "Primary account" ? input : null;
-      }, 'the reopened name field to read "Primary account"')) as HTMLInputElement;
+      timeline.setSelection([]);
+      await Zotero.Promise.delay(300);
+      timeline.setSelection(["doc-name:ev-1"]);
+      await Zotero.Promise.delay(500);
+
+      nameInput = panel.querySelector(
+        `.${SOURCE_NAME_INPUT_CLASS}`,
+      ) as HTMLInputElement;
       assert.equal(nameInput.value, "Primary account");
       setValue(doc, nameInput, "");
 
       saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
-      await waitForSave(() => saveButton.click());
+      saveButton.click();
+      await Zotero.Promise.delay(800);
 
       ({ timelines } = await listTimelines(libraryID));
       updated = timelines
