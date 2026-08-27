@@ -64,6 +64,20 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
   });
 
   it("opens the tab from Shift+T and re-selects it on a second press rather than adding a second", async function () {
+    // The scaffold's reporter drops a plain Error's message and shows a bare
+    // `undefined`, while a chai AssertionError survives with its text. waitFor
+    // throws a plain Error, so a timeout here is otherwise unreadable: rethrow
+    // as an assertion so the condition that never held is named in the output.
+    try {
+      await shiftTOpensThenReselects();
+    } catch (error) {
+      assert.fail(
+        `Shift+T re-select failed: ${(error as Error)?.message ?? String(error)}`,
+      );
+    }
+  });
+
+  async function shiftTOpensThenReselects(): Promise<void> {
     const win = mainWindow();
 
     pressShiftT(win.document.documentElement);
@@ -102,7 +116,7 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
       1,
       "a second Shift+T press must not add a second tab",
     );
-  });
+  }
 
   it("does not fire while focus is in an input, a textarea or a contenteditable", async function () {
     const win = mainWindow();
