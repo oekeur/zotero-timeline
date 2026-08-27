@@ -6,8 +6,6 @@ timeline-sidebar-unreadable-label = Unreadable timeline
 
 timeline-sidebar-create-button =
     .title = Create a timeline
-timeline-sidebar-create-button-read-only =
-    .title = This library can't be edited
 
 timeline-sidebar-create-name-input =
     .placeholder = Timeline name
@@ -26,13 +24,9 @@ timeline-sidebar-move-down-button =
 
 timeline-sidebar-rename-button =
     .title = Rename this timeline
-timeline-sidebar-rename-button-read-only =
-    .title = This library can't be edited
 
 timeline-sidebar-delete-button =
     .title = Delete this timeline
-timeline-sidebar-delete-button-read-only =
-    .title = This library can't be edited
 
 timeline-sidebar-rename-name-input =
     .placeholder = Timeline name

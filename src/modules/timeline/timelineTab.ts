@@ -79,6 +79,7 @@ export const SIDEBAR_ROW_RENAME_CONFIRM_CLASS =
 export const SIDEBAR_ROW_RENAME_CANCEL_CLASS =
   "zoterotimeline-sidebar-row-rename-cancel";
 export const CANVAS_EMPTY_PROMPT_CLASS = "zoterotimeline-canvas-empty-prompt";
+export const READ_ONLY_BANNER_CLASS = "zoterotimeline-read-only-banner";
 
 let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
@@ -393,6 +394,21 @@ export async function openTimelineTab(): Promise<void> {
   await createDefaultTimelineIfNeeded(libraryID);
   const openedLibrary = Zotero.Libraries.get(libraryID);
   const libraryEditable = openedLibrary ? openedLibrary.editable : false;
+
+  // The read-only reason, in words, on the surface itself - not implied by
+  // whichever controls end up disabled. Named by the library rather than a
+  // generic message, and present only when the library actually refuses
+  // writes, so the tab's ordinary shape is undisturbed for every other
+  // library.
+  if (!libraryEditable) {
+    const banner = el(doc, "div");
+    banner.classList.add(READ_ONLY_BANNER_CLASS);
+    banner.textContent = getString("timeline-read-only-banner", {
+      args: { library: openedLibrary ? openedLibrary.name : "" },
+    });
+    header.appendChild(banner as unknown as Node);
+  }
+
   const { timelines, unreadable } = await listTimelinesCached(libraryID);
   readableTimelines = timelines;
   // Keyed by document id, and kept up to date on every save/delete, so a
@@ -421,6 +437,7 @@ export async function openTimelineTab(): Promise<void> {
         null,
         onEditorChange,
         creatableDocuments(),
+        libraryEditable,
       );
       return;
     }
@@ -433,6 +450,7 @@ export async function openTimelineTab(): Promise<void> {
         null,
         onEditorChange,
         creatableDocuments(),
+        libraryEditable,
       );
       return;
     }
@@ -440,6 +458,8 @@ export async function openTimelineTab(): Promise<void> {
       panel as unknown as HTMLElement,
       { documentId, libraryID, event },
       onEditorChange,
+      undefined,
+      libraryEditable,
     );
   }
 
@@ -453,10 +473,24 @@ export async function openTimelineTab(): Promise<void> {
       if (index !== -1) {
         targetDoc.events[index] = change.event;
       }
-      items.update(buildTimelineItem(change.documentId, change.event));
+      items.update(
+        buildTimelineItem(
+          change.documentId,
+          change.event,
+          undefined,
+          libraryEditable,
+        ),
+      );
     } else if (change.kind === "created") {
       targetDoc.events = [...targetDoc.events, change.event];
-      items.add(buildTimelineItem(change.documentId, change.event));
+      items.add(
+        buildTimelineItem(
+          change.documentId,
+          change.event,
+          undefined,
+          libraryEditable,
+        ),
+      );
       // Selecting the new event re-renders the panel into the normal edit
       // form, the same hand-off click-to-create's own setSelection makes.
       timeline.setSelection([visItemId(change.documentId, change.event.id)]);
@@ -477,6 +511,7 @@ export async function openTimelineTab(): Promise<void> {
     canvas as unknown as HTMLElement,
     timelines,
     libraryID,
+    libraryEditable,
     showEditorFor,
     // canvas.ts keeps its own copy of every document for onMove's write-back;
     // a create there replaces that copy with a freshly written one rather
@@ -576,11 +611,7 @@ export async function openTimelineTab(): Promise<void> {
     button.disabled = !libraryEditable;
     button.setAttribute(
       "data-l10n-id",
-      getLocaleID(
-        libraryEditable
-          ? "timeline-sidebar-create-button"
-          : "timeline-sidebar-create-button-read-only",
-      ),
+      getLocaleID("timeline-sidebar-create-button"),
     );
     button.addEventListener("click", () => {
       creatingTimeline = !creatingTimeline;
@@ -797,11 +828,7 @@ export async function openTimelineTab(): Promise<void> {
     rename.disabled = !libraryEditable;
     rename.setAttribute(
       "data-l10n-id",
-      getLocaleID(
-        libraryEditable
-          ? "timeline-sidebar-rename-button"
-          : "timeline-sidebar-rename-button-read-only",
-      ),
+      getLocaleID("timeline-sidebar-rename-button"),
     );
     rename.addEventListener("click", () => {
       renamingDocumentId = group.id;
@@ -816,11 +843,7 @@ export async function openTimelineTab(): Promise<void> {
     del.disabled = !libraryEditable;
     del.setAttribute(
       "data-l10n-id",
-      getLocaleID(
-        libraryEditable
-          ? "timeline-sidebar-delete-button"
-          : "timeline-sidebar-delete-button-read-only",
-      ),
+      getLocaleID("timeline-sidebar-delete-button"),
     );
     del.addEventListener("click", () => {
       void handleDeleteTimeline(group.id);

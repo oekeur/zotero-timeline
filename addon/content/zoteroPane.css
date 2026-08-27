@@ -49,6 +49,20 @@
 }
 
 /*
+ * The read-only reason, in words - present only while the open library
+ * refuses writes. Every disabled control still carries its own tooltip; this
+ * is the one place the reason is legible without hovering anything.
+ */
+.zoterotimeline-read-only-banner {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: var(--fill-quinary);
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+}
+
+/*
  * Sidebar, canvas and editor side by side, so selecting an event never
  * reflows the canvas out from under the pointer.
  */

@@ -40,6 +40,18 @@
  * in the library pane - a read, so it bypasses the sources array entirely
  * rather than going through Save. A ref that resolves to nothing renders no
  * such button.
+ *
+ * `libraryEditable`, computed once when the tab opens and threaded down from
+ * timelineTab.ts, disables every control here that writes: Save, Delete, Add
+ * source, each source row's own type-select/name-input/Remove button, and
+ * the empty-state create form's inputs and its own Create button - disabled,
+ * never removed, so the panel's shape stays the same in every library. It is
+ * the same boolean canvas.ts uses to withhold every item's drag handle and
+ * refuse click-to-create, read once rather than recomputed here. Everything
+ * else stays live: title, date, endDate, description, tags and the
+ * source-show button are either a read (see above) or an in-memory edit that
+ * only becomes a write on Save, and reading an event's fields while
+ * comparing two chronologies is the point of this panel.
  */
 import { getLocaleID, getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
@@ -194,12 +206,19 @@ function updateDateFeedback(
  * A blank title falls back to the same "Untitled event" string the click
  * gesture uses, so the two routes produce the same stored title when neither
  * types one.
+ *
+ * Every control here is disabled when the library cannot be written, unlike
+ * the edit form's fields: this form has no existing event to display, so
+ * there is nothing to read once the one thing it is for - producing a write
+ * - is refused, the same reasoning that leaves the sidebar's own create form
+ * unreachable behind a disabled control.
  */
 function renderCreateForm(
   doc: Document,
   container: HTMLElement,
   creatable: { libraryID: number; documents: CreatableDocument[] },
-  onChange?: (change: EventEditorChange) => void,
+  onChange: ((change: EventEditorChange) => void) | undefined,
+  libraryEditable: boolean,
 ): void {
   const { libraryID, documents } = creatable;
 
@@ -214,6 +233,7 @@ function renderCreateForm(
 
     documentSelect = doc.createElement("select");
     documentSelect.classList.add(CREATE_DOCUMENT_SELECT_CLASS);
+    documentSelect.disabled = !libraryEditable;
     for (const candidate of documents) {
       const option = doc.createElement("option");
       option.value = candidate.id;
@@ -233,6 +253,7 @@ function renderCreateForm(
   const titleInput = doc.createElement("input");
   titleInput.type = "text";
   titleInput.classList.add(CREATE_TITLE_INPUT_CLASS);
+  titleInput.disabled = !libraryEditable;
   container.appendChild(titleInput);
 
   const dateLabel = doc.createElement("label");
@@ -245,6 +266,7 @@ function renderCreateForm(
   const dateInput = doc.createElement("input");
   dateInput.type = "text";
   dateInput.classList.add(CREATE_DATE_INPUT_CLASS);
+  dateInput.disabled = !libraryEditable;
   container.appendChild(dateInput);
 
   const dateFeedback = doc.createElement("p");
@@ -257,6 +279,7 @@ function renderCreateForm(
   const createButton = doc.createElement("button");
   createButton.type = "button";
   createButton.classList.add(CREATE_BUTTON_CLASS);
+  createButton.disabled = !libraryEditable;
   createButton.setAttribute(
     "data-l10n-id",
     getLocaleID("event-editor-create-button"),
@@ -339,12 +362,17 @@ function isSameSourceClaim(
  * `onChange` runs once a save, delete or create actually wrote a note, so the
  * caller can refresh the canvas item and, for a delete, clear the selection.
  * A no-op save (nothing actually changed) writes nothing and calls nothing.
+ *
+ * `libraryEditable` defaults to true so every existing caller (including the
+ * whole test suite) keeps behaving as it did before this parameter existed;
+ * timelineTab.ts is the one caller that ever passes false.
  */
 export function renderEventEditor(
   container: HTMLElement,
   selection: EventEditorSelection | null,
   onChange?: (change: EventEditorChange) => void,
   creatable?: { libraryID: number; documents: CreatableDocument[] },
+  libraryEditable = true,
 ): void {
   const doc = container.ownerDocument!;
   container.textContent = "";
@@ -355,7 +383,7 @@ export function renderEventEditor(
     prompt.setAttribute("data-l10n-id", getLocaleID("event-editor-empty"));
     container.appendChild(prompt);
     if (creatable && creatable.documents.length > 0) {
-      renderCreateForm(doc, container, creatable, onChange);
+      renderCreateForm(doc, container, creatable, onChange, libraryEditable);
     }
     return;
   }
@@ -567,6 +595,7 @@ export function renderEventEditor(
 
       const typeSelect = doc.createElement("select");
       typeSelect.classList.add(SOURCE_TYPE_SELECT_CLASS);
+      typeSelect.disabled = !libraryEditable;
       typeSelect.setAttribute(
         "data-l10n-id",
         getLocaleID("event-editor-source-type-select"),
@@ -601,6 +630,7 @@ export function renderEventEditor(
       const nameInput = doc.createElement("input");
       nameInput.type = "text";
       nameInput.classList.add(SOURCE_NAME_INPUT_CLASS);
+      nameInput.disabled = !libraryEditable;
       nameInput.setAttribute(
         "data-l10n-id",
         getLocaleID("event-editor-source-name-input"),
@@ -615,6 +645,7 @@ export function renderEventEditor(
       const removeButton = doc.createElement("button");
       removeButton.type = "button";
       removeButton.classList.add(SOURCE_REMOVE_BUTTON_CLASS);
+      removeButton.disabled = !libraryEditable;
       removeButton.setAttribute(
         "data-l10n-id",
         getLocaleID("event-editor-source-remove-button"),
@@ -640,6 +671,7 @@ export function renderEventEditor(
   const addSourceButton = doc.createElement("button");
   addSourceButton.type = "button";
   addSourceButton.classList.add(SOURCE_ADD_BUTTON_CLASS);
+  addSourceButton.disabled = !libraryEditable;
   addSourceButton.setAttribute(
     "data-l10n-id",
     getLocaleID("event-editor-source-add-button"),
@@ -681,6 +713,7 @@ export function renderEventEditor(
   const saveButton = doc.createElement("button");
   saveButton.type = "button";
   saveButton.classList.add(SAVE_BUTTON_CLASS);
+  saveButton.disabled = !libraryEditable;
   saveButton.setAttribute(
     "data-l10n-id",
     getLocaleID("event-editor-save-button"),
@@ -790,6 +823,7 @@ export function renderEventEditor(
   const deleteButton = doc.createElement("button");
   deleteButton.type = "button";
   deleteButton.classList.add(DELETE_BUTTON_CLASS);
+  deleteButton.disabled = !libraryEditable;
   deleteButton.setAttribute(
     "data-l10n-id",
     getLocaleID("event-editor-delete-button"),

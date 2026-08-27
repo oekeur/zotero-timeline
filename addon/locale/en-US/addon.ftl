@@ -2,6 +2,12 @@ timeline-tab-label = Timeline
 timeline-spike-heading = Rendering spike
 timeline-spike-note = A hardcoded two-timeline, four-event fixture. Click an event to select it first, then drag it: an event is not draggable until selected. The payload is written to Help > Debug Output.
 
+# Shown in the Timeline tab when the open library can't be written. This is
+# the reason in words the read-only rule requires: every control that would
+# change a timeline is disabled at the same time, but a disabled control on
+# its own does not say why.
+timeline-read-only-banner = { $library } can't be edited. You can browse every timeline here, but nothing can be created, changed, or deleted.
+
 # Shown when the plugin's own container item is moved to the trash. Trashing it
 # hides every timeline in the library at once, and nothing in Zotero says so.
 container-trashed-now = Zotero Timeline's data item was moved to the trash, so every timeline in this library is now hidden. Restore it from the trash to get them back.

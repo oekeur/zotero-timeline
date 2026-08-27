@@ -254,11 +254,21 @@ export function computeParkedAnchors(
  * An unreadable `endDate` does not park the event: `date` is real
  * information the document holds, so the event draws at its own start as a
  * flagged point, losing its span rather than its place.
+ *
+ * `editable` is the library-wide write permission, defaulted to true for
+ * every caller that never hands one - every write path in this file besides
+ * the initial render and a refresh, since a freshly created or edited event
+ * only exists because the write it came from already succeeded. A parked
+ * item ignores it and stays non-editable regardless: a delta measured from a
+ * fabricated position is not a date whether or not the library can be
+ * written, so the two reasons compose one way only, never enabling each
+ * other.
  */
 export function buildTimelineItem(
   documentId: string,
   event: Event,
   parkedAnchor?: Date,
+  editable = true,
 ) {
   let dateRange: ReturnType<typeof toTimelineRange>;
   try {
@@ -293,6 +303,7 @@ export function buildTimelineItem(
     content: event.title,
     start: dateRange.start,
     ...(end ? { end } : {}),
+    editable,
     title: endDateError
       ? `${event.title} (${event.date}) - ${endDateError}`
       : `${event.title} (${event.date})`,
@@ -329,11 +340,23 @@ export function getLastMovePayload(): Record<string, unknown> | undefined {
  * reorder a lane: it flips a group's `visible` field and rewrites `order`
  * fields on the returned `groups` DataSet, which is what keeps a toggle
  * instant and re-reads no document.
+ *
+ * `libraryEditable` is read once at tab-open and never re-read here - the
+ * one input the read-only rule follows, never the count of timelines this
+ * call was handed. It reaches every item through buildTimelineItem's own
+ * `editable` parameter rather than through vis-timeline's global
+ * `options.editable`, because that is the one mechanism a per-lane active
+ * timeline can later narrow further without this function changing: a
+ * global option would have to be re-decided per gesture, a per-item flag
+ * just gets a stricter input. It also refuses the click-to-create gesture
+ * directly, since that gesture has no vis-level editable flag of its own to
+ * gate it - see the "click" handler below.
  */
 export function renderCanvas(
   container: HTMLElement,
   timelines: StoredTimeline[],
   libraryID: number,
+  libraryEditable: boolean,
   onSelect: (id: string | null) => void,
   onDocumentChange?: (doc: TimelineDocument) => void,
 ): { timeline: Timeline; items: DataSet<any>; groups: DataSet<any> } {
@@ -354,7 +377,12 @@ export function renderCanvas(
   const items = new DataSet(
     timelines.flatMap(({ doc }) =>
       doc.events.map((event) =>
-        buildTimelineItem(doc.id, event, initialAnchors.get(doc.id)),
+        buildTimelineItem(
+          doc.id,
+          event,
+          initialAnchors.get(doc.id),
+          libraryEditable,
+        ),
       ),
     ),
   );
@@ -483,7 +511,14 @@ export function renderCanvas(
           // whatever the drag actually resolved to, and either way the
           // canvas ends up showing exactly what was written, not where the
           // pointer happened to let go.
-          callback(buildTimelineItem(derived.documentId, updatedEvent));
+          callback(
+            buildTimelineItem(
+              derived.documentId,
+              updatedEvent,
+              undefined,
+              libraryEditable,
+            ),
+          );
         } catch (err) {
           logFailure(
             `[zoteroTimeline] failed to write drag for event ${derived.eventId}: ${(err as Error).message}`,
@@ -530,7 +565,9 @@ export function renderCanvas(
         try {
           toTimelineRange(event.date);
         } catch {
-          items.update(buildTimelineItem(documentId, event, anchor));
+          items.update(
+            buildTimelineItem(documentId, event, anchor, libraryEditable),
+          );
         }
       }
     }
@@ -574,6 +611,12 @@ export function renderCanvas(
       if (props.item != null || props.group == null) {
         return;
       }
+      // No item exists yet for a disabled state to attach to, so read-only
+      // refuses the gesture itself rather than a control - the same outcome
+      // every other write gets from its own editable flag being false.
+      if (!libraryEditable) {
+        return;
+      }
       const documentId = String(props.group);
       void (async () => {
         const targetDoc = documents.get(documentId);
@@ -607,7 +650,9 @@ export function renderCanvas(
           documents.set(documentId, result);
           onDocumentChange?.(result);
           const newEvent = result.events.find((e) => e.id === newEventId)!;
-          items.add(buildTimelineItem(documentId, newEvent));
+          items.add(
+            buildTimelineItem(documentId, newEvent, undefined, libraryEditable),
+          );
           // The wrapped setSelection above notifies onSelect, which is what
           // opens the editor panel on the event just created.
           (timeline as any).setSelection([visItemId(documentId, newEvent.id)]);

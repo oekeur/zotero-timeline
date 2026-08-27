@@ -99,9 +99,10 @@ describe("timeline sidebar: creating a timeline", function () {
   });
 
   // AC #7. Safe to stub with a bare object rather than the real library
-  // spread with one field overridden: nothing on the tab-open path reads
-  // anything off this library besides `editable` (searchStorageNotes finds
-  // the fixtures first and never calls Zotero.Libraries.get at all).
+  // spread with fields overridden: the tab-open path reads only `editable`
+  // and, since the read-only banner, `name` off this library
+  // (searchStorageNotes finds the fixtures first and never calls
+  // Zotero.Libraries.get for anything else).
   it("disables the create control in a library the user cannot write", async function () {
     const originalGet = Zotero.Libraries.get;
     Zotero.Libraries.get = ((id: number) =>
