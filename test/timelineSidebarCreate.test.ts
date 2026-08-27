@@ -10,6 +10,7 @@ import {
   createDocumentNote,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 describe("timeline sidebar: creating a timeline", function () {
   this.timeout(60000);
@@ -42,16 +43,18 @@ describe("timeline sidebar: creating a timeline", function () {
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document as Document;
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-    const sidebar = doc.getElementById("zoterotimeline-sidebar") as HTMLElement;
-    assert.ok(sidebar, "no sidebar element in the tab");
+    const sidebar = (await waitFor(() => {
+      const el = doc.getElementById("zoterotimeline-sidebar");
+      return el?.querySelector(".zoterotimeline-sidebar-create-button")
+        ? el
+        : null;
+    }, "the sidebar's create control to render")) as HTMLElement;
     return { doc, sidebar };
   }
 
   // AC #1
   it("creates a timeline from the inline form and lists it in the sidebar", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const createButton = sidebar.querySelector(
       ".zoterotimeline-sidebar-create-button",
@@ -83,7 +86,15 @@ describe("timeline sidebar: creating a timeline", function () {
     nameInput.dispatchEvent(new Event("input"));
     assert.isFalse(confirmButton.disabled);
     confirmButton.click();
-    await Zotero.Promise.delay(500);
+    await waitFor(
+      () =>
+        api
+          .getVisibleTimelines()
+          .some((t: any) => t.doc.name === "New Chronology")
+          ? true
+          : null,
+      "the new timeline to appear in the visible set",
+    );
 
     const names = api
       .getVisibleTimelines()
@@ -117,7 +128,6 @@ describe("timeline sidebar: creating a timeline", function () {
 
     try {
       const { sidebar } = await openSidebar();
-      await Zotero.Promise.delay(500);
 
       const createButton = sidebar.querySelector(
         ".zoterotimeline-sidebar-create-button",
@@ -157,6 +167,7 @@ describe("timeline sidebar: creating a timeline", function () {
       ".zoterotimeline-sidebar-create-confirm",
     ) as HTMLButtonElement;
     confirmButton.click();
+    // Asserting nothing gets created has no condition to poll for.
     await Zotero.Promise.delay(500);
 
     // The click handler's own promise is fire-and-forget, so a rejection it

@@ -6,6 +6,7 @@ import {
   createRawNote,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // Driven entirely through Zotero.ZoteroTimeline.api rather than this test
 // bundle's own copy of timelineTab.ts: the sidebar state (the vis groups
@@ -42,9 +43,10 @@ describe("timeline sidebar: visibility and order", function () {
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document as Document;
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-    const sidebar = doc.getElementById("zoterotimeline-sidebar") as HTMLElement;
-    assert.ok(sidebar, "no sidebar element in the tab");
+    const sidebar = (await waitFor(() => {
+      const el = doc.getElementById("zoterotimeline-sidebar");
+      return el && el.querySelector(".zoterotimeline-sidebar-row") ? el : null;
+    }, "the sidebar to render its rows")) as HTMLElement;
     return { win, doc, sidebar };
   }
 
@@ -56,9 +58,6 @@ describe("timeline sidebar: visibility and order", function () {
     );
 
     const { sidebar } = await openSidebar();
-    // Fluent's DOM observer translates newly inserted data-l10n-id nodes
-    // asynchronously; give it a turn before reading rendered text.
-    await Zotero.Promise.delay(500);
 
     const names = Array.from(
       sidebar.querySelectorAll(".zoterotimeline-sidebar-row-name"),
@@ -70,6 +69,14 @@ describe("timeline sidebar: visibility and order", function () {
       ".zoterotimeline-sidebar-row-unreadable",
     );
     assert.ok(unreadableRow, "no row rendered for the unreadable note");
+    // Fluent's DOM observer translates this label's data-l10n-id
+    // asynchronously; wait for it rather than reading before it has a turn.
+    await waitFor(() => {
+      const text =
+        unreadableRow!.querySelector(".zoterotimeline-sidebar-row-name")
+          ?.textContent ?? "";
+      return text !== "" ? text : null;
+    }, "the unreadable row's label to resolve through Fluent");
     const unreadableText =
       unreadableRow!.querySelector(".zoterotimeline-sidebar-row-name")
         ?.textContent ?? "";
@@ -83,7 +90,6 @@ describe("timeline sidebar: visibility and order", function () {
 
   it("toggling a row's checkbox flips visibility and parses no document", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     assert.deepEqual(
       api.getVisibleTimelines().map((t: any) => t.doc.id),
@@ -101,7 +107,10 @@ describe("timeline sidebar: visibility and order", function () {
     ) as HTMLInputElement;
     assert.isTrue(checkbox.checked, "expected doc-revolt to start visible");
     checkbox.click();
-    await Zotero.Promise.delay(300);
+    await waitFor(
+      () => (api.getVisibleTimelines().length === 1 ? true : null),
+      "doc-revolt to leave the visible set",
+    );
 
     assert.equal(
       api.parsesSoFar(),
@@ -127,7 +136,6 @@ describe("timeline sidebar: visibility and order", function () {
 
   it("moving a row changes the visible order", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     assert.deepEqual(
       api.getVisibleTimelines().map((t: any) => t.doc.id),
@@ -143,7 +151,11 @@ describe("timeline sidebar: visibility and order", function () {
     ) as HTMLButtonElement;
     assert.isFalse(moveUp.disabled);
     moveUp.click();
-    await Zotero.Promise.delay(300);
+    await waitFor(
+      () =>
+        api.getVisibleTimelines()[0]?.doc.id === "doc-sources" ? true : null,
+      "doc-sources to move to the front of the visible order",
+    );
 
     assert.deepEqual(
       api.getVisibleTimelines().map((t: any) => t.doc.id),
@@ -154,7 +166,6 @@ describe("timeline sidebar: visibility and order", function () {
 
   it("prompts when the toggle reaches zero visible, and clears the prompt once one is back on", async function () {
     const { doc, sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const canvas = doc.getElementById("zoterotimeline-canvas") as HTMLElement;
     assert.notOk(
@@ -170,11 +181,22 @@ describe("timeline sidebar: visibility and order", function () {
         ".zoterotimeline-sidebar-row-visible",
       ) as HTMLInputElement;
       checkbox.click();
-      await Zotero.Promise.delay(300);
+      await waitFor(
+        () =>
+          api.getVisibleTimelines().every((t: any) => t.doc.id !== id)
+            ? true
+            : null,
+        `${id} to leave the visible set`,
+      );
     }
 
     assert.deepEqual(api.getVisibleTimelines(), []);
-    const prompt = canvas.querySelector(".zoterotimeline-canvas-empty-prompt");
+    // Fluent's DOM observer translates this prompt's data-l10n-id
+    // asynchronously; wait for it rather than reading before it has a turn.
+    const prompt = await waitFor(() => {
+      const el = canvas.querySelector(".zoterotimeline-canvas-empty-prompt");
+      return el && (el.textContent ?? "") !== "" ? el : null;
+    }, "the empty-canvas prompt to render and resolve through Fluent");
     assert.ok(prompt, "no prompt shown with zero timelines visible");
     assert.isNotEmpty(prompt!.textContent, "the prompt rendered empty");
 
@@ -185,7 +207,13 @@ describe("timeline sidebar: visibility and order", function () {
       ".zoterotimeline-sidebar-row-visible",
     ) as HTMLInputElement;
     checkbox.click();
-    await Zotero.Promise.delay(300);
+    await waitFor(
+      () =>
+        !canvas.querySelector(".zoterotimeline-canvas-empty-prompt")
+          ? true
+          : null,
+      "the empty-canvas prompt to clear",
+    );
 
     assert.notOk(
       canvas.querySelector(".zoterotimeline-canvas-empty-prompt"),
@@ -198,7 +226,6 @@ describe("timeline sidebar: visibility and order", function () {
   // that a row is a real tab stop, in the order it is drawn.
   it("each sidebar row is keyboard-focusable, in the order the rows are drawn", async function () {
     const { doc, sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const rows = Array.from(
       sidebar.querySelectorAll(

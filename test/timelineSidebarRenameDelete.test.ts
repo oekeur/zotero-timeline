@@ -13,6 +13,7 @@ import {
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // Driven through Zotero.ZoteroTimeline.api, the same way timelineSidebar.test.ts
 // is: the sidebar state (the vis groups DataSet, the documents map) lives in
@@ -57,16 +58,16 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document as Document;
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-    const sidebar = doc.getElementById("zoterotimeline-sidebar") as HTMLElement;
-    assert.ok(sidebar, "no sidebar element in the tab");
+    const sidebar = (await waitFor(() => {
+      const el = doc.getElementById("zoterotimeline-sidebar");
+      return el && el.querySelector(".zoterotimeline-sidebar-row") ? el : null;
+    }, "the sidebar to render its rows")) as HTMLElement;
     return { win, doc, sidebar };
   }
 
   // AC #6
   it("renames only the timeline whose row the control sits in", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const row = sidebar.querySelector(
       '[data-timeline-id="doc-sources"]',
@@ -89,7 +90,15 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
         ".zoterotimeline-sidebar-row-rename-confirm",
       ) as HTMLButtonElement
     ).click();
-    await Zotero.Promise.delay(500);
+    await waitFor(
+      () =>
+        api
+          .getVisibleTimelines()
+          .some((t: any) => t.doc.name === "Print culture")
+          ? true
+          : null,
+      "the renamed timeline to appear in the visible set",
+    );
 
     const names = api.getVisibleTimelines().map((t: any) => t.doc.name);
     assert.include(names, "Print culture");
@@ -106,7 +115,6 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
   // AC #2, the sidebar-level guard for the same refusal storage.ts makes
   it("does not let the rename confirm button submit a blank name", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const row = sidebar.querySelector(
       '[data-timeline-id="doc-revolt"]',
@@ -132,7 +140,6 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
   // AC #3
   it("confirms before deleting, naming the timeline and its event count, and does nothing on cancel", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     let confirmTitle: string | undefined;
     let confirmMessage: string | undefined;
@@ -152,7 +159,10 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
         ".zoterotimeline-sidebar-row-delete",
       ) as HTMLButtonElement
     ).click();
-    await Zotero.Promise.delay(300);
+    await waitFor(
+      () => (confirmTitle !== undefined ? true : null),
+      "the delete confirmation to fire",
+    );
 
     assert.isDefined(confirmTitle);
     assert.include(confirmMessage, "Dutch Revolt");
@@ -170,7 +180,6 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
   // AC #6, for delete
   it("deletes only the timeline whose row the control sits in", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     api.setTimelineDeleteConfirmForTests(() => true);
 
@@ -182,7 +191,14 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
         ".zoterotimeline-sidebar-row-delete",
       ) as HTMLButtonElement
     ).click();
-    await Zotero.Promise.delay(500);
+    // The UI's visible set can update before the erase itself lands on disk
+    // - the actual thing this asserts is the storage note count, so that is
+    // the real condition to poll rather than the UI-only proxy.
+    await waitFor(
+      async () =>
+        (await searchStorageNotes(libraryID)).length === 2 ? true : null,
+      "the deleted timeline's note to leave storage",
+    );
 
     const names = api.getVisibleTimelines().map((t: any) => t.doc.name);
     assert.notInclude(names, "Source production");
@@ -197,7 +213,6 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
   // before the handler's first await.
   it("detaches the deleted timeline from the canvas before the erase resolves", async function () {
     const { sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     api.setTimelineDeleteConfirmForTests(() => true);
 
@@ -223,23 +238,24 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
       "the canvas still rendered the timeline right after the delete click",
     );
 
-    await Zotero.Promise.delay(500);
+    await waitFor(
+      async () =>
+        (await searchStorageNotes(libraryID)).length === 2 ? true : null,
+      "the erased timeline's note to leave storage",
+    );
     assert.lengthOf(await searchStorageNotes(libraryID), 2);
   });
 
   // AC #5
   it("clears the editor panel's selection when its timeline is deleted", async function () {
     const { doc, sidebar } = await openSidebar();
-    await Zotero.Promise.delay(500);
 
     const timeline = api.getCurrentTimeline();
     timeline.setSelection(["doc-revolt:ev-fury"]);
-    await Zotero.Promise.delay(300);
-
     const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
-    assert.ok(
-      panel.querySelector(`.${TITLE_INPUT_CLASS}`),
-      "selecting the event did not open the editor",
+    await waitFor(
+      () => panel.querySelector(`.${TITLE_INPUT_CLASS}`),
+      "selecting the event to open the editor",
     );
 
     api.setTimelineDeleteConfirmForTests(() => true);
@@ -251,7 +267,10 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
         ".zoterotimeline-sidebar-row-delete",
       ) as HTMLButtonElement
     ).click();
-    await Zotero.Promise.delay(500);
+    await waitFor(
+      () => panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
+      "the editor to revert to the empty prompt after its timeline is deleted",
+    );
 
     assert.ok(
       panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
@@ -274,7 +293,6 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
 
     try {
       const { sidebar } = await openSidebar();
-      await Zotero.Promise.delay(500);
 
       const row = sidebar.querySelector(
         '[data-timeline-id="doc-revolt"]',

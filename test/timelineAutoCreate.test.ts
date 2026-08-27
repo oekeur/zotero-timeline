@@ -5,6 +5,7 @@ import {
   searchStorageNotes,
 } from "../src/modules/timeline/storage";
 import { eraseAllPluginItems } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // Driven through Zotero.ZoteroTimeline.api, the same instance the plugin
 // registered, rather than this test bundle's own copy of timelineTab.ts - see
@@ -31,12 +32,19 @@ describe("timeline tab: giving a library with none its first timeline", function
     await eraseAllPluginItems(libraryID);
   });
 
+  // createDefaultTimelineIfNeeded is awaited before openTimelineTab ever sets
+  // the rendered timeline, so waiting for the render is waiting for the
+  // auto-create decision too.
+  async function openAndWaitForRender(): Promise<void> {
+    await api.openTimelineTab();
+    await waitFor(() => api.getCurrentTimeline(), "the timeline to render");
+  }
+
   // AC #2
   it("creates one when the library genuinely holds nothing", async function () {
     assert.lengthOf(await searchStorageNotes(libraryID), 0);
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
+    await openAndWaitForRender();
 
     const notes = await searchStorageNotes(libraryID);
     assert.lengthOf(notes, 1, "no timeline was created for an empty library");
@@ -50,8 +58,7 @@ describe("timeline tab: giving a library with none its first timeline", function
   it("creates nothing more once the library already has a timeline", async function () {
     await createTimeline("Already here", libraryID);
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
+    await openAndWaitForRender();
 
     assert.lengthOf(await searchStorageNotes(libraryID), 1);
   });
@@ -63,8 +70,7 @@ describe("timeline tab: giving a library with none its first timeline", function
     container.deleted = true;
     await container.saveTx();
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
+    await openAndWaitForRender();
 
     assert.lengthOf(
       await searchStorageNotes(libraryID, { includeTrashed: true }),
@@ -80,8 +86,7 @@ describe("timeline tab: giving a library with none its first timeline", function
     item.deleted = true;
     await item.saveTx();
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
+    await openAndWaitForRender();
 
     assert.lengthOf(
       await searchStorageNotes(libraryID, { includeTrashed: true }),

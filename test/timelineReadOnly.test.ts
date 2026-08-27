@@ -18,6 +18,7 @@ import {
   SIDEBAR_CREATE_BUTTON_CLASS,
 } from "../src/modules/timeline/timelineTab";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 // The one input the read-only rule follows: whether the open library can be
 // written, read once through Zotero.Libraries.get and never re-derived from
@@ -92,11 +93,27 @@ describe("read-only when the library cannot be written", function () {
     const api = (Zotero as any).ZoteroTimeline.api;
     const win = Zotero.getMainWindows()[0] as any;
     await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
     const doc = win.document as Document;
-    const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+    const panel = (await waitFor(
+      () => doc.getElementById("zoterotimeline-editor"),
+      "the editor panel to render",
+    )) as HTMLElement;
     const timeline = api.getCurrentTimeline();
     return { win, doc, panel, timeline };
+  }
+
+  async function selectAndWait(
+    timeline: any,
+    panel: HTMLElement,
+    id: string,
+  ): Promise<HTMLInputElement> {
+    timeline.setSelection([id]);
+    return (await waitFor(() => {
+      const input = panel.querySelector(
+        `.${TITLE_INPUT_CLASS}`,
+      ) as HTMLInputElement | null;
+      return input && input.value === "An event" ? input : null;
+    }, 'the title field to read "An event"')) as HTMLInputElement;
   }
 
   // AC #1, #2, #5
@@ -132,8 +149,11 @@ describe("read-only when the library cannot be written", function () {
     const originalGet = stubNotWritable();
     try {
       const { panel, timeline } = await openTab();
-      timeline.setSelection(["doc-read-only:ev-1"]);
-      await Zotero.Promise.delay(500);
+      const titleInput = await selectAndWait(
+        timeline,
+        panel,
+        "doc-read-only:ev-1",
+      );
 
       for (const cls of [
         SAVE_BUTTON_CLASS,
@@ -152,9 +172,6 @@ describe("read-only when the library cannot be written", function () {
         assert.isTrue(control!.disabled, `${cls} stayed enabled`);
       }
 
-      const titleInput = panel.querySelector(
-        `.${TITLE_INPUT_CLASS}`,
-      ) as HTMLInputElement;
       assert.equal(
         titleInput.value,
         "An event",
@@ -168,8 +185,7 @@ describe("read-only when the library cannot be written", function () {
   // AC #6: the same controls stay enabled in a library the user can write.
   it("keeps the event editor's write controls enabled in a library the user can write", async function () {
     const { panel, timeline } = await openTab();
-    timeline.setSelection(["doc-read-only:ev-1"]);
-    await Zotero.Promise.delay(500);
+    await selectAndWait(timeline, panel, "doc-read-only:ev-1");
 
     for (const cls of [
       SAVE_BUTTON_CLASS,
@@ -196,9 +212,8 @@ describe("read-only when the library cannot be written", function () {
   it("gives no item a drag handle when the library can't be written", async function () {
     const originalGet = stubNotWritable();
     try {
-      const { doc, timeline } = await openTab();
-      timeline.setSelection(["doc-read-only:ev-1"]);
-      await Zotero.Promise.delay(500);
+      const { doc, panel, timeline } = await openTab();
+      await selectAndWait(timeline, panel, "doc-read-only:ev-1");
 
       assert.notOk(
         doc.querySelector(".vis-drag-center"),
@@ -220,6 +235,7 @@ describe("read-only when the library cannot be written", function () {
         group: "doc-read-only",
         time: new Date(Date.UTC(1650, 0, 1)),
       });
+      // Asserting nothing gets created has no condition to poll for.
       await Zotero.Promise.delay(600);
 
       const { timelines } = await listTimelines(libraryID);
