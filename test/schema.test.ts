@@ -62,6 +62,7 @@ describe("schema and validation", function () {
     if (!result.ok) return;
     assert.notProperty(result.doc.events[0], "description");
     assert.notProperty(result.doc.events[0], "endDate");
+    assert.notProperty(result.doc.events[0], "track");
     assert.notProperty(result.doc.events[0].sources[0], "name");
   });
 
@@ -69,6 +70,7 @@ describe("schema and validation", function () {
     const doc = validDocument();
     doc.events[0].description = "The law took effect.";
     doc.events[0].endDate = "1873";
+    doc.events[0].track = "legal";
     doc.events[0].sources[0].name = "the proclamation itself";
 
     const result = parseTimelineDocument(doc);
@@ -77,6 +79,7 @@ describe("schema and validation", function () {
     if (!result.ok) return;
     assert.equal(result.doc.events[0].description, "The law took effect.");
     assert.equal(result.doc.events[0].endDate, "1873");
+    assert.equal(result.doc.events[0].track, "legal");
     assert.equal(
       result.doc.events[0].sources[0].name,
       "the proclamation itself",
@@ -107,6 +110,17 @@ describe("schema and validation", function () {
     assert.isFalse(sourcesResult.ok);
     if (sourcesResult.ok) return;
     assert.include(sourcesResult.error, "events");
+  });
+
+  it("rejects a track that is not a string", function () {
+    const doc = validDocument() as unknown as Record<string, unknown>;
+    (doc.events as Record<string, unknown>[])[0].track = 7;
+
+    const result = parseTimelineDocument(doc);
+
+    assert.isFalse(result.ok);
+    if (result.ok) return;
+    assert.include(result.error, "events");
   });
 
   it("rejects an empty name, which the timeline list cannot render", function () {

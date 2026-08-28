@@ -640,24 +640,18 @@ export async function openTimelineTab(): Promise<void> {
           getWindow: () => { start: Date | number; end: Date | number };
         }
       ).getWindow(),
-      lanes: groupsDS()
-        .get({ order: "order" })
-        .map((g, index) => ({
-          id: g.id,
-          visible: g.visible,
-          order: index,
-        })),
+      lanes: documentGroupRows().map((g, index) => ({
+        id: g.id,
+        visible: g.visible,
+        order: index,
+      })),
     };
   }
 
   function restoreCanvasState(state: ReturnType<typeof captureCanvasState>) {
     // Lanes first: activating or selecting into a lane that is not drawn yet
     // lands nowhere.
-    const present = new Set(
-      groupsDS()
-        .get({ order: "order" })
-        .map((g) => g.id),
-    );
+    const present = new Set(documentGroupRows().map((g) => g.id));
     const known = state.lanes.filter((l) => present.has(l.id));
     if (known.length > 0) {
       groupsDS().update(known);
@@ -1030,6 +1024,23 @@ export async function openTimelineTab(): Promise<void> {
     };
   }
 
+  /**
+   * Every top-level document row, in order - never a sub-lane (TASK-15).
+   * canvas.ts nests a document's tracks under its own group in the same
+   * DataSet, and a sub-lane's `order` is scoped to its own siblings under one
+   * parent, never comparable against another document's - reading it as if it
+   * were a timeline row would corrupt both the sidebar listing and the
+   * gapless renumbering reorderGroup below depends on. `documents` (this
+   * function's own closure) is what tells the two apart: every sub-lane's id
+   * is minted from a document id plus a track name and never collides with
+   * one.
+   */
+  function documentGroupRows(): GroupRow[] {
+    return groupsDS()
+      .get({ order: "order" })
+      .filter((row) => documents.has(row.id));
+  }
+
   // Toggled by the sidebar's create button; not module-level, since it must
   // reset to closed every time the tab is opened fresh.
   let creatingTimeline = false;
@@ -1053,7 +1064,7 @@ export async function openTimelineTab(): Promise<void> {
       ...readableTimelines,
       { noteItemID: created.item.id, doc: created.doc, dateIssues: [] },
     ];
-    const order = groupsDS().get({ order: "order" }).length;
+    const order = documentGroupRows().length;
     groupsDS().add({
       id: created.doc.id,
       content: created.doc.name,
@@ -1196,7 +1207,7 @@ export async function openTimelineTab(): Promise<void> {
       sidebar.appendChild(buildCreateForm() as unknown as Node);
     }
 
-    const rows = groupsDS().get({ order: "order" });
+    const rows = documentGroupRows();
     rows.forEach((group, index) => {
       sidebar.appendChild(
         buildSidebarRow(group, index, rows.length) as unknown as Node,
@@ -1560,7 +1571,7 @@ export async function openTimelineTab(): Promise<void> {
    * after repeated reorders.
    */
   function reorderGroup(documentId: string, delta: number): void {
-    const rows = groupsDS().get({ order: "order" });
+    const rows = documentGroupRows();
     const index = rows.findIndex((group) => group.id === documentId);
     const target = index + delta;
     if (index === -1 || target < 0 || target >= rows.length) {

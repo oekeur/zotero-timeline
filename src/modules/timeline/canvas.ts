@@ -51,7 +51,12 @@ import type { Event, TimelineDocument } from "./schema";
  *   date directly rather than inventing a default (see eventEditor.ts's
  *   renderCreateForm docblock for why a placeholder date isn't safe here).
  *   Covered by test/eventCreation.test.ts (click path) and
- *   test/eventEditorCreate.test.ts (typed path).
+ *   test/eventEditorCreate.test.ts (typed path). A click landing inside a
+ *   sub-lane's row (TASK-15) also sets the new event's `track`, parsed off
+ *   the clicked group id by parseGroupId - the create form has no sub-lane
+ *   field to set it from, since nothing edits `track` today besides this one
+ *   gesture (the parity rule obligates the reverse, a typed route needing no
+ *   canvas gesture, not this direction).
  * - Delete: no canvas-only gesture exists today (TASK-25's keyboard-delete
  *   handler was added, found to destabilise unrelated tests through a
  *   `container.focus()` call, and reverted - see TASK-25's Backlog notes).
@@ -105,6 +110,52 @@ export function parseVisItemId(id: string): {
     documentId: id.slice(0, separator),
     eventId: id.slice(separator + 1),
   };
+}
+
+/**
+ * The vis group id for a document's sub-lane (TASK-15). `::` rather than
+ * `:` (visItemId's separator) so the two id spaces never collide even though
+ * they share nothing - a document id is a Zotero object key
+ * (Zotero.Utilities.generateObjectKey(), eight alphanumeric characters), which
+ * never contains either.
+ */
+export function trackGroupId(documentId: string, track: string): string {
+  return `${documentId}::${track}`;
+}
+
+/**
+ * The inverse of trackGroupId, and also the read for a group id that was
+ * never nested: a document's own top-level group id round-trips through this
+ * unchanged, since it never contains `::`.
+ */
+export function parseGroupId(groupId: string): {
+  documentId: string;
+  track?: string;
+} {
+  const separator = groupId.indexOf("::");
+  return separator === -1
+    ? { documentId: groupId }
+    : {
+        documentId: groupId.slice(0, separator),
+        track: groupId.slice(separator + 2),
+      };
+}
+
+/**
+ * Every distinct track named by `doc`'s events, in first-seen order. Empty
+ * for a document with no tracked events - the one-lane case this task must
+ * leave exactly as it was.
+ */
+export function tracksOf(doc: TimelineDocument): string[] {
+  const seen = new Set<string>();
+  const tracks: string[] = [];
+  for (const event of doc.events) {
+    if (event.track !== undefined && !seen.has(event.track)) {
+      seen.add(event.track);
+      tracks.push(event.track);
+    }
+  }
+  return tracks;
 }
 
 /**
@@ -311,13 +362,21 @@ export function buildTimelineItem(
   parkedAnchor?: Date,
   editable = true,
 ) {
+  // A tracked event's group is its document's sub-lane (TASK-15), never the
+  // document's own top-level group - the parent draws no items of its own
+  // once it has nested groups, only the union of its children's.
+  const groupId =
+    event.track !== undefined
+      ? trackGroupId(documentId, event.track)
+      : documentId;
+
   let dateRange: ReturnType<typeof toTimelineRange>;
   try {
     dateRange = toTimelineRange(event.date);
   } catch (err) {
     return {
       id: visItemId(documentId, event.id),
-      group: documentId,
+      group: groupId,
       content: event.title,
       start: parkedAnchor ?? new Date(),
       editable: false,
@@ -355,7 +414,7 @@ export function buildTimelineItem(
   const formClass = FORM_STYLING[dateRange.form];
   return {
     id: visItemId(documentId, event.id),
-    group: documentId,
+    group: groupId,
     content: event.title,
     start: dateRange.start,
     ...(end ? { end } : {}),
@@ -474,26 +533,81 @@ export function renderCanvas(
     ),
   );
 
-  const groups = new DataSet(
-    timelines.map(({ doc }, order) => ({
+  /**
+   * A document's top-level group, plus one nested sub-lane group per track its
+   * events name (TASK-15). A document with no tracked events gets exactly the
+   * row it always did - no `nestedGroups` field at all - which is what keeps
+   * every timeline that has never used a track rendering unchanged.
+   *
+   * The parent carries no items of its own once it has sub-lanes
+   * (buildTimelineItem routes a tracked event to its sub-lane's group, never
+   * the document's), so nesting never gives one document two places an event
+   * could land.
+   */
+  function buildGroupRows(
+    doc: TimelineDocument,
+    order: number,
+    laneClass: string,
+  ): Array<{
+    id: string;
+    content: string;
+    order: number;
+    visible: boolean;
+    className: string;
+    nestedGroups?: string[];
+  }> {
+    const tracks = tracksOf(doc);
+    const parent = {
       id: doc.id,
       content: doc.name,
       order,
       visible: true,
-      className:
+      className: laneClass,
+      ...(tracks.length > 0
+        ? { nestedGroups: tracks.map((track) => trackGroupId(doc.id, track)) }
+        : {}),
+    };
+    const children = tracks.map((track, trackOrder) => ({
+      id: trackGroupId(doc.id, track),
+      content: track,
+      order: trackOrder,
+      visible: true,
+      className: laneClass,
+    }));
+    return [parent, ...children];
+  }
+
+  const groups = new DataSet(
+    timelines.flatMap(({ doc }, order) =>
+      buildGroupRows(
+        doc,
+        order,
         doc.id === activeDocumentId ? ACTIVE_LANE_CLASS : INACTIVE_LANE_CLASS,
-    })),
+      ),
+    ),
   );
+
+  /**
+   * Every top-level document group's id, keyed off `documents` rather than the
+   * DataSet's own shape, so a sub-lane row (nested under one, same DataSet,
+   * same `order` field but scoped to its own siblings, never comparable to a
+   * document's) is never mistaken for one. Every caller that treats a groups
+   * row as a document - activation fallback, parked-anchor visibility, the
+   * sidebar - reads through this rather than the DataSet directly.
+   */
+  function documentGroupRows(): Array<{ id: string; visible?: boolean }> {
+    return (
+      groups.get({ order: "order" }) as Array<{
+        id: string;
+        visible?: boolean;
+      }>
+    ).filter((group) => documents.has(String(group.id)));
+  }
 
   /** Every group id currently visible, read straight off the live groups DataSet. */
   function visibleDocumentIds(): Set<string> {
     return new Set(
-      (
-        groups.get({ order: "order" }) as Array<{
-          id: string;
-          visible?: boolean;
-        }>
-      )
+      documentGroupRows()
         .filter((group) => group.visible !== false)
         .map((group) => String(group.id)),
     );
@@ -529,6 +643,22 @@ export function renderCanvas(
    * the two reasons an item might refuse a drag stay independent, per the
    * plan's "non-editable wins wherever either reason applies".
    */
+  /**
+   * A document's own group id plus every sub-lane group nested under it - the
+   * full set of rows activation's className has to reach, so a document with
+   * tracks (TASK-15) tints every one of its lanes together rather than just
+   * its own top-level row.
+   */
+  function laneRowIds(documentId: string): string[] {
+    const doc = documents.get(documentId);
+    return doc
+      ? [
+          documentId,
+          ...tracksOf(doc).map((track) => trackGroupId(documentId, track)),
+        ]
+      : [documentId];
+  }
+
   function activateDocument(documentId: string | null): void {
     if (documentId === activeDocumentId) {
       return;
@@ -536,11 +666,15 @@ export function renderCanvas(
     const previous = activeDocumentId;
     activeDocumentId = documentId;
     if (previous !== null && documents.has(previous)) {
-      groups.update({ id: previous, className: INACTIVE_LANE_CLASS });
+      for (const id of laneRowIds(previous)) {
+        groups.update({ id, className: INACTIVE_LANE_CLASS });
+      }
       rebuildDocumentItems(previous);
     }
     if (documentId !== null && documents.has(documentId)) {
-      groups.update({ id: documentId, className: ACTIVE_LANE_CLASS });
+      for (const id of laneRowIds(documentId)) {
+        groups.update({ id, className: ACTIVE_LANE_CLASS });
+      }
       rebuildDocumentItems(documentId);
     }
   }
@@ -697,17 +831,17 @@ export function renderCanvas(
    * the active document just stopped being visible - toggled off directly,
    * or (activeDocumentId already null) never chosen because nothing was
    * visible until this update - activation moves to the topmost still-
-   * visible timeline, the rows' own `order` already sorted ascending by the
-   * `groups.get({ order: "order" })` read below. Ordinary reordering or
-   * toggling a lane *on* while the active one stays visible leaves this
-   * condition false and activation untouched, which is what keeps a toggle-on
-   * from stealing the handles out from under whoever is mid-edit elsewhere.
+   * visible timeline, the rows' own `order` already sorted ascending by
+   * `documentGroupRows()` below - document rows only, never a sub-lane
+   * (TASK-15): a sub-lane's `order` is scoped to its own siblings under one
+   * parent, not comparable against another document's, so it must never be
+   * read as if it were one. Ordinary reordering or toggling a lane *on* while
+   * the active one stays visible leaves this condition false and activation
+   * untouched, which is what keeps a toggle-on from stealing the handles out
+   * from under whoever is mid-edit elsewhere.
    */
   groups.on("update", () => {
-    const rows = groups.get({ order: "order" }) as Array<{
-      id: string;
-      visible?: boolean;
-    }>;
+    const rows = documentGroupRows();
     const visibleIds = new Set(
       rows.filter((group) => group.visible !== false).map((g) => String(g.id)),
     );
@@ -768,11 +902,13 @@ export function renderCanvas(
   // created here - there is no dialog to interrupt the gesture, so the click
   // itself supplies both the target document (`group`) and the date (`time`).
   // Unlike onMove above, `group` is the only and correct signal for which
-  // document was clicked: onMove's "never trust item.group" rule exists
-  // because an *existing* item's write-back must key off the id-derived
-  // documentId, since vis-timeline does not guarantee item.group agrees with
-  // it. There is no item yet here, so no id exists to derive a document from
-  // - group is what the click actually landed on.
+  // document (and, per TASK-15, which sub-lane) was clicked: onMove's "never
+  // trust item.group" rule exists because an *existing* item's write-back
+  // must key off the id-derived documentId, since vis-timeline does not
+  // guarantee item.group agrees with it. There is no item yet here, so no id
+  // exists to derive a document from - group is what the click actually
+  // landed on, parsed through parseGroupId since it may name a sub-lane
+  // rather than the document itself.
   //
   // `item` present means an existing item was clicked (handled by "select"
   // above); `group` absent means the click landed outside any document's row
@@ -790,7 +926,7 @@ export function renderCanvas(
     "click",
     (props: { item?: unknown; group?: unknown; time: Date }) => {
       if (props.item == null && props.group != null) {
-        const documentId = String(props.group);
+        const documentId = parseGroupId(String(props.group)).documentId;
         if (documentId !== activeDocumentId) {
           activateDocument(documentId);
           return;
@@ -805,7 +941,7 @@ export function renderCanvas(
       if (!libraryEditable) {
         return;
       }
-      const documentId = String(props.group);
+      const { documentId, track } = parseGroupId(String(props.group));
       void (async () => {
         const targetDoc = documents.get(documentId);
         if (!targetDoc) {
@@ -822,6 +958,7 @@ export function renderCanvas(
               const next = addEvent(current, {
                 title: getString("event-editor-untitled-title"),
                 date,
+                ...(track !== undefined ? { track } : {}),
               });
               newEventId = next.events[next.events.length - 1].id;
               return next;

@@ -41,6 +41,14 @@ export type Event = {
   sources: SourceRef[];
   /** Written from v1, so a tag authored now survives to the filtering work. */
   tags: string[];
+  /**
+   * The sub-lane this event draws in, within its own document. Absent means
+   * the document's own single lane - the only case there was before this
+   * field existed, so an older document reads unchanged. No version bump: the
+   * field is purely additive and every reader that does not know it simply
+   * never sees it, the same way `description` and `endDate` arrived.
+   */
+  track?: string;
 };
 
 export type SourceRef = {

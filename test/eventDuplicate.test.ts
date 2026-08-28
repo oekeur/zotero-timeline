@@ -110,6 +110,16 @@ describe("duplicate an event onto another timeline", function () {
     );
   });
 
+  // TASK-15: track carries across exactly like every other optional field
+  // this test suite already covers - a copy tagged for a sub-lane keeps
+  // naming it, and lands in that sub-lane in the target document too (the
+  // target's sub-lanes are derived from its events, not stored separately).
+  it("carries track across, the same as every other optional field", function () {
+    const source = anEvent({ track: "military" });
+    const { event } = copyEventInto(aDocument("doc-target", []), source, true);
+    assert.equal(event.track, "military");
+  });
+
   // AC #3 and #4
   it("drops every source when the copy lands in another library", function () {
     const source = anEvent();

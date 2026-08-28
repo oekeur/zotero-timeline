@@ -109,7 +109,8 @@ function isEvent(value: unknown): value is Event {
     Array.isArray(value.sources) &&
     value.sources.every(isSourceRef) &&
     Array.isArray(value.tags) &&
-    value.tags.every((tag: unknown) => typeof tag === "string")
+    value.tags.every((tag: unknown) => typeof tag === "string") &&
+    (value.track === undefined || typeof value.track === "string")
   );
 }
 
@@ -149,6 +150,7 @@ function rebuildEvent(event: Event): Event {
       ...(source.name !== undefined ? { name: source.name } : {}),
     })),
     tags: event.tags,
+    ...(event.track !== undefined ? { track: event.track } : {}),
   };
 }
 

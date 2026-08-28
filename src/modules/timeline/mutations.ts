@@ -44,6 +44,7 @@ export type EventInput = {
   description?: string;
   endDate?: string;
   tags?: string[];
+  track?: string;
 };
 
 /**
@@ -65,6 +66,7 @@ export function addEvent(
     ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
     sources: [],
     tags: input.tags ?? [],
+    ...(input.track !== undefined ? { track: input.track } : {}),
   };
   return { ...doc, events: [...doc.events, event] };
 }
@@ -110,6 +112,7 @@ export function copyEventInto(
     // from the moment it lands" rules out.
     sources: keepSources ? source.sources.map((ref) => ({ ...ref })) : [],
     tags: [...source.tags],
+    ...(source.track !== undefined ? { track: source.track } : {}),
   };
   return { doc: { ...doc, events: [...doc.events, event] }, event };
 }
@@ -120,6 +123,7 @@ export type EventEdits = {
   date?: string;
   endDate?: string;
   tags?: string[];
+  track?: string;
 };
 
 /**
@@ -147,6 +151,9 @@ export function updateEvent(
   }
   if ("endDate" in changes && changes.endDate === undefined) {
     delete updated.endDate;
+  }
+  if ("track" in changes && changes.track === undefined) {
+    delete updated.track;
   }
   if (JSON.stringify(updated) === JSON.stringify(current)) {
     return null;

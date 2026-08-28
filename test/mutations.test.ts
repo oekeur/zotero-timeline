@@ -107,7 +107,18 @@ describe("mutations", function () {
       const added = result.events[2];
       assert.notProperty(added, "description");
       assert.notProperty(added, "endDate");
+      assert.notProperty(added, "track");
       assert.deepEqual(added.tags, []);
+    });
+
+    // TASK-15
+    it("writes track when the input names one", function () {
+      const result = addEvent(fixtureDocument(), {
+        title: "Compensation paid to enslavers",
+        date: "1863",
+        track: "economic",
+      });
+      assert.equal(result.events[2].track, "economic");
     });
   });
 
@@ -160,6 +171,22 @@ describe("mutations", function () {
       const doc = fixtureDocument();
       const result = updateEvent(doc, "e-1", { title: doc.events[0].title });
       assert.isNull(result);
+    });
+
+    // TASK-15
+    it("sets and clears track the same way as every other optional field", function () {
+      const doc = fixtureDocument();
+
+      const tracked = updateEvent(doc, "e-1", { track: "legal" });
+      assert.isNotNull(tracked);
+      assert.equal(tracked!.events.find((e) => e.id === "e-1")!.track, "legal");
+
+      const cleared = updateEvent(tracked!, "e-1", { track: undefined });
+      assert.isNotNull(cleared);
+      assert.notProperty(
+        cleared!.events.find((e) => e.id === "e-1"),
+        "track",
+      );
     });
   });
 
