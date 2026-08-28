@@ -457,6 +457,42 @@
 }
 
 /*
+ * The duplicate target form (TASK-47). Revealed in place by the Duplicate
+ * button rather than opening a window, so it follows the sidebar's own
+ * inline create and rename forms: it sits under the actions row it belongs
+ * to, and it is hidden rather than absent when closed, which keeps the panel
+ * from reflowing as it opens.
+ */
+.zoterotimeline-event-duplicate-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.zoterotimeline-event-duplicate-form[hidden] {
+  display: none;
+}
+
+/* The select carries the timeline names, so it takes the width the row has. */
+.zoterotimeline-event-duplicate-target {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+/*
+ * The result line, and the only place a user is told sources were left behind
+ * on a cross-library copy. Full width so a two-line sentence does not squeeze
+ * the controls, and only takes space once it has something to say.
+ */
+.zoterotimeline-event-duplicate-result:not(:empty) {
+  flex: 1 0 100%;
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+}
+
+/*
  * Delete sits apart from Save rather than beside it. Two adjacent buttons of
  * equal weight, one of which destroys the event, is a misclick waiting to
  * happen.
