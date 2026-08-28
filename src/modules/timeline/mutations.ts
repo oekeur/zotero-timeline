@@ -69,6 +69,51 @@ export function addEvent(
   return { ...doc, events: [...doc.events, event] };
 }
 
+/**
+ * Appends a copy of `source` to `doc`, under an id minted fresh in `doc`.
+ *
+ * Not addEvent with extra arguments: addEvent forces `sources: []` because
+ * m-3 owns source links, and carrying the sources across is the entire reason
+ * duplication exists. Retyping a title is cheap; retyping a source list is
+ * not.
+ *
+ * The id is minted against the TARGET document, so a copy cannot collide with
+ * an event already there, and the original keeps its own id. Event ids are
+ * unique per document rather than per library (project/data-model.md), so two
+ * documents each holding an `ev-abc` is ordinary and not a clash.
+ *
+ * `keepSources: false` is for a copy landing in another library. A document
+ * never holds a SourceRef naming a different library, and that invariant is
+ * what makes a stray foreign libraryID diagnosable rather than normal, so the
+ * refs are dropped here rather than rewritten. The caller is responsible for
+ * saying so: dropping them quietly would hide the one loss this feature is
+ * most likely to cause.
+ *
+ * The copy is independent from the moment it lands. Nothing links the two
+ * afterwards and nothing reconciles them; tags are what relate them.
+ */
+export function copyEventInto(
+  doc: TimelineDocument,
+  source: Event,
+  keepSources: boolean,
+): { doc: TimelineDocument; event: Event } {
+  const event: Event = {
+    id: mintEventId(doc),
+    title: source.title,
+    ...(source.description !== undefined
+      ? { description: source.description }
+      : {}),
+    date: source.date,
+    ...(source.endDate !== undefined ? { endDate: source.endDate } : {}),
+    // Cloned, not shared: a copy that aliased the original's array would make
+    // an edit to one show up in the other, which is exactly what "independent
+    // from the moment it lands" rules out.
+    sources: keepSources ? source.sources.map((ref) => ({ ...ref })) : [],
+    tags: [...source.tags],
+  };
+  return { doc: { ...doc, events: [...doc.events, event] }, event };
+}
+
 export type EventEdits = {
   title?: string;
   description?: string;

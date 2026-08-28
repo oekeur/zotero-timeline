@@ -19,7 +19,12 @@
  */
 import { serializeDocument, type TimelineDocument } from "./schema";
 import { type DateIssue } from "./validate";
-import { listTimelines, readDocumentFromNote, refreshNote } from "./storage";
+import {
+  listTimelines,
+  readDocumentFromNote,
+  refreshNote,
+  type StoredTimeline,
+} from "./storage";
 
 type CacheEntry = {
   /** What the note held when it was parsed, for content-identity comparison. */
@@ -88,6 +93,48 @@ export function matchesCached(
  */
 export async function listTimelinesCached(libraryID: number) {
   return listTimelines(libraryID, readCached);
+}
+
+/**
+ * Every editable library's timelines, grouped by library.
+ *
+ * The only reader in the plugin that reaches past one library. Every surface
+ * resolves a single library when it opens: the sidebar lists that library's
+ * timelines, the context submenu lists the selection's. Duplication is the one
+ * action whose target may live elsewhere, so it needs this.
+ *
+ * A library the user cannot write is excluded here rather than filtered out at
+ * the control. Offering a target that would be refused on write is a promise
+ * the surface cannot keep, and excluding at the source makes that true by
+ * construction instead of by a check somebody can forget.
+ *
+ * Unreadable documents are dropped rather than surfaced. This list exists to
+ * be chosen from, and a document that will not parse is not a place an event
+ * can be put; the sidebar is where an unreadable timeline is reported.
+ */
+export async function listTimelinesEverywhereCached(): Promise<
+  { libraryID: number; libraryName: string; timelines: StoredTimeline[] }[]
+> {
+  const out: {
+    libraryID: number;
+    libraryName: string;
+    timelines: StoredTimeline[];
+  }[] = [];
+  for (const library of Zotero.Libraries.getAll()) {
+    if (!library.editable) {
+      continue;
+    }
+    const { timelines } = await listTimelines(library.libraryID, readCached);
+    if (timelines.length === 0) {
+      continue;
+    }
+    out.push({
+      libraryID: library.libraryID,
+      libraryName: library.name,
+      timelines,
+    });
+  }
+  return out;
 }
 
 export function invalidate(noteItemID: number): void {
