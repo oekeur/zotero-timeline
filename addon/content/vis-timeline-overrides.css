@@ -162,6 +162,32 @@
   background-color: var(--fill-quarternary);
 }
 
+/*
+ * A range's title is readable even when the range is narrower than its own
+ * label (TASK-44).
+ *
+ * The vendored sheet sets `.vis-item .vis-item-overflow { overflow: hidden }`,
+ * which clips a title to the width of its bar: a six-year interval on a
+ * two-century view drew "Lavoisier on combustion" as "Lavo".
+ *
+ * Turning that off is not merely cosmetic here, and this is why it is the
+ * right lever rather than a hack. RangeItem reads this exact computed style
+ * back and changes its own layout on it (vis-timeline-graph2d.esm.js,
+ * `_getDomComponentsSizes`: `this.overflow =
+ * getComputedStyle(this.dom.frame).overflow !== "hidden"`). With overflow on,
+ * `repositionX` stops clamping the content to the bar AND sets the item's
+ * stacking width to `boxWidth + content.width`, so the stacker keeps a
+ * neighbour clear of the overflowing label instead of only of the bar. The
+ * label becomes readable and it still cannot collide with the next one.
+ *
+ * The bar itself is unchanged, so its width still means duration. This is the
+ * honest-geometry half of the same decision that gives a point event no width
+ * at all.
+ */
+.zoterotimeline-canvas .vis-item.vis-range .vis-item-overflow {
+  overflow: visible;
+}
+
 .zoterotimeline-canvas .vis-item.vis-background {
   background-color: var(--fill-senary);
 }
