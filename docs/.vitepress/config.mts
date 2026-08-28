@@ -4,7 +4,7 @@ const SITE_BASE = "/zotero-timeline/";
 const SITE_URL = `https://oekeur.github.io${SITE_BASE}`;
 const SITE_TITLE = "Zotero Timeline";
 const SITE_DESCRIPTION =
-  "A Zotero 7-10 plugin for authoring event timelines whose events cite sources from your own library.";
+  "A Zotero 7-10 plugin for authoring research timelines and chronologies, where every event cites sources from your own library.";
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({

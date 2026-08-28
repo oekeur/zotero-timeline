@@ -1,7 +1,7 @@
 # Zotero Timeline
 
-Author event timelines inside Zotero, where every event cites sources from your
-own library.
+Author research timelines and chronologies inside Zotero, where every event
+cites sources from your own library.
 
 An event is an authored object with its own title, date, description, tags, and
 a list of links to items in your library. Each link carries a named type from a
@@ -12,6 +12,13 @@ one chronological axis.
 **Status: pre-release. Nothing is installable yet.** The repository currently
 holds the plugin skeleton, the build and test tooling, and the design documents.
 No feature is implemented.
+
+## Who this is for
+
+Researchers building a chronology where the sources matter as much as the
+dates: a literature review tracing how sources answered each other over time,
+a historical timeline for a thesis chapter, or a research timeline you want to
+defend with citations rather than just assert.
 
 ## What this is not
 

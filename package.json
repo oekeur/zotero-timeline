@@ -2,7 +2,7 @@
   "name": "zotero-timeline",
   "type": "module",
   "version": "0.1.0",
-  "description": "Zotero 7-10 plugin for authoring event timelines whose events cite sources from your own library.",
+  "description": "Zotero 7-10 plugin for authoring research timelines and chronologies, where every event cites sources from your own library.",
   "config": {
     "addonName": "Zotero Timeline",
     "addonID": "zoterotimeline@oekeur.github.io",
