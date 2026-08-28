@@ -723,6 +723,24 @@ export async function openTimelineTab(): Promise<void> {
       return;
     }
 
+    // A note this tab drew that no longer parses leaves the previous render
+    // standing rather than being quietly dropped from the canvas. Redrawing
+    // without it would make a timeline vanish on a corrupt or half-synced
+    // write, which looks like data loss and is not: the note is still there
+    // and the next readable write brings it back.
+    const drawnNotes = new Set(readableTimelines.map((t) => t.noteItemID));
+    const stoppedParsing = fresh.unreadable.filter((u) =>
+      drawnNotes.has(u.noteItemID),
+    );
+    if (stoppedParsing.length > 0) {
+      Zotero.debug(
+        `[ZoteroTimeline] rebuild skipped, ${stoppedParsing.length} drawn note(s) stopped parsing: ${stoppedParsing
+          .map((u) => `${u.noteItemID} ${u.reason}: ${u.message}`)
+          .join("; ")}`,
+      );
+      return;
+    }
+
     if (drawnMatches(fresh.timelines)) {
       return;
     }

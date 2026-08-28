@@ -226,12 +226,28 @@ describe("refresh the canvas when a storage note changes underneath it", functio
       await note.save();
     });
 
+    const before = api().rebuildsSoFar();
     api().refreshObserverForTesting()?.("modify", "item", [note.id]);
 
     await Zotero.Promise.delay(2000);
     assert.ok(
       api().getCurrentTimeline(),
       "the canvas was torn down by a note that stopped parsing",
+    );
+    // The real assertion. Merely surviving is not enough: redrawing without
+    // the unreadable timeline would leave a live canvas with the timeline
+    // gone, which is what "leaves the previous render standing" rules out.
+    assert.equal(
+      api().rebuildsSoFar(),
+      before,
+      "a note that stopped parsing still triggered a redraw",
+    );
+    const stillDrawn = (api().getVisibleTimelines() ?? []).some(
+      (t: any) => t.doc.id === "doc-refresh",
+    );
+    assert.ok(
+      stillDrawn,
+      "the timeline vanished from the canvas when its note stopped parsing",
     );
   });
 
