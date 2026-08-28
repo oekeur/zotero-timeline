@@ -130,6 +130,31 @@ describe("locale copy rules", function () {
     }
   });
 
+  // TASK-56 AC #5's half that a bundle can hold: an empty state names the next
+  // move (ui-design.md section 4, rule 5). Asserted on the strings rather than
+  // on a rendered tab because the read-only-with-no-timelines case needs a
+  // library nobody here can produce; timelineReadOnly.test.ts drives the
+  // rendered half.
+  it("gives the empty canvas a sentence that names the next move", function () {
+    const wanted = "timeline-canvas-no-timelines";
+    const found = bundles.flatMap((b) =>
+      values(b)
+        .filter((v) => v.id.endsWith(wanted))
+        .map((v) => ({ locale: b.locale, value: v.value })),
+    );
+    assert.isNotEmpty(
+      found,
+      `no ${wanted} message exists, so a library with no timelines renders a blank canvas with no explanation`,
+    );
+    for (const { locale, value } of found) {
+      assert.match(
+        value,
+        /sidebar/i,
+        `${locale}'s empty-canvas message does not say where to go next: ${value}`,
+      );
+    }
+  });
+
   // The flat rule: every key present in one locale is present in the others.
   // Vacuous with a single locale shipped, and correct the moment a second one
   // lands, which is when it starts mattering.

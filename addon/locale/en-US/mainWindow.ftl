@@ -51,6 +51,10 @@ timeline-sidebar-rename-name-input =
 timeline-sidebar-rename-confirm-button = Rename
 timeline-sidebar-rename-cancel-button = Cancel
 
+timeline-canvas-no-timelines = This library has no timelines yet. Use the plus control in the sidebar to make one.
+
+timeline-canvas-no-timelines-read-only = This library has no timelines.
+
 timeline-sidebar-none-visible = No timelines are visible. Toggle one on in the sidebar to see it here.
 
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.

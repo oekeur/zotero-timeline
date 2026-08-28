@@ -54,6 +54,8 @@ export type FluentMessageId =
   | 'pref-title'
   | 'pref-vocabulary-heading'
   | 'timeline-approaching-size-limit'
+  | 'timeline-canvas-no-timelines'
+  | 'timeline-canvas-no-timelines-read-only'
   | 'timeline-chrome-fit'
   | 'timeline-chrome-jump-button'
   | 'timeline-chrome-jump-error'

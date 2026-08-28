@@ -1064,10 +1064,6 @@ export async function openTimelineTab(): Promise<void> {
 
   const emptyPrompt = el(doc, "div");
   emptyPrompt.classList.add(CANVAS_EMPTY_PROMPT_CLASS);
-  emptyPrompt.setAttribute(
-    "data-l10n-id",
-    getLocaleID("timeline-sidebar-none-visible"),
-  );
 
   /**
    * The plus control in the section header (see project/ui-design.md's
@@ -1211,8 +1207,27 @@ export async function openTimelineTab(): Promise<void> {
       sidebar.appendChild(buildUnreadableRow(entry) as unknown as Node);
     }
 
+    // Two different empties, needing different sentences. Toggling every
+    // timeline off is undone from the sidebar; a library holding none at all
+    // cannot be. Saying "toggle one on" to someone with nothing to toggle is
+    // the misreading this prompt exists to prevent, and an unexplained blank
+    // canvas is the one that already cost a misdiagnosis (TASK-56).
+    //
+    // A writable library never rests here: opening the tab gives it its first
+    // timeline (createDefaultTimelineIfNeeded, TASK-45's job, not repeated
+    // here). What lands here is a library that cannot be written, or one
+    // whose timelines are all in the trash.
     const anyVisible = rows.some((group) => group.visible !== false);
-    if (rows.length > 0 && !anyVisible) {
+    const message =
+      rows.length === 0
+        ? libraryEditable
+          ? "timeline-canvas-no-timelines"
+          : "timeline-canvas-no-timelines-read-only"
+        : !anyVisible
+          ? "timeline-sidebar-none-visible"
+          : null;
+    if (message) {
+      emptyPrompt.setAttribute("data-l10n-id", getLocaleID(message));
       if (!emptyPrompt.isConnected) {
         canvas.appendChild(emptyPrompt as unknown as Node);
       }
