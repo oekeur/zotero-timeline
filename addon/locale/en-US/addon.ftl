@@ -74,6 +74,30 @@ vocabulary-error-generic = Zotero Timeline could not save this change: { $messag
 context-add-sources-flat = Add as Sources to Timeline…
 context-add-sources-submenu = Add as Sources to…
 
+# The library context menu entries that open the editor panel on a new,
+# unsaved event with the selection already attached as sources. The ellipsis
+# is what says a further surface opens rather than the click itself writing
+# anything - see event-editor-create-sources-skipped below for what happens
+# on Save.
+context-add-to-new-event-flat = Add to New Event on Timeline…
+context-add-to-new-event-submenu = Add to New Event on…
+
+# Shown when the timeline tab is already open on a document other than the one
+# a jump or an "add to new event" targets - either a different library, or the
+# same library's document created since the tab opened. Confirming closes
+# whatever is on screen, including any unsaved editor state, and reopens the
+# tab on the target's own library - naming both is what makes that a choice
+# rather than a surprise.
+timeline-cross-library-switch-title = Switch to a different library?
+timeline-cross-library-switch-message = The timeline tab is open on "{ $currentLibrary }". Switch it to "{ $targetLibrary }"? The current view, and any unsaved changes in the editor, will be lost.
+timeline-cross-library-switch-message-unknown-current = The timeline tab is open on another library. Switch it to "{ $targetLibrary }"? The current view, and any unsaved changes in the editor, will be lost.
+
+# Shown by the same prompt as above, through the same seam, when opening a new
+# event on an already-open tab would replace an event currently being edited -
+# no library switch to name here, so its own wording rather than the two above.
+timeline-discard-edit-confirm-title = Discard the current edit?
+timeline-discard-edit-confirm-message = This will replace what the editor is showing. Anything there that hasn't been saved will be lost.
+
 # The standalone "Add as sources" window opened from that menu. Its own text
 # is read through getString rather than data-l10n-id, the same choice
 # vocabularySettings.ts makes: the whole form is rebuilt from scratch once its
@@ -112,3 +136,9 @@ event-editor-duplicate-done-without-sources =
         [one] its one source
        *[other] its { $count } sources
     }. A timeline cannot cite items from another library.
+
+# Shown after Create when one or more of the preset items could not become a
+# source - each would have exactly duplicated a ref already added earlier in
+# the same batch. The event and every other source were still written; this
+# names which were skipped rather than reporting a plain success.
+event-editor-create-sources-skipped = Not added, already among the sources above: { $names }.

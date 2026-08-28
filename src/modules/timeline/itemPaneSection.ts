@@ -1,7 +1,8 @@
 /**
  * The Timelines item-pane section: which events cite the selected item,
- * grouped by timeline. Read-only; creating or changing a citation is the
- * event editor's job, in the tab.
+ * grouped by timeline. Never writes; creating or changing a citation is the
+ * event editor's job, in the tab. Clicking a row jumps there and selects the
+ * event, which is navigation rather than a write.
  *
  * Reads through documentCache's listTimelinesCached and never around it. An
  * event is the only place a citation is recorded and there is no reverse
@@ -23,11 +24,13 @@
  * belongs to rather than itself.
  */
 import { getLocaleID } from "../../utils/locale";
+import { logFailure } from "../../utils/logging";
 import type { FluentMessageId } from "../../../typings/i10n";
 import { listTimelinesCached } from "./documentCache";
 import { labelFor, peekVocabulary } from "./vocabulary";
 import { labelForSource } from "./sourceLabels";
 import { CONTAINER_TAG, STORAGE_TAG, VOCABULARY_TAG } from "./storage";
+import { ensureDocumentShowing, getCurrentTimeline } from "./timelineTab";
 import type { Event, SourceRef } from "./schema";
 
 const PANE_ID = "zoterotimeline-citing-events";
@@ -132,6 +135,66 @@ function sourceLine(
   return `${reference} — ${typeText}`;
 }
 
+/** The slice of a vis Timeline instance a jump needs: the same groupsData
+ * DataSet renderCanvas built and the sidebar's own controls write into (not a
+ * second copy), and the wrapped setSelection that makes a scripted selection
+ * reach the editor panel the way a click does. */
+type JumpableTimeline = {
+  groupsData: {
+    get(id: string): { id: string; visible?: boolean } | null;
+    update(data: { id: string; visible: boolean }): unknown;
+  };
+  setSelection(ids: string[]): void;
+};
+
+/**
+ * Opens (or reuses) the timeline tab, through timelineTab.ts's
+ * ensureDocumentShowing (the same cross-library switch the library context
+ * menu's "add to new event" uses - see that module for why the two settle it
+ * the same way), then selects the named event on its canvas.
+ *
+ * Once the tab shows the target, a timeline toggled out of view is toggled
+ * back on (a selection on an undrawn item lands nowhere) and nothing else is
+ * touched: no other timeline is hidden. Selecting the event through the
+ * wrapped setSelection also makes its document the active one (canvas.ts's
+ * own handleSelectionChange), so the jump needs no separate activation call.
+ */
+export async function jumpToEvent(
+  win: Window,
+  documentId: string,
+  eventId: string,
+  noteItemID: number,
+): Promise<void> {
+  try {
+    const targetItem = Zotero.Items.get(noteItemID) as Zotero.Item | false;
+    if (!targetItem) {
+      return;
+    }
+    const shown = await ensureDocumentShowing(
+      win,
+      documentId,
+      targetItem.libraryID,
+    );
+    if (!shown) {
+      return;
+    }
+    const timeline = getCurrentTimeline() as JumpableTimeline | undefined;
+    if (!timeline) {
+      return;
+    }
+    const group = timeline.groupsData.get(documentId);
+    if (group && group.visible === false) {
+      timeline.groupsData.update({ id: documentId, visible: true });
+    }
+    timeline.setSelection([`${documentId}:${eventId}`]);
+  } catch (err) {
+    logFailure(
+      `[zoteroTimeline] failed to jump to event ${eventId} in document ${documentId}: ${(err as Error).message}`,
+      err,
+    );
+  }
+}
+
 /**
  * Which call is still owed the right to write into a given container. Keyed
  * by container rather than by item: the item pane reuses the same body
@@ -195,6 +258,23 @@ export async function renderCitingEventsContent(
       li.dataset.timelineId = group.timelineId;
       li.dataset.eventId = entry.event.id;
       li.dataset.noteItemId = String(group.noteItemID);
+      li.tabIndex = 0;
+      const jump = () => {
+        void jumpToEvent(
+          doc.defaultView as unknown as Window,
+          group.timelineId,
+          entry.event.id,
+          group.noteItemID,
+        );
+      };
+      li.addEventListener("click", jump);
+      li.addEventListener("keydown", (event) => {
+        const key = (event as KeyboardEvent).key;
+        if (key === "Enter" || key === " ") {
+          event.preventDefault();
+          jump();
+        }
+      });
 
       const title = doc.createElement("div");
       title.classList.add(ROW_TITLE_CLASS);

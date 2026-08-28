@@ -596,6 +596,20 @@
 
 .zoterotimeline-citing-row {
   padding: 3px 0;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.zoterotimeline-citing-row:hover {
+  background-color: var(--fill-quinary);
+}
+
+/* Zotero's own focus ring - see the sidebar row rule above for why
+ * :focus-visible rather than :focus. */
+.zoterotimeline-citing-row:focus-visible {
+  outline: var(--color-focus-outer-border) solid var(--width-focus-outer-border);
+  outline-offset: var(--width-focus-border);
+  box-shadow: 0 0 0 var(--width-focus-border) var(--color-focus-border);
 }
 
 .zoterotimeline-citing-row-title {

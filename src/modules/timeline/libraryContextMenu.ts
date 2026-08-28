@@ -64,6 +64,9 @@ export function resolveSelection(items: Zotero.Item[]): SelectionResolution {
 export type TimelineMenuEntry = {
   noteItemID: number;
   libraryID: number;
+  /** The stored document's own id, distinct from the note item's - what the
+   * canvas's groups DataSet and vis item ids are keyed on. */
+  documentId: string;
   name: string;
 };
 
@@ -92,6 +95,7 @@ function timelinesForPopup(
       timelines.map((timeline) => ({
         noteItemID: timeline.noteItemID,
         libraryID,
+        documentId: timeline.doc.id,
         name: timeline.doc.name,
       })),
     )

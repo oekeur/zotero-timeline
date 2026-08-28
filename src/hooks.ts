@@ -9,12 +9,14 @@ import {
   getModuleEvalEnv,
   getSelectedTagFilter,
   getVisibleTimelines,
+  openCreateEventOnTimeline,
   openTimelineTab,
   rebuildPassesSoFar,
   rebuildsSoFar,
   refreshObserverForTesting,
   registerTimelineMenu,
   registerTimelineShortcut,
+  setCrossLibrarySwitchConfirmForTests,
   setTimelineDeleteConfirmForTests,
 } from "./modules/timeline/timelineTab";
 import {
@@ -57,6 +59,7 @@ let sourcePruneObserverID: string | null = null;
 // guard their own registration: onMainWindowLoad runs once per main window,
 // but a menuitem id is registered once for the process, not once per window.
 let addSourcesActionRegistered = false;
+let addToNewEventActionRegistered = false;
 
 // The plugin's own main-window sheet: the tab shell and the event editor, and
 // whatever m-6's item-pane section adds. Per window, because a link belongs to
@@ -110,6 +113,7 @@ async function onStartup() {
     renderVocabularySettings,
     setConfirmDeleteForTests,
     setTimelineDeleteConfirmForTests,
+    setCrossLibrarySwitchConfirmForTests,
     getVisibleTimelines,
     getActiveTimeline,
     getAvailableTags,
@@ -119,6 +123,7 @@ async function onStartup() {
     rebuildsSoFar,
     refreshObserverForTesting,
     openAddSourcesDialog,
+    openCreateEventOnTimeline,
   };
 
   await Promise.all(
@@ -179,6 +184,39 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
         void openAddSourcesDialog(entry, selection.items).catch((err) => {
           logFailure(
             `[zoteroTimeline] failed to open the add-as-sources dialog: ${
+              (err as Error).message
+            }`,
+            err,
+          );
+        });
+      },
+    );
+  }
+
+  if (!addToNewEventActionRegistered) {
+    addToNewEventActionRegistered = true;
+    registerTimelineContextAction(
+      win,
+      "zotero-timeline-menuitem-add-to-new-event",
+      {
+        flat: getString("context-add-to-new-event-flat"),
+        submenu: getString("context-add-to-new-event-submenu"),
+      },
+      "chrome://zotero/skin/16/universal/plus.svg",
+      "…",
+      (entry) => {
+        const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
+        if (!selection.ok) {
+          return;
+        }
+        void openCreateEventOnTimeline(
+          win,
+          entry.documentId,
+          entry.libraryID,
+          selection.items,
+        ).catch((err) => {
+          logFailure(
+            `[zoteroTimeline] failed to open the add-to-new-event form: ${
               (err as Error).message
             }`,
             err,

@@ -96,6 +96,7 @@ event-editor-source-name-input =
 event-editor-save-button = Save
 event-editor-delete-button = Delete
 event-editor-create-document-label = Timeline
+event-editor-create-sources-label = Sources
 event-editor-create-button = Create event
 
 # Both of these carry their text as an attribute rather than as a value.

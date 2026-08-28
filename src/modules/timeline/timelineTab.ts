@@ -156,6 +156,15 @@ let getActiveDocumentId: (() => string | null) | undefined;
 // this is view state, so it does not ride sync, does not survive a tab close,
 // and is never written to a document.
 let selectedTagFilter = new Set<string>();
+// The open tab's own "render the create form for this document, with these
+// items preset as sources" entry point, set once the tab's own closures
+// exist and reset when it closes - the same reason refreshNotify is
+// module-level: openCreateEventOnTimeline is called from outside the tab's
+// own closure (the library context menu), so it needs a stable reference to
+// call into.
+let openCreateEventHandler:
+  | ((documentId: string, items: Zotero.Item[]) => void)
+  | undefined;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -257,6 +266,139 @@ export function getVisibleTimelines(): StoredTimeline[] {
       readableTimelines.find((t) => t.doc.id === String(group.id)),
     )
     .filter((t): t is StoredTimeline => t !== undefined);
+}
+
+type ConfirmCrossLibraryFn = (
+  win: mozIDOMWindowProxy,
+  title: string,
+  message: string,
+) => boolean;
+
+const defaultConfirmCrossLibrarySwitch: ConfirmCrossLibraryFn = (
+  win,
+  title,
+  message,
+) => Services.prompt.confirm(win, title, message);
+
+let confirmCrossLibrarySwitch: ConfirmCrossLibraryFn =
+  defaultConfirmCrossLibrarySwitch;
+
+/**
+ * Overrides the cross-library switch confirmation - the seam itemPaneSection.ts's
+ * jump-to-event and the library context menu's "add to new event" share,
+ * since both discard whatever the open tab currently shows once the target
+ * lives somewhere that tab does not have loaded. Services.prompt is native
+ * XPCOM, not a plugin-owned object, so a live spec cannot safely monkey-patch
+ * it directly. Called with no argument, this restores the real dialog.
+ */
+export function setCrossLibrarySwitchConfirmForTests(
+  fn?: ConfirmCrossLibraryFn,
+): void {
+  confirmCrossLibrarySwitch = fn ?? defaultConfirmCrossLibrarySwitch;
+}
+
+/**
+ * The name of whichever library the open tab is currently showing, read off
+ * any one of its still-visible timelines. Null when no tab is open, or every
+ * timeline currently loaded happens to be toggled off, which leaves nothing
+ * to read a library from.
+ */
+function currentTabLibraryName(): string | null {
+  const visible = getVisibleTimelines();
+  if (visible.length === 0) {
+    return null;
+  }
+  const noteItem = Zotero.Items.get(visible[0].noteItemID) as
+    | Zotero.Item
+    | false;
+  if (!noteItem) {
+    return null;
+  }
+  const library = Zotero.Libraries.get(noteItem.libraryID);
+  return library ? library.name : null;
+}
+
+/**
+ * Ensures the timeline tab is open and showing `targetDocumentId`, then
+ * brings it to the front.
+ *
+ * Whether the target is already showing is read off the open tab's own groups
+ * DataSet rather than compared as library ids: a document is only ever loaded
+ * into an open tab when its own library was resolved at open, so its absence
+ * from the loaded groups is exactly the signal that either no tab is open, it
+ * is open on a different library, or (same library) the document was created
+ * after the tab opened and nothing has rebuilt it since - and its presence is
+ * exactly the signal nothing needs to change before proceeding.
+ *
+ * Where the target is not loaded and a tab is already open, the switch is
+ * confirmed rather than silent - it discards whatever is on screen, including
+ * any unsaved editor state - and names both libraries where the currently
+ * open one can be resolved; where every timeline currently loaded happens to
+ * be toggled off there is nothing to name it from, and the prompt says so
+ * generically rather than guessing.
+ *
+ * Resolves false when the user declines the switch, true otherwise -
+ * including when nothing needed to change. Always finishes (when true) by
+ * calling openTimelineTab(), whose own guard (the same tab id already open ->
+ * select and return) is what brings an already-open tab to the front rather
+ * than leaving it in the background.
+ */
+export async function ensureDocumentShowing(
+  win: Window,
+  targetDocumentId: string,
+  targetLibraryID: number,
+): Promise<boolean> {
+  const open = getCurrentTimeline() as
+    | { groupsData: { get: (id: string) => unknown } }
+    | undefined;
+  if (open && !open.groupsData.get(targetDocumentId)) {
+    const targetLibrary = Zotero.Libraries.get(targetLibraryID);
+    const targetLibraryName = targetLibrary ? targetLibrary.name : "";
+    const currentLibraryName = currentTabLibraryName();
+    const confirmed = confirmCrossLibrarySwitch(
+      win as unknown as mozIDOMWindowProxy,
+      getString("timeline-cross-library-switch-title"),
+      currentLibraryName
+        ? getString("timeline-cross-library-switch-message", {
+            args: {
+              currentLibrary: currentLibraryName,
+              targetLibrary: targetLibraryName,
+            },
+          })
+        : getString("timeline-cross-library-switch-message-unknown-current", {
+            args: { targetLibrary: targetLibraryName },
+          }),
+    );
+    if (!confirmed) {
+      return false;
+    }
+    closeTimelineTab();
+  }
+  await openTimelineTab();
+  return true;
+}
+
+/**
+ * Opens (or reuses) the timeline tab on `targetLibraryID` and renders the
+ * create form locked onto `targetDocumentId` with `items` already attached as
+ * sources. Nothing is written by opening it - the event is created only when
+ * the form's own Create button is clicked.
+ */
+export async function openCreateEventOnTimeline(
+  win: Window,
+  targetDocumentId: string,
+  targetLibraryID: number,
+  items: Zotero.Item[],
+): Promise<void> {
+  const shown = await ensureDocumentShowing(
+    win,
+    targetDocumentId,
+    targetLibraryID,
+  );
+  if (!shown) {
+    return;
+  }
+  openCreateEventHandler?.(targetDocumentId, items);
 }
 
 /**
@@ -473,6 +615,7 @@ export async function openTimelineTab(
       readableTimelines = [];
       getActiveDocumentId = undefined;
       selectedTagFilter = new Set();
+      openCreateEventHandler = undefined;
     },
   });
   timelineTabID = id;
@@ -741,6 +884,64 @@ export async function openTimelineTab(
       // The window may already be gone; nothing to release in that case.
     }
   };
+
+  /**
+   * The library context menu's "add to new event" entry point: makes
+   * `documentId` visible (if it was toggled off) and active, clears any
+   * current selection so the create form rather than an edit form renders,
+   * then renders it with `items` preset as sources. Defined once and
+   * referenced through the module-level openCreateEventHandler rather than
+   * redefined on rebuild, the same reason showEditorFor is - it closes over
+   * the `let` bindings above and picks up whatever a rebuild reassigns them
+   * to.
+   *
+   * A current selection means the editor panel is showing an event being
+   * edited (or a create form already in progress), and clearing it below
+   * would silently discard whatever is unsaved there. ensureDocumentShowing
+   * already asked about exactly this before a cross-library switch, folded
+   * into its own message - by the time this runs after such a switch,
+   * `timeline` is the freshly reopened instance and starts with no selection,
+   * so this only fires again for the case that prompt never covered: the
+   * target already showing in the same tab, with something mid-edit right
+   * now. Reuses the same confirm seam (setCrossLibrarySwitchConfirmForTests
+   * stubs both) rather than a second one, with its own wording since there is
+   * no library switch to name here.
+   */
+  function openCreateEventLocally(
+    documentId: string,
+    items: Zotero.Item[],
+  ): void {
+    if ((timeline as any).getSelection().length > 0) {
+      const confirmed = confirmCrossLibrarySwitch(
+        win as unknown as mozIDOMWindowProxy,
+        getString("timeline-discard-edit-confirm-title"),
+        getString("timeline-discard-edit-confirm-message"),
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+    const group = groupsDS()
+      .get({ order: "order" })
+      .find((g) => g.id === documentId);
+    if (group && group.visible === false) {
+      groupsDS().update({ id: documentId, visible: true });
+      renderSidebar();
+    }
+    activateTimeline(documentId);
+    if ((timeline as any).getSelection().length > 0) {
+      (timeline as any).setSelection([]);
+    }
+    renderEventEditor(
+      panel as unknown as HTMLElement,
+      null,
+      onEditorChange,
+      creatableDocuments(),
+      libraryEditable,
+      { documentId, items },
+    );
+  }
+  openCreateEventHandler = openCreateEventLocally;
 
   /**
    * Everything that lives on the vis instance and would go with it.

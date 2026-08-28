@@ -145,6 +145,12 @@ export const CREATE_DATE_INPUT_CLASS = "zoterotimeline-event-create-date";
 export const CREATE_DATE_FEEDBACK_CLASS =
   "zoterotimeline-event-create-date-feedback";
 export const CREATE_BUTTON_CLASS = "zoterotimeline-event-create";
+// The preset-sources list the library context menu's "add to new event"
+// entry populates - read-only here; a source's type and name are edited
+// after Save, through the normal edit form's own source rows.
+export const CREATE_SOURCES_LIST_CLASS = "zoterotimeline-event-create-sources";
+export const CREATE_SOURCE_ITEM_CLASS =
+  "zoterotimeline-event-create-source-item";
 
 // One Fluent id per EDTF form edtfRange.ts's formOf can report.
 const DATE_FORM_LOCALE_IDS: Record<EdtfForm, FluentMessageId> = {
@@ -205,15 +211,28 @@ function updateDateFeedback(
  * The create form shown alongside the empty-state prompt: title, a free-text
  * EDTF date with the same live feedback the edit form's date field has, and a
  * document picker only when more than one timeline is loaded (a single
- * loaded document needs no picker to be unambiguous). No canvas position
- * exists here to derive a date from the way TASK-25's click gesture does, so
- * unlike that gesture this one asks for the date directly rather than
- * inventing a default - a blank date field does nothing on Create, since
- * Event.date is required and a placeholder value would break the canvas the
- * next time it re-renders (buildTimelineItem parses `date` unconditionally).
- * A blank title falls back to the same "Untitled event" string the click
- * gesture uses, so the two routes produce the same stored title when neither
- * types one.
+ * loaded document needs no picker to be unambiguous) and no `presetCreate`
+ * fixed the target already. No canvas position exists here to derive a date
+ * from the way TASK-25's click gesture does, so unlike that gesture this one
+ * asks for the date directly rather than inventing a default - a blank date
+ * field does nothing on Create, since Event.date is required and a
+ * placeholder value would break the canvas the next time it re-renders
+ * (buildTimelineItem parses `date` unconditionally). A blank title falls back
+ * to the same "Untitled event" string the click gesture uses, so the two
+ * routes produce the same stored title when neither types one.
+ *
+ * `presetCreate`, when given, is the library context menu's "add to new
+ * event" entry point: `documentId` is fixed (no picker, regardless of
+ * `documents.length`) and `items` are listed read-only, each becoming a
+ * SourceRef on the event Create writes, typed to the library vocabulary's
+ * first type - the same default the single "Add source" button uses. An item
+ * that would exactly duplicate a ref already on the event is refused by
+ * addSource's own duplicate rule; since the event is brand new that can only
+ * happen if two of the preset items would resolve to an identical claim, and
+ * when it does the refused ones are named back through a warn() rather than
+ * silently dropped - a batch that hides a partial failure is worse than one
+ * that refuses. Editing a source's type or name happens after Create, through
+ * the normal edit form's own source rows, not here.
  *
  * Every control here is disabled when the library cannot be written, unlike
  * the edit form's fields: this form has no existing event to display, so
@@ -227,11 +246,12 @@ function renderCreateForm(
   creatable: { libraryID: number; documents: CreatableDocument[] },
   onChange: ((change: EventEditorChange) => void) | undefined,
   libraryEditable: boolean,
+  presetCreate?: { documentId: string; items: Zotero.Item[] },
 ): void {
   const { libraryID, documents } = creatable;
 
   let documentSelect: HTMLSelectElement | undefined;
-  if (documents.length > 1) {
+  if (!presetCreate && documents.length > 1) {
     const selectLabel = doc.createElement("label");
     selectLabel.setAttribute(
       "data-l10n-id",
@@ -249,6 +269,25 @@ function renderCreateForm(
       documentSelect.appendChild(option);
     }
     container.appendChild(documentSelect);
+  }
+
+  if (presetCreate && presetCreate.items.length > 0) {
+    const sourcesLabel = doc.createElement("label");
+    sourcesLabel.setAttribute(
+      "data-l10n-id",
+      getLocaleID("event-editor-create-sources-label"),
+    );
+    container.appendChild(sourcesLabel);
+
+    const sourcesList = doc.createElement("ul");
+    sourcesList.classList.add(CREATE_SOURCES_LIST_CLASS);
+    for (const item of presetCreate.items) {
+      const li = doc.createElement("li");
+      li.classList.add(CREATE_SOURCE_ITEM_CLASS);
+      li.textContent = labelForItem(item);
+      sourcesList.appendChild(li);
+    }
+    container.appendChild(sourcesList);
   }
 
   const titleLabel = doc.createElement("label");
@@ -299,16 +338,39 @@ function renderCreateForm(
     if (!date.trim()) {
       return;
     }
-    const documentId = documentSelect ? documentSelect.value : documents[0].id;
+    const documentId = presetCreate
+      ? presetCreate.documentId
+      : documentSelect
+        ? documentSelect.value
+        : documents[0].id;
     const title =
       titleInput.value.trim() || getString("event-editor-untitled-title");
     void (async () => {
       try {
+        const typeId = presetCreate?.items.length
+          ? ((await peekVocabulary(libraryID)).types[0]?.id ?? "")
+          : "";
         let newEventId: string | undefined;
+        const attached: string[] = [];
+        const alreadyCited: string[] = [];
         const result = await updateTimelineDocument(
           (current) => {
-            const next = addEvent(current, { title, date });
+            let next = addEvent(current, { title, date });
             newEventId = next.events[next.events.length - 1].id;
+            for (const item of presetCreate?.items ?? []) {
+              const added = addSource(next, newEventId, {
+                kind: item.isNote() ? "note" : "item",
+                libraryID: item.libraryID,
+                key: item.key,
+                typeId,
+              });
+              if (added) {
+                next = added;
+                attached.push(labelForItem(item));
+              } else {
+                alreadyCited.push(labelForItem(item));
+              }
+            }
             return next;
           },
           documentId,
@@ -316,6 +378,13 @@ function renderCreateForm(
         );
         const created = result?.events.find((e) => e.id === newEventId);
         if (result && created) {
+          if (alreadyCited.length > 0) {
+            warn(
+              getString("event-editor-create-sources-skipped", {
+                args: { names: alreadyCited.join(", ") },
+              }),
+            );
+          }
           onChange?.({ kind: "created", documentId, event: created });
         }
       } catch (err) {
@@ -374,6 +443,13 @@ function isSameSourceClaim(
  * `libraryEditable` defaults to true so every existing caller (including the
  * whole test suite) keeps behaving as it did before this parameter existed;
  * timelineTab.ts is the one caller that ever passes false.
+ *
+ * `presetCreate`, when given, is the library context menu's "add to new
+ * event" entry point: the create form targets `presetCreate.documentId`
+ * directly (no document picker, regardless of how many are loaded) and lists
+ * `presetCreate.items` as sources attached on Create. Nothing is written by
+ * rendering this - the event, and its sources, are written only once Create
+ * is clicked.
  */
 export function renderEventEditor(
   container: HTMLElement,
@@ -381,6 +457,7 @@ export function renderEventEditor(
   onChange?: (change: EventEditorChange) => void,
   creatable?: { libraryID: number; documents: CreatableDocument[] },
   libraryEditable = true,
+  presetCreate?: { documentId: string; items: Zotero.Item[] },
 ): void {
   const doc = container.ownerDocument!;
   container.textContent = "";
@@ -400,8 +477,15 @@ export function renderEventEditor(
       ),
     );
     container.appendChild(prompt);
-    if (creatable && creatable.documents.length > 0) {
-      renderCreateForm(doc, container, creatable, onChange, libraryEditable);
+    if (creatable && (creatable.documents.length > 0 || presetCreate)) {
+      renderCreateForm(
+        doc,
+        container,
+        creatable,
+        onChange,
+        libraryEditable,
+        presetCreate,
+      );
     }
     return;
   }
