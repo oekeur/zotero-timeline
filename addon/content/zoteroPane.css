@@ -38,14 +38,13 @@
   border-bottom: 1px solid var(--color-panedivider);
 }
 
-.zoterotimeline-tab-heading {
-  font-weight: 600;
-}
-
-.zoterotimeline-tab-note {
-  margin-top: 2px;
-  color: var(--fill-secondary);
-  font-size: 0.9em;
+/*
+ * The header is a slot for tab-level messages and is usually empty. An empty
+ * slot must cost nothing: without this it keeps its padding and steals a strip
+ * from the canvas for a message that is not there.
+ */
+.zoterotimeline-tab-header:empty {
+  display: none;
 }
 
 /*

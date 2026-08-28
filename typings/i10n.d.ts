@@ -80,8 +80,6 @@ export type FluentMessageId =
   | 'timeline-sidebar-rename-name-input'
   | 'timeline-sidebar-unreadable-label'
   | 'timeline-sidebar-visible-checkbox'
-  | 'timeline-spike-heading'
-  | 'timeline-spike-note'
   | 'timeline-tab-label'
   | 'timeline-trashed-now'
   | 'timeline-trashed-now-unnamed'

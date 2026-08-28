@@ -42,8 +42,6 @@ const TIMELINE_SHORTCUT = "shift,t";
 // surface names the same string the sheet does.
 export const TAB_BODY_CLASS = "zoterotimeline-tab-body";
 export const TAB_HEADER_CLASS = "zoterotimeline-tab-header";
-export const TAB_HEADING_CLASS = "zoterotimeline-tab-heading";
-export const TAB_NOTE_CLASS = "zoterotimeline-tab-note";
 export const TAB_ROW_CLASS = "zoterotimeline-tab-row";
 export const CANVAS_CLASS = "zoterotimeline-canvas";
 export const EDITOR_CLASS = "zoterotimeline-editor";
@@ -391,16 +389,20 @@ export async function openTimelineTab(): Promise<void> {
   body.classList.add(TAB_BODY_CLASS);
   container.appendChild(body as unknown as Node);
 
+  // A slot for tab-level messages, empty unless something needs saying. It
+  // carried a heading and a note describing TASK-4's rendering spike, which
+  // stopped being true the moment the spike became the real tab: it promised
+  // a hardcoded four-event fixture over a canvas built from stored documents,
+  // and that mismatch cost one real misdiagnosis (TASK-56).
+  //
+  // Nothing replaced it. The tab bar already names the tab, the sidebar is
+  // headed Timelines, each lane carries its own name, and TASK-41's controls
+  // sit above the canvas; a heading over all of that is a fourth piece of
+  // chrome saying nothing new, on the surface that is the product. The read-
+  // only banner still needs somewhere to go, so the container stays and takes
+  // no height while it is empty.
   const header = el(doc, "div");
   header.classList.add(TAB_HEADER_CLASS);
-  const heading = el(doc, "div");
-  heading.classList.add(TAB_HEADING_CLASS);
-  heading.textContent = getString("timeline-spike-heading");
-  const note = el(doc, "div");
-  note.classList.add(TAB_NOTE_CLASS);
-  note.textContent = getString("timeline-spike-note");
-  header.appendChild(heading as unknown as Node);
-  header.appendChild(note as unknown as Node);
   body.appendChild(header as unknown as Node);
 
   // Sidebar, canvas and editor sit side by side, so selecting an event never

@@ -87,7 +87,10 @@ describe("timeline tab", function () {
 
     // Fluent: getString returns the raw message id when a bundle is missing,
     // so "resolved" means the text differs from the id, not merely non-empty.
-    const heading = canvas.parentElement?.querySelector("div > div");
+    // Explicitly the sidebar's heading. This used to read whatever the
+    // canvas's parent happened to hold, which since the canvas gained a
+    // column wrapper was no longer the element it was named for.
+    const heading = doc.querySelector(".zoterotimeline-sidebar-heading");
     const headingText = (heading as any)?.textContent ?? "";
 
     const report = {
@@ -135,14 +138,18 @@ describe("timeline tab", function () {
       "zoterotimeline-timeline",
       `unexpected tab type. ${JSON.stringify(report)}`,
     );
+    // The tab's own heading is gone (TASK-56): it described a spike fixture
+    // that stopped existing. The sidebar heading is the Fluent canary now, and
+    // it is a better one, being a string the tab actually renders through
+    // data-l10n-id rather than one written by getString at build time.
     assert.notEqual(
       report.headingText,
-      "timeline-spike-heading",
+      "timeline-sidebar-heading",
       `Fluent did not resolve; the raw message id is showing. ${JSON.stringify(report)}`,
     );
     assert.isNotEmpty(
       report.headingText,
-      `heading rendered empty. ${JSON.stringify(report)}`,
+      `the sidebar heading rendered empty. ${JSON.stringify(report)}`,
     );
     assert.isTrue(
       report.stylesheetLinked,
