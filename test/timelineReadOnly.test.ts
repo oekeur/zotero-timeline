@@ -126,11 +126,19 @@ describe("read-only when the library cannot be written", function () {
     const originalGet = stubNotWritable();
     try {
       const { doc } = await openTab();
-      const prompt = await waitFor(
-        () => doc.querySelector(`.${EMPTY_PROMPT_CLASS}`),
-        "the editor's empty-state prompt to render",
-      );
-      const text = (prompt!.textContent ?? "").toLowerCase();
+      // Two waits, not one. The element carries data-l10n-id and Fluent fills
+      // it in on a later turn, so polling for the element alone hands back an
+      // empty node and any text assertion against it passes or fails on
+      // timing rather than on content. Poll for the text itself: a key that
+      // genuinely never resolves then fails here, naming the condition,
+      // instead of silently reading as an empty string.
+      const text = (
+        (await waitFor(
+          () =>
+            doc.querySelector(`.${EMPTY_PROMPT_CLASS}`)?.textContent?.trim(),
+          "the empty-state prompt to be filled in by Fluent",
+        )) as string
+      ).toLowerCase();
       assert.notInclude(
         text,
         "create one there",
@@ -140,10 +148,6 @@ describe("read-only when the library cannot be written", function () {
         text,
         "to edit it",
         "the read-only panel still invites editing the library refuses",
-      );
-      assert.isNotEmpty(
-        text.trim(),
-        "the read-only panel rendered no prompt at all; an unresolved Fluent key renders empty",
       );
     } finally {
       Zotero.Libraries.get = originalGet;
