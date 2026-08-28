@@ -92,17 +92,43 @@ describe("event editor panel", function () {
   // comes back lowercase, not the uppercase an HTML-namespace element would
   // give - matching case-insensitively is what actually excludes them.
   async function waitForResolvedLabels(panel: HTMLElement): Promise<void> {
-    await waitFor(() => {
+    try {
+      await waitFor(() => {
+        const labeled = Array.from<HTMLElement>(
+          panel.querySelectorAll("[data-l10n-id]"),
+        ).filter((el) => {
+          const tag = el.tagName.toLowerCase();
+          return tag !== "input" && tag !== "select";
+        });
+        return labeled.every((el) => (el.textContent ?? "").trim() !== "")
+          ? true
+          : null;
+      }, "the panel's Fluent-backed labels to resolve");
+    } catch (err) {
+      // TEMPORARY diagnostic (TASK-15/TASK-50 integration investigation):
+      // names the stuck element instead of guessing at it.
       const labeled = Array.from<HTMLElement>(
         panel.querySelectorAll("[data-l10n-id]"),
       ).filter((el) => {
         const tag = el.tagName.toLowerCase();
         return tag !== "input" && tag !== "select";
       });
-      return labeled.every((el) => (el.textContent ?? "").trim() !== "")
-        ? true
-        : null;
-    }, "the panel's Fluent-backed labels to resolve");
+      const stuck = labeled
+        .filter((el) => (el.textContent ?? "").trim() === "")
+        .map((el) => ({
+          tagName: el.tagName,
+          className: el.className,
+          l10nId: el.getAttribute("data-l10n-id"),
+          isConnected: (el as any).isConnected,
+          panelIsConnected: (panel as any).isConnected,
+          outerHTML: String(el.outerHTML ?? "").slice(0, 200),
+        }));
+      assert.fail(
+        `waitForResolvedLabels: ${(err as Error)?.message ?? String(err)} ` +
+          `stuck=${JSON.stringify(stuck)} totalLabeled=${labeled.length} ` +
+          `panelChildCount=${panel.children.length} panelInnerHTML=${String(panel.innerHTML ?? "").slice(0, 500)}`,
+      );
+    }
   }
 
   // Selects an event and waits for the title field to actually show its
