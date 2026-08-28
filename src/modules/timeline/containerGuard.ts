@@ -22,6 +22,28 @@ const OBSERVER_ID = "zoterotimeline-container-guard";
  * Exported so tests can stub it: the alternative is asserting against a XUL
  * popup, and this is fire-and-forget UI.
  */
+/**
+ * A self-closing ProgressWindow confirming something happened.
+ *
+ * The counterpart to warn() for an action that succeeded. Separate because the
+ * two want opposite dismissal: a warning about data going out of reach must be
+ * clicked away so it cannot scroll past unread, while a confirmation has done
+ * its job the moment it is seen.
+ *
+ * Used where the surface that triggered the action cannot hold the message
+ * itself. Duplicating an event is the case that forced it: the write fires the
+ * canvas rebuild, which re-renders the editor panel, so a confirmation drawn
+ * into that panel is destroyed before anyone reads it.
+ */
+export function announce(text: string): void {
+  new ztoolkit.ProgressWindow(addon.data.config.addonName, {
+    closeOnClick: true,
+    closeTime: 4000,
+  })
+    .createLine({ text, type: "success" })
+    .show();
+}
+
 export function warn(text: string): void {
   new ztoolkit.ProgressWindow(addon.data.config.addonName, {
     closeOnClick: true,

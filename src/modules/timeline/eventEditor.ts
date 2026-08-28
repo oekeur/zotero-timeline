@@ -78,6 +78,7 @@ import {
 } from "./sourceLabels";
 import { peekVocabulary, UNKNOWN_TYPE_LABEL } from "./vocabulary";
 import { updateTimelineDocument } from "./storage";
+import { announce, warn } from "./containerGuard";
 import { listTimelinesEverywhereCached } from "./documentCache";
 import type { Event as TimelineEvent, LinkType, SourceRef } from "./schema";
 import type { FluentMessageId } from "../../../typings/i10n";
@@ -133,7 +134,6 @@ export const DUPLICATE_FORM_CLASS = "zoterotimeline-event-duplicate-form";
 export const DUPLICATE_TARGET_CLASS = "zoterotimeline-event-duplicate-target";
 export const DUPLICATE_CONFIRM_CLASS = "zoterotimeline-event-duplicate-confirm";
 export const DUPLICATE_CANCEL_CLASS = "zoterotimeline-event-duplicate-cancel";
-export const DUPLICATE_RESULT_CLASS = "zoterotimeline-event-duplicate-result";
 export const EMPTY_PROMPT_CLASS = "zoterotimeline-event-empty";
 // The typed equivalent of clicking empty canvas (TASK-25) - see the parity
 // audit atop canvas.ts. Rendered inside the empty-state prompt above, never
@@ -902,9 +902,6 @@ export function renderEventEditor(
   );
   duplicateForm.appendChild(targetSelect);
 
-  const duplicateResult = doc.createElement("div");
-  duplicateResult.classList.add(DUPLICATE_RESULT_CLASS);
-
   const confirmButton = doc.createElement("button");
   confirmButton.type = "button";
   confirmButton.classList.add(DUPLICATE_CONFIRM_CLASS);
@@ -922,7 +919,6 @@ export function renderEventEditor(
   );
   duplicateForm.appendChild(confirmButton);
   duplicateForm.appendChild(cancelButton);
-  duplicateForm.appendChild(duplicateResult);
 
   // Keyed by option value so the write knows which library it is writing to
   // without re-reading anything.
@@ -962,8 +958,6 @@ export function renderEventEditor(
   }
 
   duplicateButton.addEventListener("click", () => {
-    duplicateResult.removeAttribute("data-l10n-id");
-    duplicateResult.textContent = "";
     if (!duplicateForm.hidden) {
       duplicateForm.hidden = true;
       return;
@@ -1008,18 +1002,28 @@ export function renderEventEditor(
         if (!result) {
           return;
         }
-        duplicateResult.setAttribute(
-          "data-l10n-id",
-          getLocaleID(
-            leftBehind > 0
-              ? "event-editor-duplicate-done-without-sources"
-              : "event-editor-duplicate-done",
-          ),
-        );
-        duplicateResult.setAttribute(
-          "data-l10n-args",
-          JSON.stringify({ timeline: target.name, count: leftBehind }),
-        );
+        // Reported through a ProgressWindow, not into this panel. The write
+        // fires the canvas rebuild (TASK-43), which restores the selection and
+        // re-renders the editor, so a message drawn here is destroyed before
+        // anyone reads it - measured, after doing exactly that.
+        //
+        // A cross-library copy uses warn(), which has no close timer and must
+        // be clicked away: sources being left behind is a real loss and the
+        // one thing about this action a user most needs to notice.
+        if (leftBehind > 0) {
+          warn(
+            getString("event-editor-duplicate-done-without-sources", {
+              args: { timeline: target.name, count: leftBehind },
+            }),
+          );
+        } else {
+          announce(
+            getString("event-editor-duplicate-done", {
+              args: { timeline: target.name },
+            }),
+          );
+        }
+        duplicateForm.hidden = true;
       } catch (err) {
         logFailure(
           `[zoteroTimeline] failed to duplicate event ${event.id}: ${(err as Error).message}`,
