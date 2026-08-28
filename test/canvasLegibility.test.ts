@@ -42,6 +42,23 @@ describe("legibility of titles and short events", function () {
     await eraseAllPluginItems(libraryID);
   });
 
+  /**
+   * Rethrows as an assertion so the message survives.
+   *
+   * The scaffold's reporter posts the error through JSON.stringify and reads
+   * `data.error.message`; Error defines `message` as non-enumerable, so a
+   * plain Error arrives as `{}` and prints as a bare `undefined`. waitFor now
+   * throws with an enumerable message, but anything else this spec touches
+   * does not.
+   */
+  async function legible(what: string, body: () => Promise<void>) {
+    try {
+      await body();
+    } catch (error) {
+      assert.fail(`${what}: ${(error as Error)?.message ?? String(error)}`);
+    }
+  }
+
   function legibilityDocument(): TimelineDocument {
     return {
       version: CURRENT_SCHEMA_VERSION,
@@ -90,9 +107,13 @@ describe("legibility of titles and short events", function () {
     )) as any;
     // Pin the zoom rather than accepting whatever auto-fit chose, so these
     // assertions are about a stated view width and not about the fixture.
-    timeline.setWindow(new Date(windowStart), new Date(windowEnd), {
-      animation: false,
-    });
+    //
+    // ISO strings, not Date objects. This spec runs in the scaffold's own test
+    // window while the timeline lives in the main window, and a Date built
+    // from one window's constructor is a foreign object to the other: vis
+    // rejects it with "Cannot convert object of type Object to type Date".
+    // setWindow accepts a string, which crosses the boundary intact.
+    timeline.setWindow(windowStart, windowEnd, { animation: false });
     await waitFor(
       () => (win.document as Document).querySelector(".vis-item.vis-box"),
       "a box item to render",
@@ -126,37 +147,44 @@ describe("legibility of titles and short events", function () {
 
   // AC #2
   it("keeps a one-day event legible on a decade-wide view", async function () {
-    const { doc } = await openOn("1925-01-01", "1935-01-01");
-    const box = boxFor(doc, "The day the levee broke");
-    assert.ok(box, "the one-day event did not render a box carrying its title");
-    const { wide, unclipped } = isLegible(box!);
-    assert.isTrue(
-      wide,
-      `a one-day event rendered ${box!.getBoundingClientRect().width}px wide on a decade view`,
-    );
-    assert.isTrue(unclipped, "the one-day event's title is clipped");
+    await legible("one-day legibility", async () => {
+      const { doc } = await openOn("1925-01-01", "1935-01-01");
+      const box = boxFor(doc, "The day the levee broke");
+      assert.ok(
+        box,
+        "the one-day event did not render a box carrying its title",
+      );
+      const { wide, unclipped } = isLegible(box!);
+      assert.isTrue(
+        wide,
+        `a one-day event rendered ${box!.getBoundingClientRect().width}px wide on a decade view`,
+      );
+      assert.isTrue(unclipped, "the one-day event's title is clipped");
+    });
   });
 
   // AC #3
   it("keeps a point event with no end legible", async function () {
-    const built = buildTimelineItem("doc-legible", {
-      id: "ev-year",
-      title: "A year with a long enough title to clip",
-      date: "1930",
-      sources: [],
-      tags: [],
-    } as any) as any;
-    assert.isUndefined(
-      built.end,
-      "a year-precision point still carries an end, so its width still means precision",
-    );
+    await legible("point legibility", async () => {
+      const built = buildTimelineItem("doc-legible", {
+        id: "ev-year",
+        title: "A year with a long enough title to clip",
+        date: "1930",
+        sources: [],
+        tags: [],
+      } as any) as any;
+      assert.isUndefined(
+        built.end,
+        "a year-precision point still carries an end, so its width still means precision",
+      );
 
-    const { doc } = await openOn("1900-01-01", "1960-01-01");
-    const box = boxFor(doc, "A year with a long enough title");
-    assert.ok(box, "the point event did not render a box carrying its title");
-    const { wide, unclipped } = isLegible(box!);
-    assert.isTrue(wide, "a point event rendered too narrow to read or hit");
-    assert.isTrue(unclipped, "the point event's title is clipped");
+      const { doc } = await openOn("1900-01-01", "1960-01-01");
+      const box = boxFor(doc, "A year with a long enough title");
+      assert.ok(box, "the point event did not render a box carrying its title");
+      const { wide, unclipped } = isLegible(box!);
+      assert.isTrue(wide, "a point event rendered too narrow to read or hit");
+      assert.isTrue(unclipped, "the point event's title is clipped");
+    });
   });
 
   // AC #4
@@ -196,37 +224,39 @@ describe("legibility of titles and short events", function () {
 
   // AC #5
   it("does not overlap a neighbouring event's title at the zoom levels tried", async function () {
-    const { doc, timeline } = await openOn("1920-01-01", "1950-01-01");
+    await legible("overlap check", async () => {
+      const { doc, timeline } = await openOn("1920-01-01", "1950-01-01");
 
-    for (const [start, end] of [
-      ["1920-01-01", "1950-01-01"],
-      ["1925-01-01", "1935-01-01"],
-      ["1926-01-01", "1932-01-01"],
-    ]) {
-      timeline.setWindow(new Date(start), new Date(end), { animation: false });
-      await Zotero.Promise.delay(300);
+      for (const [start, end] of [
+        ["1920-01-01", "1950-01-01"],
+        ["1925-01-01", "1935-01-01"],
+        ["1926-01-01", "1932-01-01"],
+      ]) {
+        timeline.setWindow(start, end, { animation: false });
+        await Zotero.Promise.delay(300);
 
-      const boxes = (
-        Array.from(doc.querySelectorAll(".vis-item.vis-box")) as HTMLElement[]
-      ).map((el) => el.getBoundingClientRect());
+        const boxes = (
+          Array.from(doc.querySelectorAll(".vis-item.vis-box")) as HTMLElement[]
+        ).map((el) => el.getBoundingClientRect());
 
-      for (let i = 0; i < boxes.length; i += 1) {
-        for (let j = i + 1; j < boxes.length; j += 1) {
-          const a = boxes[i];
-          const b = boxes[j];
-          const overlaps =
-            a.left < b.right &&
-            b.left < a.right &&
-            a.top < b.bottom &&
-            b.top < a.bottom;
-          assert.isFalse(
-            overlaps,
-            `two titles overlap at ${start}..${end}: ` +
-              `[${Math.round(a.left)},${Math.round(a.top)},${Math.round(a.width)}x${Math.round(a.height)}] and ` +
-              `[${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.width)}x${Math.round(b.height)}]`,
-          );
+        for (let i = 0; i < boxes.length; i += 1) {
+          for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i];
+            const b = boxes[j];
+            const overlaps =
+              a.left < b.right &&
+              b.left < a.right &&
+              a.top < b.bottom &&
+              b.top < a.bottom;
+            assert.isFalse(
+              overlaps,
+              `two titles overlap at ${start}..${end}: ` +
+                `[${Math.round(a.left)},${Math.round(a.top)},${Math.round(a.width)}x${Math.round(a.height)}] and ` +
+                `[${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.width)}x${Math.round(b.height)}]`,
+            );
+          }
         }
       }
-    }
+    });
   });
 });
