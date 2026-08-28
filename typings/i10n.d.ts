@@ -29,6 +29,7 @@ export type FluentMessageId =
   | 'event-editor-delete-button'
   | 'event-editor-description-label'
   | 'event-editor-empty'
+  | 'event-editor-empty-read-only'
   | 'event-editor-end-date-label'
   | 'event-editor-save-button'
   | 'event-editor-source-add-button'
