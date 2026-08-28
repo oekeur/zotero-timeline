@@ -1,6 +1,23 @@
 timeline-menu-open =
     .label = Open Timeline
 
+timeline-chrome-zoom-in =
+    .title = Zoom in
+
+timeline-chrome-zoom-out =
+    .title = Zoom out
+
+timeline-chrome-fit =
+    .title = Fit every event in view
+
+timeline-chrome-jump-input =
+    .placeholder = Jump to a date
+    .title = A year, or any EDTF date
+
+timeline-chrome-jump-button = Go
+
+timeline-chrome-jump-error = Not a date this can read
+
 timeline-sidebar-heading = Timelines
 timeline-sidebar-unreadable-label = Unreadable timeline
 

@@ -30,6 +30,7 @@ import {
 import { warn } from "./containerGuard";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
 import { serializeDocument, type TimelineDocument } from "./schema";
+import { toTimelineRange } from "../../utils/edtfRange";
 
 const TAB_TYPE = "zoterotimeline-timeline";
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
@@ -81,6 +82,14 @@ export const SIDEBAR_ROW_RENAME_CANCEL_CLASS =
   "zoterotimeline-sidebar-row-rename-cancel";
 export const CANVAS_EMPTY_PROMPT_CLASS = "zoterotimeline-canvas-empty-prompt";
 export const READ_ONLY_BANNER_CLASS = "zoterotimeline-read-only-banner";
+export const CANVAS_COLUMN_CLASS = "zoterotimeline-canvas-column";
+export const CHROME_CLASS = "zoterotimeline-canvas-chrome";
+export const ZOOM_IN_BUTTON_CLASS = "zoterotimeline-zoom-in";
+export const ZOOM_OUT_BUTTON_CLASS = "zoterotimeline-zoom-out";
+export const FIT_BUTTON_CLASS = "zoterotimeline-fit";
+export const JUMP_INPUT_CLASS = "zoterotimeline-jump-date";
+export const JUMP_BUTTON_CLASS = "zoterotimeline-jump-go";
+export const JUMP_ERROR_CLASS = "zoterotimeline-jump-error";
 
 let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
@@ -405,6 +414,13 @@ export async function openTimelineTab(): Promise<void> {
   sidebar.classList.add(SIDEBAR_CLASS);
   row.appendChild(sidebar as unknown as Node);
 
+  // A column so the chrome strip spans the canvas and nothing else: putting
+  // it in `row` would stretch it across the sidebar and the editor too, and
+  // putting it in `header` would sit it above all three.
+  const canvasColumn = el(doc, "div");
+  canvasColumn.classList.add(CANVAS_COLUMN_CLASS);
+  row.appendChild(canvasColumn as unknown as Node);
+
   const canvas = el(doc, "div");
   canvas.id = "zoterotimeline-canvas";
   // The rule behind CANVAS_CLASS carries two declarations that are behaviour
@@ -413,7 +429,7 @@ export async function openTimelineTab(): Promise<void> {
   // against, and min-height/min-width: 0 is what lets the canvas shrink
   // instead of overflowing the row. Neither is safe to drop as styling.
   canvas.classList.add(CANVAS_CLASS);
-  row.appendChild(canvas as unknown as Node);
+  canvasColumn.appendChild(canvas as unknown as Node);
 
   const panel = el(doc, "div");
   panel.id = "zoterotimeline-editor";
@@ -665,6 +681,136 @@ export async function openTimelineTab(): Promise<void> {
       }
     ).setWindow(state.window.start, state.window.end, { animation: false });
   }
+
+  /**
+   * The thin strip of controls above the canvas (TASK-41).
+   *
+   * Thin is the constraint: the canvas is the product, so this is a single
+   * row of 16px controls, not a ribbon. Ctrl+scroll already zooms
+   * (zoomKey: "ctrlKey"); these exist because a gesture nobody can see is a
+   * gesture nobody finds.
+   *
+   * Icon-only buttons carry their label as a Fluent `.title` attribute rather
+   * than as a value: a plain-value message on an element with children
+   * replaces the <img> inside it.
+   */
+  function buildChrome(): HTMLElement {
+    const chrome = el(doc, "div");
+    chrome.classList.add(CHROME_CLASS);
+
+    const iconButton = (
+      cls: string,
+      messageId: Parameters<typeof getLocaleID>[0],
+      iconURL: string,
+      onClick: () => void,
+    ) => {
+      const button = el(doc, "button");
+      button.type = "button";
+      button.classList.add(cls);
+      button.setAttribute("data-l10n-id", getLocaleID(messageId));
+      const icon = doc.createElementNS(HTML_NS, "img") as HTMLImageElement;
+      icon.src = iconURL;
+      button.appendChild(icon as unknown as Node);
+      button.addEventListener("click", onClick);
+      chrome.appendChild(button as unknown as Node);
+      return button;
+    };
+
+    iconButton(
+      ZOOM_OUT_BUTTON_CLASS,
+      "timeline-chrome-zoom-out",
+      "chrome://zotero/skin/16/universal/minus.svg",
+      () => timeline.zoomOut(0.5),
+    );
+    iconButton(
+      ZOOM_IN_BUTTON_CLASS,
+      "timeline-chrome-zoom-in",
+      "chrome://zotero/skin/16/universal/plus.svg",
+      () => timeline.zoomIn(0.5),
+    );
+    // Zotero ships nothing that means "frame everything", so this one is the
+    // plugin's own, drawn to Zotero's conventions (fill="none" root, shapes
+    // fill="context-fill") so it tracks light and dark for free.
+    iconButton(
+      FIT_BUTTON_CLASS,
+      "timeline-chrome-fit",
+      "chrome://zoterotimeline/content/icons/fit-16.svg",
+      () => timeline.fit({ animation: false }),
+    );
+
+    const jumpInput = el(doc, "input") as HTMLInputElement;
+    jumpInput.type = "text";
+    jumpInput.classList.add(JUMP_INPUT_CLASS);
+    jumpInput.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-chrome-jump-input"),
+    );
+    chrome.appendChild(jumpInput as unknown as Node);
+
+    const jumpError = el(doc, "span");
+    jumpError.classList.add(JUMP_ERROR_CLASS);
+
+    // Moves the window and touches nothing else. Not a search: it selects no
+    // event, and an event sitting on the date is not privileged over one that
+    // is not.
+    function jump(): void {
+      const raw = jumpInput.value.trim();
+      // Clearing needs both: removing the id does not blank the text Fluent
+      // already wrote into the node.
+      jumpError.removeAttribute("data-l10n-id");
+      jumpError.textContent = "";
+      if (raw === "") {
+        return;
+      }
+      let target: Date;
+      try {
+        target = toTimelineRange(raw).start;
+      } catch {
+        // Deliberately not edtf's own message. It is a full grammar dump,
+        // dozens of lines of expected-token alternatives, which is diagnostic
+        // output rather than something to put in a toolbar. The stored date
+        // is never rewritten or refused elsewhere in this plugin and nothing
+        // is written here either; this only declines to move the view.
+        jumpError.setAttribute(
+          "data-l10n-id",
+          getLocaleID("timeline-chrome-jump-error"),
+        );
+        return;
+      }
+      // Keep the current span, so a jump changes where the view is and not
+      // how far it reaches.
+      const view = timeline.getWindow();
+      const span = view.end.valueOf() - view.start.valueOf();
+      const centre = target.valueOf();
+      timeline.setWindow(centre - span / 2, centre + span / 2, {
+        animation: false,
+      });
+    }
+
+    const jumpButton = el(doc, "button");
+    jumpButton.type = "button";
+    jumpButton.classList.add(JUMP_BUTTON_CLASS);
+    jumpButton.setAttribute(
+      "data-l10n-id",
+      getLocaleID("timeline-chrome-jump-button"),
+    );
+    jumpButton.addEventListener("click", jump);
+    chrome.appendChild(jumpButton as unknown as Node);
+    chrome.appendChild(jumpError as unknown as Node);
+
+    jumpInput.addEventListener("keydown", (event) => {
+      if ((event as KeyboardEvent).key === "Enter") {
+        jump();
+      }
+    });
+
+    return chrome;
+  }
+
+  canvasColumn.insertBefore(
+    buildChrome() as unknown as Node,
+    canvas as unknown as Node,
+  );
 
   /**
    * Whether the stored documents are byte-identical to what is drawn.

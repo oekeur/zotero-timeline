@@ -238,12 +238,80 @@
  * min-height and min-width of 0 for the flex reason above: without them the
  * canvas refuses to shrink and the row overflows the tab.
  */
-.zoterotimeline-canvas {
+/*
+ * The canvas column: the chrome strip above, the canvas filling the rest. The
+ * flex weight that used to live on the canvas moves here, so the column takes
+ * the same share of the row the canvas alone used to.
+ */
+.zoterotimeline-canvas-column {
+  display: flex;
+  flex-direction: column;
   flex: 3 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+
+.zoterotimeline-canvas {
+  flex: 1 1 0;
   min-height: 0;
   min-width: 0;
   position: relative;
   overflow: hidden;
+}
+
+/*
+ * Thin is the point (TASK-41). The canvas is the product, so this is one row
+ * of 16px controls with a hairline under it, not a ribbon: no background fill
+ * of its own, so it reads as an edge of the canvas rather than as a band
+ * competing with it.
+ */
+.zoterotimeline-canvas-chrome {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--fill-quinary);
+  flex: 0 0 auto;
+}
+
+.zoterotimeline-canvas-chrome button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px;
+  color: var(--fill-secondary);
+}
+
+.zoterotimeline-canvas-chrome button:hover:not(:disabled) {
+  background-color: var(--fill-quinary);
+}
+
+.zoterotimeline-canvas-chrome button:focus-visible {
+  border-color: var(--color-accent);
+}
+
+/* -moz-context-properties is what makes one asset track light and dark. */
+.zoterotimeline-canvas-chrome button img {
+  width: 16px;
+  height: 16px;
+  -moz-context-properties: fill, fill-opacity;
+  fill: currentColor;
+}
+
+.zoterotimeline-canvas-chrome .zoterotimeline-jump-date {
+  width: 10em;
+  margin-inline-start: 8px;
+}
+
+/* Only takes space when it has something to say. */
+.zoterotimeline-canvas-chrome .zoterotimeline-jump-error:not(:empty) {
+  color: var(--accent-red);
+  font-size: 0.9em;
+  margin-inline-start: 4px;
 }
 
 /*
