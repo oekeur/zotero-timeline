@@ -19,6 +19,29 @@
  * honest way to express it.
  */
 /**
+ * How long an effect is given before the wait is called a failure.
+ *
+ * Raised from 5000ms on 2026-08-28, on measurement rather than by reflex.
+ * Adding TASK-15's sub-lane rows and TASK-50's tag control put more
+ * Fluent-tagged nodes into every tab open, and resolution was measured at 3.7s
+ * against the old 5s ceiling on an idle machine. On a busier one the same suite
+ * produced 26 failures where it had produced 6, every one of them a timeout
+ * rather than a wrong value.
+ *
+ * Why this does not weaken anything. These waits assert that a condition
+ * EVENTUALLY holds; a longer ceiling changes nothing about a condition that
+ * never holds, since the spec still fails and still names what it waited for.
+ * The only cost is wall-clock on a run that was going to fail anyway, and the
+ * only thing given up is using a timeout as a crude performance assertion,
+ * which it was never a reliable one of: the same number passed or failed
+ * depending on what else the machine was doing.
+ *
+ * A genuine performance budget belongs in its own spec, measured deliberately,
+ * not smuggled into every effect wait in the suite.
+ */
+const DEFAULT_TIMEOUT_MS = 15000;
+
+/**
  * An Error whose message survives the trip to the scaffold's reporter.
  *
  * The reporter prints `data?.error?.message`, and the Zotero side serialises
@@ -46,7 +69,7 @@ export async function waitFor<T>(
   get: () => T | null | undefined | Promise<T | null | undefined>,
   description: string,
   {
-    timeout = 5000,
+    timeout = DEFAULT_TIMEOUT_MS,
     interval = 20,
   }: { timeout?: number; interval?: number } = {},
 ): Promise<T> {
