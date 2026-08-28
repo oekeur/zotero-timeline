@@ -117,6 +117,20 @@ export function parseVisItemId(id: string): {
  * approximate keep their own. `undefined` for plain leaves the base
  * `.vis-item` look untouched.
  */
+/**
+ * The EDTF forms that assert an extent rather than a precision.
+ *
+ * A range's width is read against the axis as a duration, so only a form that
+ * actually claims one may produce an end. See buildTimelineItem for why the
+ * other three forms deliberately produce none.
+ */
+const EXTENT_FORMS = new Set<EdtfForm>([
+  "interval",
+  "season",
+  "one-of",
+  "list",
+]);
+
 const FORM_STYLING: Record<EdtfForm, string | undefined> = {
   plain: undefined,
   uncertain: "zt-uncertain",
@@ -312,7 +326,22 @@ export function buildTimelineItem(
     };
   }
 
-  let end = dateRange.end;
+  // An extent the user asserted, versus a point known to some precision.
+  //
+  // toTimelineRange returns an `end` for every value, because every EDTF value
+  // spans something: "1795" spans a year, "1789-07-14" spans a day. Using it
+  // unconditionally made bar width mean the precision of the date rather than
+  // the duration of the event, which is why a plain year drew as a five-pixel
+  // bar on a decade-wide view and a day drew as a sliver, with the title
+  // clipped inside it (TASK-44).
+  //
+  // Only these four forms assert an extent, and they are exactly the ones
+  // TASK-28's decision requires keep rendering as a range when they appear in
+  // `date` alone with no endDate. The other three - plain, uncertain,
+  // approximate - are a single instant carrying a precision, and get no end,
+  // so vis draws them as a box: a marker at the instant with the label above
+  // it rather than squeezed inside a bar.
+  let end = EXTENT_FORMS.has(dateRange.form) ? dateRange.end : undefined;
   let endDateError: string | undefined;
   if (event.endDate !== undefined) {
     try {
