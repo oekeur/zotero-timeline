@@ -29,7 +29,7 @@ import {
 } from "./storage";
 import { warn } from "./containerGuard";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
-import type { TimelineDocument } from "./schema";
+import { serializeDocument, type TimelineDocument } from "./schema";
 
 const TAB_TYPE = "zoterotimeline-timeline";
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
@@ -84,6 +84,11 @@ export const READ_ONLY_BANNER_CLASS = "zoterotimeline-read-only-banner";
 
 let timelineTabID: string | undefined;
 let teardownTimeline: (() => void) | undefined;
+// The canvas-refresh observer's registration id. Module-level because the
+// tab's onClose is defined before the observer is registered and has to be
+// able to release it; a closure over a later const would sit in its temporal
+// dead zone if the render threw before registration.
+let refreshObserverID: string | undefined;
 // Exposed for the live-Zotero suite, which needs to drive selection before it
 // can drive a drag.
 let currentTimeline: unknown;
@@ -315,6 +320,10 @@ export async function openTimelineTab(): Promise<void> {
     select: true,
     onClose: () => {
       timelineTabID = undefined;
+      if (refreshObserverID) {
+        Zotero.Notifier.unregisterObserver(refreshObserverID);
+        refreshObserverID = undefined;
+      }
       teardownTimeline?.();
       teardownTimeline = undefined;
       currentTimeline = undefined;
@@ -523,7 +532,11 @@ export async function openTimelineTab(): Promise<void> {
   // After the container is in the document. vis-timeline measures its parent
   // immediately, and a detached element measures zero, which renders as a
   // blank tab rather than an error.
-  const {
+  // `let`, not `const`: TASK-43's rebuild destroys the vis instance and calls
+  // renderCanvas again, and every nested function below closes over these
+  // bindings. Reassigning them is what lets a rebuild swap the instance
+  // without rewriting the several dozen call sites that reference it.
+  let {
     timeline,
     items,
     groups,
@@ -552,6 +565,240 @@ export async function openTimelineTab(): Promise<void> {
       // The window may already be gone; nothing to release in that case.
     }
   };
+
+  /**
+   * Everything that lives on the vis instance and would go with it.
+   *
+   * Enumerated rather than assumed. A rebuild destroys the instance, so any
+   * state held there and nowhere else is lost: the selection and the active
+   * lane are the two the acceptance criteria name, but the viewport and the
+   * per-lane visible/order flags the sidebar writes are held there too. A user
+   * zoomed into one decade who receives a sync from another machine would
+   * otherwise be thrown back to fit-all, and a lane they had toggled off would
+   * come back on.
+   */
+  function captureCanvasState() {
+    return {
+      active: getActiveDocument(),
+      selection: (
+        timeline as unknown as { getSelection: () => string[] }
+      ).getSelection(),
+      window: (
+        timeline as unknown as {
+          getWindow: () => { start: Date | number; end: Date | number };
+        }
+      ).getWindow(),
+      lanes: groupsDS()
+        .get({ order: "order" })
+        .map((g, index) => ({
+          id: g.id,
+          visible: g.visible,
+          order: index,
+        })),
+    };
+  }
+
+  function restoreCanvasState(state: ReturnType<typeof captureCanvasState>) {
+    // Lanes first: activating or selecting into a lane that is not drawn yet
+    // lands nowhere.
+    const present = new Set(
+      groupsDS()
+        .get({ order: "order" })
+        .map((g) => g.id),
+    );
+    const known = state.lanes.filter((l) => present.has(l.id));
+    if (known.length > 0) {
+      groupsDS().update(known);
+    }
+    if (state.active && present.has(state.active)) {
+      activateTimeline(state.active);
+    }
+    const live = state.selection.filter((id) =>
+      present.has(parseVisItemId(id).documentId),
+    );
+    if (live.length > 0) {
+      (
+        timeline as unknown as { setSelection: (ids: string[]) => void }
+      ).setSelection(live);
+    }
+    (
+      timeline as unknown as {
+        setWindow: (
+          start: Date | number,
+          end: Date | number,
+          options?: { animation?: boolean },
+        ) => void;
+      }
+    ).setWindow(state.window.start, state.window.end, { animation: false });
+  }
+
+  /**
+   * Whether the stored documents are byte-identical to what is drawn.
+   *
+   * The suppression AC #2 asks for, and the reason it compares content rather
+   * than consulting a "currently writing" flag: Zotero fires modify twice per
+   * save, once inside the transaction and once a macrotask after commit, so a
+   * flag cleared when the write resolves never covers the second one.
+   *
+   * Compared here rather than through documentCache's matchesCached, which
+   * looks the right tool and is not. That helper reads the cache entry, and
+   * the cache's own observer deletes exactly those entries on the same
+   * notification. Notifier observers have no defined order, so matchesCached
+   * would return false whenever the cache ran first, which is to say
+   * unpredictably, and the suppression would silently stop working. Comparing
+   * the freshly read documents against the drawn ones needs no such ordering.
+   */
+  function drawnMatches(fresh: StoredTimeline[]): boolean {
+    if (fresh.length !== documents.size) {
+      return false;
+    }
+    return fresh.every((t) => {
+      const drawn = documents.get(t.doc.id);
+      return (
+        drawn !== undefined &&
+        serializeDocument(drawn) === serializeDocument(t.doc)
+      );
+    });
+  }
+
+  /**
+   * Redraws the canvas from what the notes currently hold.
+   *
+   * A full teardown and re-render, the same shape mindmap's rebuild has. The
+   * cheaper in-place update was not chosen here: the documents behind a
+   * rebuild can differ from what is drawn by more than event positions (a
+   * timeline can appear, vanish, or stop parsing), and reconciling that
+   * against live DataSets is the kind of second implementation of the read
+   * path this data model exists to avoid. Cost is measured rather than
+   * assumed - see this task's notes.
+   *
+   * Throws nothing. A caller is an observer that must not fail, and a note
+   * that stopped parsing between the notification and here leaves the previous
+   * render standing rather than blanking the tab.
+   */
+  async function rebuildCanvas(): Promise<void> {
+    let fresh;
+    try {
+      fresh = await listTimelinesCached(libraryID);
+    } catch (err) {
+      Zotero.debug(
+        `[ZoteroTimeline] rebuild aborted, the library would not read: ${
+          (err as Error)?.message ?? String(err)
+        }`,
+      );
+      return;
+    }
+
+    if (drawnMatches(fresh.timelines)) {
+      return;
+    }
+
+    const state = captureCanvasState();
+    try {
+      timeline.destroy();
+    } catch {
+      // Already gone; the re-render below is still the right thing to do.
+    }
+
+    readableTimelines = fresh.timelines;
+    documents.clear();
+    for (const t of fresh.timelines) {
+      documents.set(t.doc.id, t.doc);
+    }
+
+    ({
+      timeline,
+      items,
+      groups,
+      activateDocument: activateTimeline,
+      getActiveDocument,
+    } = renderCanvas(
+      canvas as unknown as HTMLElement,
+      fresh.timelines,
+      libraryID,
+      libraryEditable,
+      showEditorFor,
+      (d) => documents.set(d.id, d),
+    ));
+    currentTimeline = timeline;
+    timelineGroups = groups;
+    getActiveDocumentId = getActiveDocument;
+    teardownTimeline = () => {
+      try {
+        timeline.destroy();
+      } catch {
+        // The window may already be gone; nothing to release in that case.
+      }
+    };
+
+    restoreCanvasState(state);
+    renderSidebar();
+  }
+
+  // Single-flight with a dirty bit. Dropping notifications that arrive during
+  // a rebuild loses them: a prune landing mid-rebuild would leave the canvas
+  // showing a source that no longer exists until the tab was reopened. A queue
+  // is the other extreme and rebuilds once per notification for a burst that
+  // one redraw settles. So: at most one rebuild in flight, and exactly one
+  // more if anything arrived while it ran, however many arrived.
+  let rebuilding = false;
+  let rebuildRequested = false;
+
+  async function scheduleRebuild(): Promise<void> {
+    if (rebuilding) {
+      rebuildRequested = true;
+      return;
+    }
+    rebuilding = true;
+    try {
+      do {
+        rebuildRequested = false;
+        await rebuildCanvas();
+      } while (rebuildRequested);
+    } catch (err) {
+      logFailure("timeline rebuild", err);
+    } finally {
+      rebuilding = false;
+    }
+  }
+
+  /**
+   * Redraws when a note this tab drew changes underneath it.
+   *
+   * Returns void and awaits nothing, and that is load-bearing rather than
+   * stylistic. Zotero awaits every observer's return value inside the commit
+   * of the transaction that fired the notification, and every storage write
+   * ends in saveTx() on a serial queue. Awaiting a rebuild here would park the
+   * write that triggered it behind the task waiting on this observer: neither
+   * settles, and every later write in the session hangs with nothing thrown
+   * and nothing in the debug log.
+   *
+   * Filtering to notes this tab holds is what keeps an unrelated item edit
+   * from redrawing the canvas. A note that is new to this library is not in
+   * that set, which is correct for `modify`: a timeline created in another
+   * window arrives as `add`, and picking that up is a separate concern from
+   * this one.
+   */
+  function notifyTimelineChanged(
+    event: _ZoteroTypes.Notifier.Event,
+    type: _ZoteroTypes.Notifier.Type,
+    ids: string[] | number[],
+  ): void {
+    if (event !== "modify" || type !== "item") {
+      return;
+    }
+    const ours = new Set(readableTimelines.map((t) => t.noteItemID));
+    if (!ids.some((id) => ours.has(Number(id)))) {
+      return;
+    }
+    void scheduleRebuild();
+  }
+
+  refreshObserverID = Zotero.Notifier.registerObserver(
+    { notify: notifyTimelineChanged },
+    ["item"],
+    `zoterotimeline-canvas-refresh-${id}`,
+  );
 
   // Typed narrowly to what the sidebar actually reads and writes, rather than
   // pulling in vis-timeline's own types: this module never imports vis-timeline
