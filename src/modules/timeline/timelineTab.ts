@@ -89,6 +89,21 @@ let teardownTimeline: (() => void) | undefined;
 // able to release it; a closure over a later const would sit in its temporal
 // dead zone if the render threw before registration.
 let refreshObserverID: string | undefined;
+// How many rebuilds actually redrew, suppressed ones excluded. Exposed the
+// same way documentCache's parsesSoFar is and for the same reason: the
+// suppression and the single-flight coalescing are both defined by a count,
+// and a spec cannot observe either from the rendered DOM alone.
+let rebuildCount = 0;
+// The open tab's own notify, exposed so a spec can drive the exact function
+// the observer registers rather than reaching into Zotero.Notifier's
+// internals. documentCache's cacheObserverForTesting is the same seam for
+// the same reason. Undefined whenever no tab is open.
+type RefreshNotify = (
+  event: _ZoteroTypes.Notifier.Event,
+  type: _ZoteroTypes.Notifier.Type,
+  ids: string[] | number[],
+) => void;
+let refreshNotify: RefreshNotify | undefined;
 // Exposed for the live-Zotero suite, which needs to drive selection before it
 // can drive a drag.
 let currentTimeline: unknown;
@@ -118,6 +133,24 @@ export function getModuleEvalEnv(): any {
  */
 export function getActiveTimeline(): string | null {
   return getActiveDocumentId?.() ?? null;
+}
+
+/**
+ * How many times the canvas has actually been redrawn by a rebuild. Counts
+ * only rebuilds that got past content-identity suppression, so a spec can tell
+ * "no rebuild happened" from "a rebuild ran and changed nothing".
+ */
+export function rebuildsSoFar(): number {
+  return rebuildCount;
+}
+
+/**
+ * The open tab's canvas-refresh notify, or undefined when no tab is open.
+ * Exported for the live suite, which needs to deliver the second of the two
+ * notifications Zotero fires per save without waiting for a real one.
+ */
+export function refreshObserverForTesting(): RefreshNotify | undefined {
+  return refreshNotify;
 }
 
 type ConfirmDeleteFn = (
@@ -324,6 +357,7 @@ export async function openTimelineTab(): Promise<void> {
         Zotero.Notifier.unregisterObserver(refreshObserverID);
         refreshObserverID = undefined;
       }
+      refreshNotify = undefined;
       teardownTimeline?.();
       teardownTimeline = undefined;
       currentTimeline = undefined;
@@ -693,6 +727,7 @@ export async function openTimelineTab(): Promise<void> {
       return;
     }
 
+    rebuildCount += 1;
     const state = captureCanvasState();
     try {
       timeline.destroy();
@@ -794,6 +829,7 @@ export async function openTimelineTab(): Promise<void> {
     void scheduleRebuild();
   }
 
+  refreshNotify = notifyTimelineChanged;
   refreshObserverID = Zotero.Notifier.registerObserver(
     { notify: notifyTimelineChanged },
     ["item"],

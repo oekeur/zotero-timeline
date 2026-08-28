@@ -8,6 +8,8 @@ import {
   getModuleEvalEnv,
   getVisibleTimelines,
   openTimelineTab,
+  rebuildsSoFar,
+  refreshObserverForTesting,
   registerTimelineMenu,
   registerTimelineShortcut,
   setTimelineDeleteConfirmForTests,
@@ -105,6 +107,8 @@ async function onStartup() {
     getVisibleTimelines,
     getActiveTimeline,
     parsesSoFar,
+    rebuildsSoFar,
+    refreshObserverForTesting,
     openAddSourcesDialog,
   };
 
