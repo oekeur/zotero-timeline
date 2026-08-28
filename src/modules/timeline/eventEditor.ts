@@ -63,6 +63,7 @@ import {
 import {
   addEvent,
   addSource,
+  copyEventInto,
   removeEvent,
   removeSource,
   updateEvent,
@@ -77,6 +78,7 @@ import {
 } from "./sourceLabels";
 import { peekVocabulary, UNKNOWN_TYPE_LABEL } from "./vocabulary";
 import { updateTimelineDocument } from "./storage";
+import { listTimelinesEverywhereCached } from "./documentCache";
 import type { Event as TimelineEvent, LinkType, SourceRef } from "./schema";
 import type { FluentMessageId } from "../../../typings/i10n";
 
@@ -126,6 +128,12 @@ export const SOURCE_FEEDBACK_CLASS = "zoterotimeline-event-source-feedback";
 export const ACTIONS_CLASS = "zoterotimeline-event-actions";
 export const SAVE_BUTTON_CLASS = "zoterotimeline-event-save";
 export const DELETE_BUTTON_CLASS = "zoterotimeline-event-delete";
+export const DUPLICATE_BUTTON_CLASS = "zoterotimeline-event-duplicate";
+export const DUPLICATE_FORM_CLASS = "zoterotimeline-event-duplicate-form";
+export const DUPLICATE_TARGET_CLASS = "zoterotimeline-event-duplicate-target";
+export const DUPLICATE_CONFIRM_CLASS = "zoterotimeline-event-duplicate-confirm";
+export const DUPLICATE_CANCEL_CLASS = "zoterotimeline-event-duplicate-cancel";
+export const DUPLICATE_RESULT_CLASS = "zoterotimeline-event-duplicate-result";
 export const EMPTY_PROMPT_CLASS = "zoterotimeline-event-empty";
 // The typed equivalent of clicking empty canvas (TASK-25) - see the parity
 // audit atop canvas.ts. Rendered inside the empty-state prompt above, never
@@ -853,6 +861,168 @@ export function renderEventEditor(
       } catch (err) {
         logFailure(
           `[zoteroTimeline] failed to delete event ${event.id}: ${(err as Error).message}`,
+          err,
+        );
+      }
+    })();
+  });
+
+  /*
+   * Duplicate, beside Delete because that is where the user already is when
+   * they decide to copy, and because it adds no canvas gesture for TASK-27's
+   * parity audit to match.
+   *
+   * An inline form rather than a further window, so the control carries no
+   * ellipsis (project/ui-design.md section 4, rule 1). The target is a plain
+   * <select> with one <optgroup> per library, which gives the grouping and the
+   * per-library labelling the task asks for natively, and reads at the
+   * editor's width without a second column.
+   */
+  const duplicateButton = doc.createElement("button");
+  duplicateButton.type = "button";
+  duplicateButton.classList.add(DUPLICATE_BUTTON_CLASS);
+  duplicateButton.disabled = !libraryEditable;
+  duplicateButton.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-duplicate-button"),
+  );
+  actions.appendChild(duplicateButton);
+
+  const duplicateForm = doc.createElement("div");
+  duplicateForm.classList.add(DUPLICATE_FORM_CLASS);
+  duplicateForm.hidden = true;
+  container.appendChild(duplicateForm);
+
+  const targetSelect = doc.createElement("select");
+  targetSelect.classList.add(DUPLICATE_TARGET_CLASS);
+  targetSelect.disabled = !libraryEditable;
+  targetSelect.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-duplicate-target"),
+  );
+  duplicateForm.appendChild(targetSelect);
+
+  const duplicateResult = doc.createElement("div");
+  duplicateResult.classList.add(DUPLICATE_RESULT_CLASS);
+
+  const confirmButton = doc.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.classList.add(DUPLICATE_CONFIRM_CLASS);
+  confirmButton.disabled = !libraryEditable;
+  confirmButton.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-duplicate-confirm"),
+  );
+  const cancelButton = doc.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.classList.add(DUPLICATE_CANCEL_CLASS);
+  cancelButton.setAttribute(
+    "data-l10n-id",
+    getLocaleID("event-editor-duplicate-cancel"),
+  );
+  duplicateForm.appendChild(confirmButton);
+  duplicateForm.appendChild(cancelButton);
+  duplicateForm.appendChild(duplicateResult);
+
+  // Keyed by option value so the write knows which library it is writing to
+  // without re-reading anything.
+  const targets = new Map<string, { libraryID: number; name: string }>();
+
+  async function fillTargets(): Promise<void> {
+    targetSelect.textContent = "";
+    targets.clear();
+    const grouped = await listTimelinesEverywhereCached();
+    for (const group of grouped) {
+      const optgroup = doc.createElement("optgroup");
+      // Named on the group, because two libraries may hold timelines with the
+      // same name and the option alone would not say which was which.
+      optgroup.label = group.libraryName;
+      for (const timeline of group.timelines) {
+        const option = doc.createElement("option");
+        const value = `${group.libraryID}:${timeline.doc.id}`;
+        option.value = value;
+        option.textContent = timeline.doc.name;
+        // The event's own timeline is a legal target and stays listed, but it
+        // is never what the control is already pointing at: a copy onto the
+        // timeline you are already on is the least likely thing meant, and
+        // preselecting it would make a stray confirm do it.
+        option.selected = false;
+        targets.set(value, {
+          libraryID: group.libraryID,
+          name: timeline.doc.name,
+        });
+        optgroup.appendChild(option);
+      }
+      targetSelect.appendChild(optgroup);
+    }
+    const first = [...targets.keys()].find(
+      (key) => key !== `${libraryID}:${documentId}`,
+    );
+    targetSelect.value = first ?? "";
+  }
+
+  duplicateButton.addEventListener("click", () => {
+    duplicateResult.removeAttribute("data-l10n-id");
+    duplicateResult.textContent = "";
+    if (!duplicateForm.hidden) {
+      duplicateForm.hidden = true;
+      return;
+    }
+    duplicateForm.hidden = false;
+    void fillTargets().catch((err) => {
+      logFailure(
+        `[zoteroTimeline] failed to list duplicate targets: ${(err as Error).message}`,
+        err,
+      );
+    });
+  });
+
+  cancelButton.addEventListener("click", () => {
+    duplicateForm.hidden = true;
+  });
+
+  confirmButton.addEventListener("click", () => {
+    void (async () => {
+      const target = targets.get(targetSelect.value);
+      if (!target) {
+        return;
+      }
+      const targetDocumentId = targetSelect.value.slice(
+        String(target.libraryID).length + 1,
+      );
+      // Sources cross library boundaries only by being dropped. A document
+      // never holds a SourceRef naming another library, and that invariant is
+      // what makes a stray foreign libraryID diagnosable rather than normal.
+      const keepSources = target.libraryID === libraryID;
+      const leftBehind = keepSources ? 0 : event.sources.length;
+      try {
+        // One write, against the target alone. The source document is never
+        // opened for writing, which is what makes "the original is untouched"
+        // and "a failed write changes nothing anywhere" both true without an
+        // ordering argument.
+        const result = await updateTimelineDocument(
+          (current) => copyEventInto(current, event, keepSources).doc,
+          targetDocumentId,
+          target.libraryID,
+        );
+        if (!result) {
+          return;
+        }
+        duplicateResult.setAttribute(
+          "data-l10n-id",
+          getLocaleID(
+            leftBehind > 0
+              ? "event-editor-duplicate-done-without-sources"
+              : "event-editor-duplicate-done",
+          ),
+        );
+        duplicateResult.setAttribute(
+          "data-l10n-args",
+          JSON.stringify({ timeline: target.name, count: leftBehind }),
+        );
+      } catch (err) {
+        logFailure(
+          `[zoteroTimeline] failed to duplicate event ${event.id}: ${(err as Error).message}`,
           err,
         );
       }

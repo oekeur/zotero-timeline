@@ -51,6 +51,22 @@ timeline-sidebar-rename-name-input =
 timeline-sidebar-rename-confirm-button = Rename
 timeline-sidebar-rename-cancel-button = Cancel
 
+event-editor-duplicate-button = Duplicate
+
+event-editor-duplicate-target =
+    .title = The timeline to copy this event onto
+
+event-editor-duplicate-confirm = Copy
+event-editor-duplicate-cancel = Cancel
+
+event-editor-duplicate-done = Copied to { $timeline }.
+
+event-editor-duplicate-done-without-sources =
+    Copied to { $timeline }, without { $count ->
+        [one] its one source
+       *[other] its { $count } sources
+    }. A timeline cannot cite items from another library.
+
 timeline-canvas-no-timelines = This library has no timelines yet. Use the plus control in the sidebar to make one.
 
 timeline-canvas-no-timelines-read-only = This library has no timelines.
