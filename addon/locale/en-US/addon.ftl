@@ -98,3 +98,17 @@ add-sources-dialog-result-success =
        *[other] Attached { $count } sources.
     }
 add-sources-dialog-result-skipped = Already cited under this type, so not attached again: { $names }.
+
+# Read through getString, not data-l10n-id, so these must live in addon.ftl:
+# initLocale only loads addon.ftl and preferences.ftl, and a key outside that
+# list resolves to the key itself with nothing logged. They are read from a
+# click handler rather than during render, which is what makes getString safe
+# here, and they are shown in a ProgressWindow because the write rebuilds the
+# panel that raised them.
+event-editor-duplicate-done = Copied to { $timeline }.
+
+event-editor-duplicate-done-without-sources =
+    Copied to { $timeline }, without { $count ->
+        [one] its one source
+       *[other] its { $count } sources
+    }. A timeline cannot cite items from another library.

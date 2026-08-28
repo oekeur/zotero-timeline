@@ -59,14 +59,6 @@ event-editor-duplicate-target =
 event-editor-duplicate-confirm = Copy
 event-editor-duplicate-cancel = Cancel
 
-event-editor-duplicate-done = Copied to { $timeline }.
-
-event-editor-duplicate-done-without-sources =
-    Copied to { $timeline }, without { $count ->
-        [one] its one source
-       *[other] its { $count } sources
-    }. A timeline cannot cite items from another library.
-
 timeline-canvas-no-timelines = This library has no timelines yet. Use the plus control in the sidebar to make one.
 
 timeline-canvas-no-timelines-read-only = This library has no timelines.
