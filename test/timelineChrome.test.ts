@@ -74,6 +74,23 @@ describe("canvas chrome: zoom, fit and jump", function () {
       () => doc.querySelector(`.${FIT_BUTTON_CLASS}`),
       "the chrome strip to render",
     );
+    // vis runs its own fit-to-content on a deferred tick after construction,
+    // so the window keeps moving for a moment after the canvas exists.
+    // Reading it before that settles makes every assertion here a race: a
+    // zoom gets overwritten by the fit, and a "the view did not move" check
+    // sees the fit's move and blames the control.
+    let previous: string | null = null;
+    await waitFor(
+      () => {
+        const w = timeline.getWindow();
+        const now = `${w.start.valueOf()}:${w.end.valueOf()}`;
+        const settled = previous === now;
+        previous = now;
+        return settled ? true : null;
+      },
+      "the initial fit to stop moving the window",
+      { interval: 100, timeout: 10000 },
+    );
     return { doc, timeline };
   }
 

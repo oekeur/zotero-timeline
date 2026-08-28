@@ -720,13 +720,13 @@ export async function openTimelineTab(): Promise<void> {
       ZOOM_OUT_BUTTON_CLASS,
       "timeline-chrome-zoom-out",
       "chrome://zotero/skin/16/universal/minus.svg",
-      () => timeline.zoomOut(0.5),
+      () => timeline.zoomOut(0.5, { animation: false }),
     );
     iconButton(
       ZOOM_IN_BUTTON_CLASS,
       "timeline-chrome-zoom-in",
       "chrome://zotero/skin/16/universal/plus.svg",
-      () => timeline.zoomIn(0.5),
+      () => timeline.zoomIn(0.5, { animation: false }),
     );
     // Zotero ships nothing that means "frame everything", so this one is the
     // plugin's own, drawn to Zotero's conventions (fill="none" root, shapes
