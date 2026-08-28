@@ -96,7 +96,7 @@ addon/            packaged plugin resources
   bootstrap.js      the four lifecycle entry points
   manifest.json     identity and the Zotero version range
   content/          icons, preferences.xhtml, stylesheet
-  locale/           Fluent strings, en-US and zh-CN
+  locale/           Fluent strings, en-US only
   prefs.js          preference defaults
 src/
   index.ts          registers Zotero.ZoteroTimeline, defines ztoolkit
