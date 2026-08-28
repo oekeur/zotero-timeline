@@ -412,10 +412,11 @@ describe("the active timeline (TASK-16)", function () {
       () => api.getActiveTimeline() === "doc-sources",
       "selecting doc-sources' event to activate its lane",
     );
-    await Zotero.Promise.delay(300);
 
-    const handle = doc.querySelector(".vis-drag-center") as any;
-    assert.ok(handle, "no drag handle on the now-active doc-sources item");
+    const handle = (await waitFor(
+      () => doc.querySelector(".vis-drag-center"),
+      "a drag handle on the now-active doc-sources item",
+    )) as any;
     const r = handle.getBoundingClientRect();
     let x = Math.round(r.left + r.width / 2);
     const y = Math.round(r.top + r.height / 2);
