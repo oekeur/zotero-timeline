@@ -199,42 +199,56 @@ describe("canvas range rendering", function () {
     const win = Zotero.getMainWindows()[0] as any;
     const doc = win.document;
 
-    await api.openTimelineTab();
-    await Zotero.Promise.delay(1500);
-
-    const timeline = api.getCurrentTimeline();
-
-    // Every EDTF value spans at least its own precision (a month-precision
-    // date covers that whole month), so both events below render with the
-    // "vis-range" class regardless of endDate - that class alone cannot
-    // distinguish them. What only reading endDate produces is width: ev-range
-    // spans date (1600-04) to endDate (1602-04), about two years, while
-    // ev-point is a bare month-precision date with no endDate at all, about
-    // one month. Without the fix, ev-range's end would still come from
-    // toTimelineRange(event.date) alone (the month "1600-04" itself), so it
-    // would render about as narrow as ev-point.
-    timeline.setSelection(["doc-range:ev-range"]);
-    await Zotero.Promise.delay(300);
-    const rangeItem = doc.querySelector(
-      ".vis-item.vis-selected",
-    ) as HTMLElement;
-    assert.ok(rangeItem, "no selected item for the date+endDate event");
-    const rangeWidth = rangeItem.getBoundingClientRect().width;
-
-    timeline.setSelection(["doc-range:ev-point"]);
-    await Zotero.Promise.delay(300);
-    const pointItem = doc.querySelector(
-      ".vis-item.vis-selected",
-    ) as HTMLElement;
-    assert.ok(pointItem, "no selected item for the date-only event");
-    const pointWidth = pointItem.getBoundingClientRect().width;
-
-    assert.isAbove(
-      rangeWidth,
-      pointWidth * 5,
-      `expected the date+endDate event (~2 years) to render far wider than the ` +
-        `month-precision date-only event (~1 month): range=${rangeWidth}px point=${pointWidth}px`,
+    // Asserted against the built item rather than by comparing rendered
+    // widths. The old comparison measured this range against a date-only
+    // event and required it to be five times wider, which worked only while
+    // that event was a sub-pixel sliver. Since TASK-44 a date-only event is a
+    // box, whose width is its label, so the comparison is between a duration
+    // and a piece of text and means nothing. What the criterion actually
+    // claims is that the end comes from endDate, and that is checkable
+    // directly.
+    const built = buildTimelineItem("doc-range", {
+      id: "ev-range",
+      title: "Siege of Ostend",
+      date: "1600-04",
+      endDate: "1602-04",
+      sources: [],
+      tags: [],
+    } as any) as any;
+    assert.ok(built.end, "a date+endDate event was built with no end at all");
+    assert.equal(
+      new Date(built.end).getUTCFullYear(),
+      1602,
+      "the end did not come from endDate; it came from the date's own precision",
     );
+    assert.equal(new Date(built.start).getUTCFullYear(), 1600);
+
+    // And a date-only event of the same precision gets no end, which is what
+    // stops its title being clipped inside a one-month bar.
+    const point = buildTimelineItem("doc-range", {
+      id: "ev-point",
+      title: "Fall of Ostend",
+      date: "1650-04",
+      sources: [],
+      tags: [],
+    } as any) as any;
+    assert.isUndefined(
+      point.end,
+      "a month-precision date with no endDate still produced an end, so its width still means precision",
+    );
+
+    // Then that the range really does draw as one on a rendered tab.
+    await api.openTimelineTab();
+    const timeline = (await waitFor(
+      () => api.getCurrentTimeline(),
+      "the canvas to render",
+    )) as any;
+    timeline.setSelection(["doc-range:ev-range"]);
+    const rangeItem = (await waitFor(
+      () => doc.querySelector(".vis-item.vis-range.vis-selected"),
+      "the date+endDate event to render as a selected range",
+    )) as HTMLElement;
+    assert.ok(rangeItem, "the date+endDate event did not render as a range");
   });
 
   it("moves the endDate endpoint on screen when its edge is dragged", async function () {

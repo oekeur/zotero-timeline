@@ -266,17 +266,18 @@ describe("parked and flagged events", function () {
         "the timeline to render",
       );
 
-      // ev-readable has no endDate, but a day-precision date still spans its
-      // whole day (edtf@4.11.1), so buildTimelineItem gives it a real `end`
-      // and it renders as a RangeItem, one DOM node. A parked item never
-      // carries an `end` at all, so it renders as a BoxItem instead - which
-      // renders THREE parallel nodes (box, an axis line, an axis dot), all
+      // Both of these render as BoxItems. ev-readable is a day-precision date
+      // with no endDate, and since TASK-44 a date that asserts no extent gets
+      // no `end`, so it is a box rather than the one-DOM-node RangeItem it
+      // used to be. A parked item never carries an `end` either. A BoxItem
+      // renders THREE parallel nodes (the box, an axis line, an axis dot) all
       // carrying the identical class string including vis-selected, so a bare
-      // .vis-selected query can land on any of the three. Only dom.box ever
-      // gets a drag handle, so that is the one to target for it.
+      // .vis-selected query can land on any of the three; only dom.box ever
+      // gets a drag handle, so that is the one to target. What separates the
+      // two events here is editability, not shape.
       timeline.setSelection(["doc-parked-own-span:ev-readable"]);
       const readableItem = await waitFor(
-        () => doc.querySelector(".vis-item.vis-range.vis-selected"),
+        () => doc.querySelector(".vis-item.vis-box.vis-selected"),
         "the readable event to render selected",
       );
       assert.ok(readableItem, "no selected item for the readable event");

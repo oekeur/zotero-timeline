@@ -71,7 +71,15 @@ describe("timeline tab", function () {
     // targets the items themselves, not just any child.
     await waitFor(() => {
       const el = doc.getElementById("zoterotimeline-canvas");
-      return el && el.querySelectorAll(".vis-item").length === 4 ? el : null;
+      // One node per event, not per DOM element. A point-like item renders
+      // three parallel nodes (a box, a dot and a line), so counting
+      // ".vis-item" counts a box event three times; since TASK-44 most events
+      // are boxes. The content-bearing node is the box or the range.
+      return el &&
+        el.querySelectorAll(".vis-item.vis-box, .vis-item.vis-range").length ===
+          4
+        ? el
+        : null;
     }, "the canvas to render the fixture's four items").catch(() => {});
 
     const canvas = doc.getElementById("zoterotimeline-canvas");
@@ -91,7 +99,9 @@ describe("timeline tab", function () {
       canvasClientWidth: canvas.clientWidth,
       canvasOffsetParent: String(canvas.offsetParent?.id ?? null),
       firstChildClass: canvas.firstElementChild?.className ?? null,
-      visItemCount: canvas.querySelectorAll(".vis-item").length,
+      visItemCount: canvas.querySelectorAll(
+        ".vis-item.vis-box, .vis-item.vis-range",
+      ).length,
       visLabelCount: canvas.querySelectorAll(".vis-label").length,
       stylesheetLinked: !!doc.getElementById("zoterotimeline-vis-stylesheet"),
       docHasHead: !!doc.head,

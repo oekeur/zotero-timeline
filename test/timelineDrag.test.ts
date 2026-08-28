@@ -73,8 +73,13 @@ describe("timeline drag", function () {
     // and it only works if Hammer resolved a real window at module scope.
     // currentTimeline is assigned before vis-timeline's own initial redraw has
     // put anything in the DOM, so the item itself needs its own wait.
+    // The content-bearing node, not any .vis-item. A point-like item renders
+    // three parallel nodes (box, axis line, axis dot) and the line and dot are
+    // a pixel or two wide, so a click centred on whichever matched first lands
+    // on nothing. Since TASK-44 a date asserting no extent is a box, so this
+    // matters for ordinary events and not only for parked ones.
     const item = (await waitFor(
-      () => doc.querySelector(".vis-item"),
+      () => doc.querySelector(".vis-item.vis-box, .vis-item.vis-range"),
       "the first item to render on the canvas",
     )) as any;
     assert.ok(item, "no .vis-item present");
