@@ -65,9 +65,6 @@ timeline-canvas-no-timelines-read-only = This library has no timelines.
 
 timeline-sidebar-none-visible = No timelines are visible. Toggle one on in the sidebar to see it here.
 
-timeline-sidebar-tags-heading = Tags
-timeline-sidebar-tags-empty = No tags on the visible timelines yet. Add one from the event editor to filter by it here.
-
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.
 event-editor-empty-read-only = Select an event to see its details.
 event-editor-untitled-title = Untitled event

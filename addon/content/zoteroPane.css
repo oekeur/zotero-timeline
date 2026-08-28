@@ -228,68 +228,6 @@
 }
 
 /*
- * The tag filter, drawn under the timeline list in the same 200px column.
- * Reuses the event editor's tag-chip shape (padding, radius, --fill-quinary
- * fill) so a tag reads as the same kind of thing wherever it appears; a
- * selected chip gets the settled selected-row treatment instead of a filled
- * accent, per ui-design.md: --color-accent is the OS accent colour and is
- * never used as a fill.
- */
-.zoterotimeline-sidebar-tags {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-panedivider);
-}
-
-.zoterotimeline-sidebar-tags-heading {
-  font-weight: 600;
-  color: var(--fill-primary);
-  margin-bottom: 6px;
-}
-
-.zoterotimeline-tag-filter-empty {
-  color: var(--fill-secondary);
-  font-size: 0.9em;
-}
-
-.zoterotimeline-tag-filter-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.zoterotimeline-tag-filter-chip {
-  max-width: 100%;
-  padding: 1px 6px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: var(--fill-quinary);
-  color: var(--fill-secondary);
-  font-size: 0.9em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.zoterotimeline-tag-filter-chip:hover {
-  background: var(--fill-quarternary);
-  color: var(--fill-primary);
-}
-
-.zoterotimeline-tag-filter-chip:focus-visible {
-  outline: var(--color-focus-outer-border) solid var(--width-focus-outer-border);
-  outline-offset: var(--width-focus-border);
-  box-shadow: 0 0 0 var(--width-focus-border) var(--color-focus-border);
-}
-
-.zoterotimeline-tag-filter-chip-selected {
-  background: var(--fill-quarternary);
-  color: var(--fill-primary);
-  border-inline-start: 2px solid var(--color-accent);
-}
-
-/*
  * position: relative is a hard requirement rather than styling. vis-timeline
  * absolutely positions its own layers inside this element; with no positioning
  * context they resolve against some ancestor further up the XUL tree and the
