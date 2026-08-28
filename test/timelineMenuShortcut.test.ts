@@ -154,4 +154,37 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
       editable.remove();
     }
   });
+
+  // The case the three elements above cannot express. Zotero's own text fields
+  // are XUL custom elements holding their <input> in an open shadow root, and
+  // an event crossing that boundary is retargeted to the host, so a guard
+  // reading ev.target sees `search-textbox` and lets the keystroke through.
+  // Typing a capital T in the quick-search box opened the tab until the guard
+  // started reading composedPath()[0] instead. Dispatching at the inner input
+  // with composed: true is what a real key press does.
+  it("does not fire while focus is in a Zotero field that wraps its input in a shadow root", async function () {
+    const win = mainWindow();
+    const doc = win.document as Document;
+
+    const host = doc.getElementById("zotero-tb-search-textbox") as any;
+    assert.ok(
+      host,
+      "the quick-search field is missing; this spec proves nothing without it",
+    );
+    const inner = host.shadowRoot?.querySelector("input") as HTMLElement | null;
+    assert.ok(
+      inner,
+      "the quick-search field no longer wraps an input in a shadow root; retarget this spec at one that does",
+    );
+
+    const options = { key: "T", shiftKey: true, bubbles: true, composed: true };
+    inner!.dispatchEvent(new win.KeyboardEvent("keydown", options));
+    inner!.dispatchEvent(new win.KeyboardEvent("keyup", options));
+
+    await Zotero.Promise.delay(500);
+    assert.notOk(
+      timelineTab(),
+      "Shift+T opened the tab while focus was in the quick-search field",
+    );
+  });
 });

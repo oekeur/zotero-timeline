@@ -12,6 +12,7 @@ import {
   SOURCE_NAME_INPUT_CLASS,
   SOURCE_REMOVE_BUTTON_CLASS,
   TITLE_INPUT_CLASS,
+  EMPTY_PROMPT_CLASS,
 } from "../src/modules/timeline/eventEditor";
 import {
   READ_ONLY_BANNER_CLASS,
@@ -115,6 +116,39 @@ describe("read-only when the library cannot be written", function () {
       return input && input.value === "An event" ? input : null;
     }, 'the title field to read "An event"')) as HTMLInputElement;
   }
+
+  // AC #8. Every other spec here asserts control state, which is why the
+  // panel spent this whole task telling the user, one line under a banner
+  // saying nothing can be created or changed, to "click an empty spot on the
+  // canvas to create one there". State assertions cannot see a surface
+  // contradicting itself; only reading the words can.
+  it("does not invite the user to edit or create in a library that cannot be written", async function () {
+    const originalGet = stubNotWritable();
+    try {
+      const { doc } = await openTab();
+      const prompt = await waitFor(
+        () => doc.querySelector(`.${EMPTY_PROMPT_CLASS}`),
+        "the editor's empty-state prompt to render",
+      );
+      const text = (prompt!.textContent ?? "").toLowerCase();
+      assert.notInclude(
+        text,
+        "create one there",
+        "the read-only panel still invites a click-to-create the canvas refuses",
+      );
+      assert.notInclude(
+        text,
+        "to edit it",
+        "the read-only panel still invites editing the library refuses",
+      );
+      assert.isNotEmpty(
+        text.trim(),
+        "the read-only panel rendered no prompt at all; an unresolved Fluent key renders empty",
+      );
+    } finally {
+      Zotero.Libraries.get = originalGet;
+    }
+  });
 
   // AC #1, #2, #5
   it("shows a banner naming the library when it can't be written, and none when it can", async function () {

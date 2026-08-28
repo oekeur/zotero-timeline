@@ -1130,6 +1130,22 @@ export function registerTimelineMenu(): void {
   });
 }
 
+/**
+ * The element the keystroke actually landed in.
+ *
+ * `ev.target` is not it. Zotero's text fields are XUL custom elements holding
+ * a real `<input>` in an open shadow root, and an event crossing that boundary
+ * is retargeted to the host: typing in the quick-search box reports a target
+ * whose tagName is `search-textbox`. `composedPath()[0]` is the inner element
+ * that was actually focused, so the guard below sees an `input` where reading
+ * `ev.target` sees a custom element it has no opinion about.
+ */
+function textEntryTarget(ev: Event): HTMLElement | null {
+  const path = ev.composedPath?.();
+  return ((path && path.length > 0 ? path[0] : ev.target) ??
+    null) as HTMLElement | null;
+}
+
 function isTextEntryTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   if (!element) {
@@ -1144,7 +1160,7 @@ export function registerTimelineShortcut(): void {
     if (!keyOptions.keyboard?.equals(TIMELINE_SHORTCUT)) {
       return;
     }
-    if (isTextEntryTarget(ev.target)) {
+    if (isTextEntryTarget(textEntryTarget(ev))) {
       return;
     }
     void openTimelineTab().catch((err) => {

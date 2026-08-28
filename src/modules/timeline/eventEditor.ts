@@ -380,7 +380,17 @@ export function renderEventEditor(
   if (!selection) {
     const prompt = doc.createElement("p");
     prompt.classList.add(EMPTY_PROMPT_CLASS);
-    prompt.setAttribute("data-l10n-id", getLocaleID("event-editor-empty"));
+    // Both halves of the writable prompt are impossible in a library that
+    // cannot be written: editing is refused and a click on empty canvas
+    // creates nothing. Left unswitched it sat one line under the read-only
+    // banner telling the user to do exactly what the banner had just said
+    // could not happen.
+    prompt.setAttribute(
+      "data-l10n-id",
+      getLocaleID(
+        libraryEditable ? "event-editor-empty" : "event-editor-empty-read-only",
+      ),
+    );
     container.appendChild(prompt);
     if (creatable && creatable.documents.length > 0) {
       renderCreateForm(doc, container, creatable, onChange, libraryEditable);

@@ -37,6 +37,7 @@ timeline-sidebar-rename-cancel-button = Cancel
 timeline-sidebar-none-visible = No timelines are visible. Toggle one on in the sidebar to see it here.
 
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.
+event-editor-empty-read-only = Select an event to see its details.
 event-editor-untitled-title = Untitled event
 event-editor-title-label = Title
 event-editor-date-label = Date
