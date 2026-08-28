@@ -86,6 +86,8 @@ export type FluentMessageId =
   | 'timeline-sidebar-rename-cancel-button'
   | 'timeline-sidebar-rename-confirm-button'
   | 'timeline-sidebar-rename-name-input'
+  | 'timeline-sidebar-tags-empty'
+  | 'timeline-sidebar-tags-heading'
   | 'timeline-sidebar-unreadable-label'
   | 'timeline-sidebar-visible-checkbox'
   | 'timeline-tab-label'
