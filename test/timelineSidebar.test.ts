@@ -59,7 +59,7 @@ describe("timeline sidebar: visibility and order", function () {
 
     const { sidebar } = await openSidebar();
 
-    const names = Array.from(
+    const names = Array.from<HTMLElement>(
       sidebar.querySelectorAll(".zoterotimeline-sidebar-row-name"),
     ).map((el) => el.textContent);
     assert.include(names, "Dutch Revolt");
@@ -227,7 +227,7 @@ describe("timeline sidebar: visibility and order", function () {
   it("each sidebar row is keyboard-focusable, in the order the rows are drawn", async function () {
     const { doc, sidebar } = await openSidebar();
 
-    const rows = Array.from(
+    const rows = Array.from<HTMLElement>(
       sidebar.querySelectorAll(
         ".zoterotimeline-sidebar-row:not(.zoterotimeline-sidebar-row-unreadable)",
       ),

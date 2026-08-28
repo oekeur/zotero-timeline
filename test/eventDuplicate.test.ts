@@ -247,7 +247,9 @@ describe("duplicate an event onto another timeline", function () {
       return el && el.options.length > 0 ? el : null;
     }, "the target list to fill")) as HTMLSelectElement;
 
-    const groups = Array.from(select.querySelectorAll("optgroup"));
+    const groups = Array.from<HTMLOptGroupElement>(
+      select.querySelectorAll("optgroup"),
+    );
     assert.isNotEmpty(groups, "targets are not grouped by library");
     for (const group of groups) {
       assert.isNotEmpty(
@@ -256,7 +258,9 @@ describe("duplicate an event onto another timeline", function () {
       );
     }
 
-    const values = Array.from(select.options).map((o) => o.value);
+    const values = (Array.from(select.options) as HTMLOptionElement[]).map(
+      (o) => o.value,
+    );
     assert.include(
       values,
       `${libraryID}:doc-source`,
@@ -272,7 +276,8 @@ describe("duplicate an event onto another timeline", function () {
     for (const value of values) {
       const id = Number(value.split(":")[0]);
       assert.isTrue(
-        Zotero.Libraries.get(id)?.editable,
+        (Zotero.Libraries.get(id) as { editable: boolean } | false) !== false &&
+          (Zotero.Libraries.get(id) as { editable: boolean }).editable,
         `a library the user cannot write is offered as a target: ${id}`,
       );
     }

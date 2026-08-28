@@ -102,6 +102,14 @@ if ! git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
   block "pre-merge gate could not resolve '$ref' to a commit."
 fi
 
+# Nothing to test when the ref is already an ancestor of HEAD: the merge is a
+# no-op and the result is the tree that is already checked out. Running the
+# full suite for that cost 4.2 minutes once in a single session, for a merge
+# that reported "Already up to date."
+if git merge-base --is-ancestor "$ref" HEAD 2>/dev/null; then
+  allow
+fi
+
 tmp=$(mktemp -d /tmp/zoterotimeline-premerge.XXXXXX)
 work="$tmp/work"
 log="$tmp/test.log"

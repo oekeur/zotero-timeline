@@ -1,3 +1,13 @@
 {
-  "extends": "../tsconfig.json"
+  // `include` in an extending config resolves against the config that declares
+  // it, so inheriting the root's ["src", "typings"] pointed this project at
+  // ../src and type-checked test/ not at all: `tsc -p test` listed zero files
+  // under test/. Declared here instead, with src and typings alongside because
+  // every spec imports the modules it exercises.
+  //
+  // Without this, a changed export signature that breaks a spec is caught only
+  // by the four-minute live suite, which is exactly the cost CLAUDE.md
+  // describes as the price of test/ having its own type universe.
+  "extends": "../tsconfig.json",
+  "include": [".", "../src", "../typings"]
 }

@@ -131,9 +131,9 @@ describe("the preferences pane", function () {
     }
 
     function rowLabels(container: HTMLElement): string[] {
-      return Array.from(container.querySelectorAll(`.${ROW_LABEL_CLASS}`)).map(
-        (el) => el.textContent ?? "",
-      );
+      return Array.from<HTMLElement>(
+        container.querySelectorAll(`.${ROW_LABEL_CLASS}`),
+      ).map((el) => el.textContent ?? "");
     }
 
     // AC #5
@@ -173,10 +173,10 @@ describe("the preferences pane", function () {
       ]);
 
       const texts = [
-        ...Array.from(container.querySelectorAll("button")).map(
+        ...Array.from<HTMLElement>(container.querySelectorAll("button")).map(
           (el) => el.textContent,
         ),
-        ...Array.from(container.querySelectorAll("label")).map(
+        ...Array.from<HTMLElement>(container.querySelectorAll("label")).map(
           (el) => el.textContent,
         ),
       ];
@@ -307,7 +307,7 @@ describe("the preferences pane", function () {
       const container = mount();
       await render(container);
 
-      const rows = Array.from(
+      const rows = Array.from<HTMLElement>(
         container.querySelectorAll(`.${ROW_CLASS}`),
       ) as HTMLElement[];
       const citesRow = rows.find((row) => row.textContent?.includes("cites"))!;

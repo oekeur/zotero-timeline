@@ -232,7 +232,7 @@ describe("item-pane section: which events cite this item", function () {
 
       await renderCitingEventsContent(body, cited);
 
-      const headings = Array.from(
+      const headings = Array.from<HTMLElement>(
         body.querySelectorAll(`.${GROUP_HEADING_CLASS}`),
       ).map((el) => el.textContent);
       assert.deepEqual(headings, ["Timeline A"]);

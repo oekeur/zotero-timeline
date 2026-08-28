@@ -302,7 +302,9 @@ describe("addSourcesDialog", function () {
       assert.equal(select.namespaceURI, "http://www.w3.org/1999/xhtml");
       assert.equal(select.options.length, 2);
       assert.sameMembers(
-        Array.from(select.options).map((option) => option.value),
+        (Array.from(select.options) as HTMLOptionElement[]).map(
+          (option) => option.value,
+        ),
         ["e-first", "e-second"],
       );
 

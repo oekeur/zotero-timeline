@@ -106,7 +106,7 @@ describe("timeline sidebar: renaming and deleting a timeline", function () {
     assert.include(names, "Third Timeline");
     assert.notInclude(names, "Source production");
 
-    const rowNames = Array.from(
+    const rowNames = Array.from<HTMLElement>(
       sidebar.querySelectorAll(".zoterotimeline-sidebar-row-name"),
     ).map((el) => el.textContent);
     assert.include(rowNames, "Print culture");

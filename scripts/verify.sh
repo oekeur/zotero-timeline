@@ -85,6 +85,13 @@ clear_stale_test_zotero() {
 if [ "$RUN_STATIC" = 1 ]; then
   run_stage build npm run build
   run_stage lint npm run lint:check
+  # test/ has its own tsconfig and is NOT covered by `npm run build`'s
+  # tsc --noEmit, which reads the root config. Until this stage existed,
+  # `tsc -p test` type-checked zero files under test/ (its inherited `include`
+  # resolved against the root config), so a changed export signature that broke
+  # a spec was caught only by the four-minute live suite. This stage costs a
+  # couple of seconds and catches that class before a commit.
+  run_stage typecheck npm run typecheck
 fi
 
 # Safe next to a dev Zotero from `npm start`: `npm run test:fast` kills its own

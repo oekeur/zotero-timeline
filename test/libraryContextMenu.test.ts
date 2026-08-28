@@ -38,7 +38,9 @@ function unsavedItem(
   libraryID: number,
   tags: string[] = [],
 ): Zotero.Item {
-  const item = new Zotero.Item(itemType);
+  // The fixture takes a free-form type string; Zotero.Item's own union is
+  // narrower than what these specs pass.
+  const item = new Zotero.Item(itemType as never);
   item.libraryID = libraryID;
   for (const tag of tags) {
     item.addTag(tag);

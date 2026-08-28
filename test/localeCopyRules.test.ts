@@ -45,7 +45,7 @@ describe("locale copy rules", function () {
         bundles.push({
           locale,
           file: path.split("/").pop() as string,
-          text: await Zotero.File.getContentsAsync(path),
+          text: (await Zotero.File.getContentsAsync(path)) as string,
         });
       }
     }

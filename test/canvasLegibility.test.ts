@@ -124,7 +124,7 @@ describe("legibility of titles and short events", function () {
   function boxFor(doc: Document, id: string): HTMLElement | null {
     // The box carries the label; the axis line and dot are the other two nodes
     // of the same item and are a pixel or two wide.
-    for (const el of Array.from(
+    for (const el of Array.from<HTMLElement>(
       doc.querySelectorAll(".vis-item.vis-box"),
     ) as HTMLElement[]) {
       if ((el.textContent ?? "").includes(id)) {
@@ -236,7 +236,9 @@ describe("legibility of titles and short events", function () {
         await Zotero.Promise.delay(300);
 
         const boxes = (
-          Array.from(doc.querySelectorAll(".vis-item.vis-box")) as HTMLElement[]
+          Array.from<HTMLElement>(
+            doc.querySelectorAll(".vis-item.vis-box"),
+          ) as HTMLElement[]
         ).map((el) => el.getBoundingClientRect());
 
         for (let i = 0; i < boxes.length; i += 1) {

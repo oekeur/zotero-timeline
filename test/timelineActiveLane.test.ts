@@ -166,7 +166,7 @@ describe("the active timeline (TASK-16)", function () {
       "doc-sources": "Source production",
     };
     function laneClasses(documentId: string): DOMTokenList {
-      const labels = Array.from(
+      const labels = Array.from<HTMLElement>(
         doc.querySelectorAll(".vis-labelset .vis-label"),
       ) as HTMLElement[];
       const label = labels.find(

@@ -93,7 +93,7 @@ describe("event editor panel", function () {
   // give - matching case-insensitively is what actually excludes them.
   async function waitForResolvedLabels(panel: HTMLElement): Promise<void> {
     await waitFor(() => {
-      const labeled = Array.from(
+      const labeled = Array.from<HTMLElement>(
         panel.querySelectorAll("[data-l10n-id]"),
       ).filter((el) => {
         const tag = el.tagName.toLowerCase();
@@ -125,7 +125,7 @@ describe("event editor panel", function () {
       return el && el.value === expectedTitle ? el : null;
     }, `the title field to read "${expectedTitle}"`)) as HTMLInputElement;
     await waitFor(() => {
-      const typeSelects = Array.from(
+      const typeSelects = Array.from<HTMLElement>(
         panel.querySelectorAll(`.${SOURCE_TYPE_SELECT_CLASS}`),
       ) as HTMLSelectElement[];
       return typeSelects.every((select) => select.options.length > 0)
@@ -226,7 +226,7 @@ describe("event editor panel", function () {
       "Truce negotiations",
     );
 
-    const labelsAndButtons = Array.from(
+    const labelsAndButtons = Array.from<HTMLElement>(
       panel.querySelectorAll("label, button"),
     );
     assert.isAbove(labelsAndButtons.length, 0, "no labels or buttons found");
@@ -288,7 +288,9 @@ describe("event editor panel", function () {
     commit("a,b");
     commit("second");
 
-    const chips = Array.from(panel.querySelectorAll(`.${TAG_CLASS}`));
+    const chips = Array.from<HTMLElement>(
+      panel.querySelectorAll(`.${TAG_CLASS}`),
+    );
     assert.lengthOf(chips, 2, "expected two committed tags");
     const texts = chips.map(
       (chip) => chip.querySelector(`.${TAG_TEXT_CLASS}`)!.textContent,
@@ -301,14 +303,14 @@ describe("event editor panel", function () {
 
     // Removing the first tag removes exactly that one and leaves the order
     // of the rest.
-    const removeButtons = Array.from(
+    const removeButtons = Array.from<HTMLElement>(
       panel.querySelectorAll(`.${TAG_REMOVE_BUTTON_CLASS}`),
     );
     (removeButtons[0] as HTMLButtonElement).click();
 
-    const remaining = Array.from(panel.querySelectorAll(`.${TAG_CLASS}`)).map(
-      (chip) => chip.querySelector(`.${TAG_TEXT_CLASS}`)!.textContent,
-    );
+    const remaining = Array.from<HTMLElement>(
+      panel.querySelectorAll(`.${TAG_CLASS}`),
+    ).map((chip) => chip.querySelector(`.${TAG_TEXT_CLASS}`)!.textContent);
     assert.deepEqual(remaining, ["second"]);
   });
 
@@ -1068,7 +1070,9 @@ describe("event editor panel", function () {
       const { panel, win, timeline } = await openPanel();
       await selectEvent(timeline, panel, "doc-jump:ev-1", "An event");
 
-      const rows = Array.from(panel.querySelectorAll(`.${SOURCE_CLASS}`));
+      const rows = Array.from<HTMLElement>(
+        panel.querySelectorAll(`.${SOURCE_CLASS}`),
+      );
       assert.lengthOf(rows, 2);
       const resolvedRow = rows.find(
         (row) =>

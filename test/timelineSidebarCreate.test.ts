@@ -101,7 +101,7 @@ describe("timeline sidebar: creating a timeline", function () {
       .map((t: any) => t.doc.name as string);
     assert.include(names, "New Chronology");
 
-    const rowNames = Array.from(
+    const rowNames = Array.from<HTMLElement>(
       sidebar.querySelectorAll(".zoterotimeline-sidebar-row-name"),
     ).map((el) => el.textContent);
     assert.include(rowNames, "New Chronology");
