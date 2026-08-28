@@ -202,10 +202,15 @@ describe("refresh the canvas when a storage note changes underneath it", functio
 
     await Zotero.Promise.delay(2500);
     const delta = api().rebuildsSoFar() - before;
-    assert.isAtMost(
+    // Exactly two, and both halves matter. The burst's first notification
+    // starts a rebuild; the other four arrive while it is in flight and
+    // collapse into exactly one more. Five would mean the dirty bit is not
+    // coalescing, one would mean the four were dropped, which is the failure
+    // that leaves a prune invisible until the tab is reopened.
+    assert.equal(
       delta,
-      1,
-      `a burst of five notifications produced ${delta} rebuilds; they should coalesce`,
+      2,
+      `a burst of five notifications produced ${delta} rebuilds; expected the first to start one and the rest to coalesce into one more`,
     );
   });
 
@@ -327,11 +332,21 @@ describe("refresh the canvas when a storage note changes underneath it", functio
     );
     const elapsed = Date.now() - started;
 
-    // Printed so the number lands in the run output and can be copied into the
-    // task, since a measurement nobody reads is not a measurement.
+    // Written to a file, not to Zotero.debug: the debug log belongs to the
+    // test Zotero and dies with it, and a measurement nobody can read
+    // afterwards is not a measurement. The path is fixed so a run can be
+    // compared against the last one.
     Zotero.debug(
-      `[ZoteroTimeline] AC6 measurement: rebuild of 10 timelines took ${elapsed}ms (includes the write that triggered it)`,
+      `[ZoteroTimeline] AC6 measurement: rebuild of 10 timelines took ${elapsed}ms`,
     );
+    try {
+      await Zotero.File.putContentsAsync(
+        "/tmp/zoterotimeline-ac6-rebuild-ms.txt",
+        `${elapsed}\n`,
+      );
+    } catch {
+      // A measurement that cannot be written must not fail the assertion below.
+    }
     assert.isBelow(
       elapsed,
       15000,
