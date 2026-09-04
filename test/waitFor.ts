@@ -65,6 +65,60 @@ function timeoutError(message: string): Error {
   return error;
 }
 
+/**
+ * A key that exists in the built mainWindow bundle, used only to ask whether
+ * Fluent is answering at all.
+ *
+ * The build prefixes every source key with the addon ref, so the source name
+ * `timeline-chrome-zoom-in` resolves to nothing and a probe using it reports a
+ * dead pipeline no matter what the pipeline is doing. That mistake cost a full
+ * investigation on 2026-09-04.
+ */
+const L10N_PROBE_KEY = "zoterotimeline-timeline-chrome-zoom-in";
+
+/**
+ * What Fluent was doing at the moment a wait gave up.
+ *
+ * Most of this suite's intermittent failures are waits on Fluent-backed labels
+ * that resolve in well under a second or never resolve at all, with nothing in
+ * between. That shape says the resource stopped being answered rather than
+ * that the render got slow, but a bare timeout cannot tell the two apart. This
+ * asks directly: `formatMessages` returning a message means Fluent is alive
+ * and the condition failed for its own reasons; `[null]` means the key is not
+ * in any loaded bundle; a timeout on the probe itself means the pipeline is
+ * wedged.
+ *
+ * Runs only on the failure path, and never throws: a diagnostic that can fail
+ * replaces the real error with its own.
+ */
+async function l10nHealth(): Promise<string> {
+  try {
+    const win = Zotero.getMainWindow() as Window | undefined;
+    const doc = win?.document;
+    if (!doc) {
+      return "l10n: no main window";
+    }
+    const links = Array.from(
+      doc.querySelectorAll('link[rel="localization"]'),
+    ).map((link) => (link as Element).getAttribute("href"));
+    const inHead = doc.head
+      ? doc.head.querySelectorAll('link[rel="localization"]').length
+      : 0;
+    const probe = await Promise.race([
+      (doc as any).l10n
+        .formatMessages([{ id: L10N_PROBE_KEY }])
+        .then((messages: unknown) => JSON.stringify(messages)),
+      Zotero.Promise.delay(2000).then(() => "PROBE ITSELF TIMED OUT"),
+    ]);
+    return (
+      `l10n: probe=${probe}; head=${!!doc.head}; ` +
+      `localizationLinks=${links.length} (${inHead} inside head): ${links.join(", ")}`
+    );
+  } catch (error) {
+    return `l10n: probe threw ${String(error)}`;
+  }
+}
+
 export async function waitFor<T>(
   get: () => T | null | undefined | Promise<T | null | undefined>,
   description: string,
@@ -81,7 +135,8 @@ export async function waitFor<T>(
     }
     if (Date.now() >= deadline) {
       throw timeoutError(
-        `waitFor: timed out after ${timeout}ms waiting for ${description}`,
+        `waitFor: timed out after ${timeout}ms waiting for ${description}. ` +
+          (await l10nHealth()),
       );
     }
     await Zotero.Promise.delay(interval);

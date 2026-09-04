@@ -99,28 +99,14 @@ fi
 # left alone. clear_stale_test_zotero below still matches any `scaffold/test`
 # profile, including another worktree's in-flight test run.
 #
-# The suite drives a live Zotero GUI, so it competes for the desktop display
-# with every other run and with whatever is on screen. `xvfb-run -a` gives each
-# run its own virtual display on a free number, which is what makes concurrent
-# gates across worktrees safe rather than merely usually-fine. Absent xvfb-run
-# (CI images without it, macOS) the suite still runs on the real display, so
-# this is a wrapper and not a requirement.
-#
-# `xvfb-run` alone is not enough on a Wayland session, and it fails silently:
-# the Zotero launcher exports MOZ_ENABLE_WAYLAND=1, so Gecko connects to the
-# compositor named by the inherited WAYLAND_DISPLAY and paints on the real
-# screen while DISPLAY points at an Xvfb nothing ever draws on. Measured
-# 2026-09-04: the suite scored 20 and then 18 failures that way, and 372
-# passed with zero failures once WAYLAND_DISPLAY was removed. Unsetting it is
-# the only lever from out here; the launcher's own export cannot be overridden.
+# The suite runs off-screen: `npm run test:fast` goes through
+# scripts/headless.mjs, which puts it on a virtual display on a Wayland session
+# and explains there why that matters. It used to be wrapped here instead,
+# which left a bare `npm test` on the real display and flaky while the gate was
+# clean.
 if [ "$RUN_TEST" = 1 ]; then
   clear_stale_test_zotero
-  if command -v xvfb-run >/dev/null 2>&1; then
-    run_stage test env -u WAYLAND_DISPLAY xvfb-run -a npm run test:fast
-  else
-    warn "xvfb-run not found; running the suite on the real display"
-    run_stage test npm run test:fast
-  fi
+  run_stage test npm run test:fast
 fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
