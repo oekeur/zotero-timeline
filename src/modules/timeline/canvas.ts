@@ -9,7 +9,7 @@ export const MODULE_EVAL_ENV = {
   hasDocument: typeof (globalThis as any).document !== "undefined",
 };
 
-import { Timeline, DataSet } from "vis-timeline/standalone";
+import { Timeline, DataSet, DataView } from "vis-timeline/standalone";
 import {
   dateAtViewportPrecision,
   shiftEdtfDate,
@@ -382,6 +382,7 @@ export function buildTimelineItem(
       editable: false,
       title: `${event.title} - ${edtfErrorMessage(err)}`,
       className: UNREADABLE_CLASS,
+      tags: event.tags,
     };
   }
 
@@ -425,6 +426,7 @@ export function buildTimelineItem(
     className: endDateError
       ? [formClass, UNREADABLE_CLASS].filter(Boolean).join(" ")
       : formClass,
+    tags: event.tags,
   };
 }
 
@@ -501,6 +503,7 @@ export function renderCanvas(
   groups: DataSet<any>;
   activateDocument: (documentId: string | null) => void;
   getActiveDocument: () => string | null;
+  setTagFilter: (tags: ReadonlySet<string>) => void;
 } {
   // Keyed by document id and shared with `onMove` below, so a write updates
   // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
@@ -604,6 +607,22 @@ export function renderCanvas(
     ).filter((group) => documents.has(String(group.id)));
   }
 
+  // The tag filter, applied through a DataView rather than by rebuilding
+  // `items` itself: every write path above (rebuildDocumentItems, onMove,
+  // click-to-create, and timelineTab.ts's save/create/delete callbacks) keeps
+  // writing straight to the real DataSet, and vis-timeline's own coercion
+  // pipe (typeCoerceDataSet) forwards those writes through the view. Only
+  // `refresh()` needs calling when the filter itself changes. An empty set
+  // means no filter is active, so nothing is hidden.
+  let tagFilter: ReadonlySet<string> = new Set();
+  function itemMatchesTagFilter(item: { tags?: string[] }): boolean {
+    return (
+      tagFilter.size === 0 ||
+      (item.tags ?? []).some((tag) => tagFilter.has(tag))
+    );
+  }
+  const itemsView = new DataView(items, { filter: itemMatchesTagFilter });
+
   /** Every group id currently visible, read straight off the live groups DataSet. */
   function visibleDocumentIds(): Set<string> {
     return new Set(
@@ -679,7 +698,7 @@ export function renderCanvas(
     }
   }
 
-  const timeline = new Timeline(container, items, groups, {
+  const timeline = new Timeline(container, itemsView, groups, {
     editable: {
       updateTime: true,
       updateGroup: false,
@@ -996,11 +1015,32 @@ export function renderCanvas(
     },
   );
 
+  /**
+   * Applies the tag filter: an item carrying none of `tags` is hidden,
+   * every other item stays, and a lane emptied by the filter keeps its row
+   * rather than collapsing (`groups` is untouched here).
+   *
+   * A selected item the filter just hid loses its selection. vis-timeline's
+   * own item removal, driven by `itemsView.refresh()` below, already drops
+   * it from the timeline's internal selection array (verified against
+   * ItemSet's `_removeItem`), so this only has to tell `onSelect` the way a
+   * real deselection would, which is what blanks the editor panel.
+   */
+  function setTagFilter(tags: ReadonlySet<string>): void {
+    const hadSelection = timeline.getSelection().length > 0;
+    tagFilter = tags;
+    itemsView.refresh();
+    if (hadSelection && timeline.getSelection().length === 0) {
+      onSelect(null);
+    }
+  }
+
   return {
     timeline,
     items,
     groups,
     activateDocument,
     getActiveDocument: () => activeDocumentId,
+    setTagFilter,
   };
 }

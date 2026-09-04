@@ -131,7 +131,7 @@ let readableTimelines: StoredTimeline[] = [];
 let getActiveDocumentId: (() => string | null) | undefined;
 // The tags currently chosen to filter by. Module-level for the same reason
 // as readableTimelines - getSelectedTagFilter() and getAvailableTags() are
-// called by the live-Zotero suite and by TASK-51 against the plugin's own
+// called by the live-Zotero suite and by the canvas tag filter against the plugin's own
 // running instance - and reset to empty on tab close, never on anything else:
 // this is view state, so it does not ride sync, does not survive a tab close,
 // and is never written to a document.
@@ -205,7 +205,7 @@ export function getCurrentTimeline(): any {
 /**
  * Every visible timeline, topmost first - the one place this is computed, for
  * TASK-16 (picking the topmost still-visible timeline when the active one is
- * toggled off) and m-7's TASK-50 (which tags to offer). Reads the vis groups
+ * toggled off) and by the tag control (which tags to offer). Reads the vis groups
  * DataSet's own `order` and `visible` fields rather than a second copy of
  * either: the sidebar's toggle and reorder controls write those fields
  * directly, so this is always current with no merge step of its own.
@@ -234,7 +234,7 @@ export function getVisibleTimelines(): StoredTimeline[] {
  * The tags offered by the tag filter right now: the union of tags on events
  * in `getVisibleTimelines()`, which is what makes the offered set shrink the
  * moment a timeline carrying a tag is toggled out of view. Exposed for the
- * live-Zotero suite and for TASK-51, which reads the same set to know what a
+ * live-Zotero suite and for the canvas tag filter, which reads the same set to know what a
  * chip's absence means.
  */
 export function getAvailableTags(): string[] {
@@ -243,7 +243,7 @@ export function getAvailableTags(): string[] {
 
 /**
  * The tags currently chosen to filter by, sorted. Empty means no filter is
- * active - TASK-51 shows every event in that state, never zero of them: an
+ * active - the filter shows every event in that state, never zero of them: an
  * empty selection is "not filtering", not "select nothing".
  */
 export function getSelectedTagFilter(): string[] {
@@ -623,6 +623,7 @@ export async function openTimelineTab(): Promise<void> {
     groups,
     activateDocument: activateTimeline,
     getActiveDocument,
+    setTagFilter,
   } = renderCanvas(
     canvas as unknown as HTMLElement,
     timelines,
@@ -936,6 +937,7 @@ export async function openTimelineTab(): Promise<void> {
       groups,
       activateDocument: activateTimeline,
       getActiveDocument,
+      setTagFilter,
     } = renderCanvas(
       canvas as unknown as HTMLElement,
       fresh.timelines,
@@ -955,6 +957,11 @@ export async function openTimelineTab(): Promise<void> {
       }
     };
 
+    // Restore the previous selection against the fresh, unfiltered instance
+    // first; renderSidebar() below is what applies the persisted tag filter
+    // (setTagFilter's own check - did the selection just restored survive the
+    // filter? - is what clears it and blanks the editor when it did not, the
+    // same as a live chip toggle).
     restoreCanvasState(state);
     renderSidebar();
   }
@@ -1260,6 +1267,12 @@ export async function openTimelineTab(): Promise<void> {
         selectedTagFilter.delete(tag);
       }
     }
+    // Applied here, the one place selectedTagFilter is finalised for this
+    // render, rather than at every call site that mutates it or rebuilds the
+    // canvas: a toggle, a prune above, and a post-rebuild restore all funnel
+    // through a renderSidebar() call already, so this is the single point
+    // that keeps the canvas and the chip bank in agreement.
+    setTagFilter(selectedTagFilter);
     const tagsSection = el(doc, "div");
     sidebar.appendChild(tagsSection as unknown as Node);
     renderTagFilter(

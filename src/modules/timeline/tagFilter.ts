@@ -1,7 +1,7 @@
 /**
  * The tag filter: the union of tags carried by events on the timelines
  * TASK-39's sidebar currently shows, and the bank of toggle chips that lets a
- * user narrow the canvas by them (applied to the canvas itself by TASK-51).
+ * user narrow the canvas by them (the canvas applies the chosen set itself).
  *
  * The set comes from the visible timelines, not the library. A tag authored
  * on a timeline toggled out of the view is not offered: filtering by it would
