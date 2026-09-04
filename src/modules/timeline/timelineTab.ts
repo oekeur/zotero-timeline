@@ -29,6 +29,7 @@ import {
 } from "./storage";
 import { warn } from "./containerGuard";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
+import { collectVisibleTags, renderTagFilter } from "./tagFilter";
 import { serializeDocument, type TimelineDocument } from "./schema";
 import { toTimelineRange } from "../../utils/edtfRange";
 
@@ -128,6 +129,13 @@ let readableTimelines: StoredTimeline[] = [];
 // rather than a mirrored id here that could drift from the one canvas.ts
 // actually acts on.
 let getActiveDocumentId: (() => string | null) | undefined;
+// The tags currently chosen to filter by. Module-level for the same reason
+// as readableTimelines - getSelectedTagFilter() and getAvailableTags() are
+// called by the live-Zotero suite and by TASK-51 against the plugin's own
+// running instance - and reset to empty on tab close, never on anything else:
+// this is view state, so it does not ride sync, does not survive a tab close,
+// and is never written to a document.
+let selectedTagFilter = new Set<string>();
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -220,6 +228,26 @@ export function getVisibleTimelines(): StoredTimeline[] {
       readableTimelines.find((t) => t.doc.id === String(group.id)),
     )
     .filter((t): t is StoredTimeline => t !== undefined);
+}
+
+/**
+ * The tags offered by the tag filter right now: the union of tags on events
+ * in `getVisibleTimelines()`, which is what makes the offered set shrink the
+ * moment a timeline carrying a tag is toggled out of view. Exposed for the
+ * live-Zotero suite and for TASK-51, which reads the same set to know what a
+ * chip's absence means.
+ */
+export function getAvailableTags(): string[] {
+  return collectVisibleTags(getVisibleTimelines());
+}
+
+/**
+ * The tags currently chosen to filter by, sorted. Empty means no filter is
+ * active - TASK-51 shows every event in that state, never zero of them: an
+ * empty selection is "not filtering", not "select nothing".
+ */
+export function getSelectedTagFilter(): string[] {
+  return Array.from(selectedTagFilter).sort();
 }
 
 /**
@@ -371,6 +399,7 @@ export async function openTimelineTab(): Promise<void> {
       timelineGroups = undefined;
       readableTimelines = [];
       getActiveDocumentId = undefined;
+      selectedTagFilter = new Set();
     },
   });
   timelineTabID = id;
@@ -1217,6 +1246,36 @@ export async function openTimelineTab(): Promise<void> {
     for (const entry of unreadable) {
       sidebar.appendChild(buildUnreadableRow(entry) as unknown as Node);
     }
+
+    // The offered set is recomputed on every render, which is what makes it
+    // track a toggle or a reorder with no wiring of its own: renderSidebar
+    // already runs after every one of those, plus after a rebuild triggered
+    // by an event's tags changing underneath this tab. A selection pointing
+    // at a tag that just fell out of the offered set is dropped here rather
+    // than kept invisibly - there is nowhere on this surface to explain why a
+    // chip nobody can see is still narrowing the canvas.
+    const availableTags = collectVisibleTags(getVisibleTimelines());
+    for (const tag of Array.from(selectedTagFilter)) {
+      if (!availableTags.includes(tag)) {
+        selectedTagFilter.delete(tag);
+      }
+    }
+    const tagsSection = el(doc, "div");
+    sidebar.appendChild(tagsSection as unknown as Node);
+    renderTagFilter(
+      doc,
+      tagsSection as unknown as HTMLElement,
+      availableTags,
+      selectedTagFilter,
+      (tag) => {
+        if (selectedTagFilter.has(tag)) {
+          selectedTagFilter.delete(tag);
+        } else {
+          selectedTagFilter.add(tag);
+        }
+        renderSidebar();
+      },
+    );
 
     // Two different empties, needing different sentences. Toggling every
     // timeline off is undone from the sidebar; a library holding none at all
