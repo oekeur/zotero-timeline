@@ -608,6 +608,20 @@ export async function openTimelineTab(): Promise<void> {
       // The wrapped setSelection re-renders the panel as empty on its own.
       timeline.setSelection([]);
     }
+    // An edit made HERE changes which tags exist, and nothing else was going
+    // to notice. The chip bank is recomputed inside renderSidebar, which runs
+    // after a toggle, a reorder, and after the refresh observer rebuilds -
+    // but that observer compares the stored document against what is drawn
+    // and returns early when they match, which is precisely the case one
+    // moment after this tab wrote the change itself. So a tag added through
+    // the editor persisted correctly and never appeared as a chip until the
+    // tab was closed and reopened.
+    //
+    // All three kinds, not just "saved": a created event can carry tags, and
+    // deleting the last event holding a tag has to retire its chip. Cheap
+    // enough to run unconditionally - the alternative is diffing tag sets to
+    // avoid a small DOM rebuild nobody has measured as a cost.
+    renderSidebar();
   }
 
   // After the container is in the document. vis-timeline measures its parent
@@ -1256,8 +1270,10 @@ export async function openTimelineTab(): Promise<void> {
 
     // The offered set is recomputed on every render, which is what makes it
     // track a toggle or a reorder with no wiring of its own: renderSidebar
-    // already runs after every one of those, plus after a rebuild triggered
-    // by an event's tags changing underneath this tab. A selection pointing
+    // already runs after every one of those, after a rebuild triggered by an
+    // event's tags changing underneath this tab, and after an edit made in
+    // this tab (onEditorChange calls it, and says there why that case is not
+    // covered by the rebuild). A selection pointing
     // at a tag that just fell out of the offered set is dropped here rather
     // than kept invisibly - there is nowhere on this surface to explain why a
     // chip nobody can see is still narrowing the canvas.

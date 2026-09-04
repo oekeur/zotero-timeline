@@ -9,6 +9,10 @@ import {
   TAG_FILTER_CHIP_SELECTED_CLASS,
   TAG_FILTER_EMPTY_CLASS,
 } from "../src/modules/timeline/tagFilter";
+import {
+  SAVE_BUTTON_CLASS,
+  TAG_INPUT_CLASS,
+} from "../src/modules/timeline/eventEditor";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
 import { waitFor } from "./waitFor";
 
@@ -92,6 +96,62 @@ describe("timeline sidebar: tag filter", function () {
       sidebar.querySelectorAll(`.${TAG_FILTER_CHIP_CLASS}`),
     ).find((chip) => chip.textContent === tag) as HTMLButtonElement;
   }
+
+  // The regression this file most needed and did not have. Every other spec
+  // here changes the offered set through the sidebar (a toggle, a chip), and
+  // all of those already funnel through renderSidebar. An edit made in the
+  // EDITOR does not: the write goes to storage, the refresh observer compares
+  // the stored document against what is drawn, finds them identical because
+  // this tab is what just wrote it, and correctly declines to rebuild. The
+  // chip bank was recomputed only by that rebuild, so a tag added here
+  // persisted and stayed invisible until the tab was reopened.
+  //
+  // Asserted through the real editor rather than by calling the change
+  // handler, because the handler is exactly the seam that was wired wrong;
+  // a test that called it directly would have passed against the bug.
+  it("offers a tag added through the editor without reopening the tab", async function () {
+    const { doc, sidebar } = await openWithTags();
+
+    assert.notInclude(
+      api.getAvailableTags(),
+      "freshlyAdded",
+      "the fixture already carried the tag this spec adds",
+    );
+
+    const timeline = api.getCurrentTimeline();
+    const panel = doc.querySelector("#zoterotimeline-editor") as HTMLElement;
+    timeline.setSelection(["doc-a:doc-a-e0"]);
+    const tagInput = (await waitFor(
+      () => panel.querySelector(`.${TAG_INPUT_CLASS}`),
+      "the editor's tag input for the selected event",
+    )) as HTMLInputElement;
+
+    tagInput.value = "freshlyAdded";
+    tagInput.dispatchEvent(
+      new (doc.defaultView as any).Event("input", { bubbles: true }),
+    );
+    tagInput.dispatchEvent(
+      new (doc.defaultView as any).KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+      }),
+    );
+
+    const saveButton = (await waitFor(
+      () => panel.querySelector(`.${SAVE_BUTTON_CLASS}`),
+      "the editor's save button",
+    )) as HTMLButtonElement;
+    saveButton.click();
+
+    await waitFor(
+      () => (api.getAvailableTags().includes("freshlyAdded") ? true : null),
+      "the new tag to reach the offered set",
+    );
+    await waitFor(
+      () => chipFor(sidebar, "freshlyAdded"),
+      "a chip for the tag added through the editor",
+    );
+  });
 
   it("offers the union of tags on visible timelines only, case-sensitively", async function () {
     await openWithTags();
