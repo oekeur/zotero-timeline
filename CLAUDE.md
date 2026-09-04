@@ -22,6 +22,26 @@ the one that gets rebuilt.
 - `npm start` — builds and hot-reloads the plugin into a running Zotero dev
   profile (`zotero-plugin serve`). Requires `.env` (copy from `.env.example`)
   with `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` and `ZOTERO_PLUGIN_PROFILE_PATH` set.
+- `npm run start:headless` — the same serve wrapped in
+  `env -u WAYLAND_DISPLAY xvfb-run -a`, so the dev Zotero opens on a virtual
+  display instead of taking over the desktop. An agent working unattended uses
+  this; a human watching the UI uses `npm start`. **`xvfb-run` alone does not
+  make Zotero headless on a Wayland session.** `/opt/zotero-beta/zotero`
+  exports `MOZ_ENABLE_WAYLAND=1`, so Gecko connects to the compositor named by
+  the inherited `WAYLAND_DISPLAY` and paints on the real screen while `DISPLAY`
+  points at the unused Xvfb (measured 2026-09-04: the process held a
+  `/run/user/1000/wayland-proxy-<pid>` socket and the Xvfb root window had no
+  children; unsetting `WAYLAND_DISPLAY` moved every window onto `:99`, where
+  `xwininfo -root -children` lists them). The launcher's own export cannot be
+  overridden from outside, so removing `WAYLAND_DISPLAY` is the lever.
+  The MCP observability rig reaches a headless instance exactly as it reaches a
+  visible one (measured 2026-09-04: ping, screenshot, execute_js, get_dom_tree
+  and click_element all work, and vis-timeline lays items out at real pixel
+  positions). The two are alternatives on one checkout, not concurrent:
+  `prestart` kills whichever Zotero holds this checkout's dev profile, and a
+  second one launched past it exits immediately on the profile lock while the
+  first keeps `ZOTERO_MCP_RDP_PORT`. Two at once needs two checkouts, which is
+  what `worktree-init.sh` already provisions per worktree.
 - `npm run build` — bundles `src/` and `addon/` into `.scaffold/build/` via
   `zotero-plugin build`, then type-checks with `tsc --noEmit`. Produces the
   .xpi, `update.json` and `update-beta.json`.
