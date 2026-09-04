@@ -216,8 +216,17 @@ fi
 # three successive wrong mechanisms. The kill machinery below is unaffected: it
 # matches Zotero by the $work path in its arguments, which xvfb-run does not
 # change. Absent xvfb-run the suite runs on the real display, as before.
+#
+# WAYLAND_DISPLAY is removed because xvfb-run alone does not reach a Wayland
+# session: the Zotero launcher exports MOZ_ENABLE_WAYLAND=1, so Gecko connects
+# to the compositor and paints on the real screen while DISPLAY points at an
+# Xvfb nothing draws on. That is what the "run of layout-dependent spec
+# failures" above actually was, and it never went away, because this wrapper
+# never took effect. Measured 2026-09-04: 24 failures here, 20 and then 18
+# through verify.sh, and 372 passed with zero failures once WAYLAND_DISPLAY was
+# unset.
 if command -v xvfb-run >/dev/null 2>&1; then
-  ( cd "$work" && xvfb-run -a npm test >"$log" 2>&1 ) &
+  ( cd "$work" && env -u WAYLAND_DISPLAY xvfb-run -a npm test >"$log" 2>&1 ) &
 else
   ( cd "$work" && npm test >"$log" 2>&1 ) &
 fi

@@ -105,10 +105,18 @@ fi
 # gates across worktrees safe rather than merely usually-fine. Absent xvfb-run
 # (CI images without it, macOS) the suite still runs on the real display, so
 # this is a wrapper and not a requirement.
+#
+# `xvfb-run` alone is not enough on a Wayland session, and it fails silently:
+# the Zotero launcher exports MOZ_ENABLE_WAYLAND=1, so Gecko connects to the
+# compositor named by the inherited WAYLAND_DISPLAY and paints on the real
+# screen while DISPLAY points at an Xvfb nothing ever draws on. Measured
+# 2026-09-04: the suite scored 20 and then 18 failures that way, and 372
+# passed with zero failures once WAYLAND_DISPLAY was removed. Unsetting it is
+# the only lever from out here; the launcher's own export cannot be overridden.
 if [ "$RUN_TEST" = 1 ]; then
   clear_stale_test_zotero
   if command -v xvfb-run >/dev/null 2>&1; then
-    run_stage test xvfb-run -a npm run test:fast
+    run_stage test env -u WAYLAND_DISPLAY xvfb-run -a npm run test:fast
   else
     warn "xvfb-run not found; running the suite on the real display"
     run_stage test npm run test:fast
