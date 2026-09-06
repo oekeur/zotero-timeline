@@ -13,6 +13,9 @@ import { STORAGE_TAG, listTimelines } from "../src/modules/timeline/storage";
 import {
   SAVE_BUTTON_CLASS,
   DATE_INPUT_CLASS,
+  CREATE_TITLE_INPUT_CLASS,
+  CREATE_DATE_INPUT_CLASS,
+  CREATE_BUTTON_CLASS,
 } from "../src/modules/timeline/eventEditor";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
 import { waitFor } from "./waitFor";
@@ -377,6 +380,106 @@ describe("parked and flagged events", function () {
         new Date((drawn as any).start).getTime(),
         expected.getTime(),
         "the drawn position does not match the anchor computeParkedAnchors specifies",
+      );
+    });
+
+    // The created path, not only the edited one: it writes its item through
+    // the same anchorless call, so an event typed straight in with a date edtf
+    // cannot read landed on today too.
+    it("draws an event created with an unreadable date at its document's anchor", async function () {
+      await createDocumentNote(libraryID, STORAGE_TAG, ownSpanDocument());
+
+      const win = Zotero.getMainWindows()[0] as any;
+      const doc = win.document as Document;
+      await api.openTimelineTab();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
+      const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+      timeline.setSelection([]);
+
+      const titleInput = (await waitFor(
+        () => panel.querySelector(`.${CREATE_TITLE_INPUT_CLASS}`),
+        "the create form's title field",
+      )) as HTMLInputElement;
+      const dateInput = panel.querySelector(
+        `.${CREATE_DATE_INPUT_CLASS}`,
+      ) as HTMLInputElement;
+      titleInput.value = "typed with a bad date";
+      titleInput.dispatchEvent(new win.Event("input", { bubbles: true }));
+      dateInput.value = "no idea when";
+      dateInput.dispatchEvent(new win.Event("input", { bubbles: true }));
+      (
+        panel.querySelector(`.${CREATE_BUTTON_CLASS}`) as HTMLButtonElement
+      ).click();
+
+      const drawn = await waitFor(() => {
+        const item = timeline.itemsData
+          .get()
+          .find((i: any) => String(i.content) === "typed with a bad date");
+        return item && String(item.className).includes("zt-unreadable")
+          ? item
+          : null;
+      }, "the created event to be drawn as parked");
+
+      assert.notEqual(
+        new Date((drawn as any).start).getFullYear(),
+        new Date().getFullYear(),
+        "an event created with an unreadable date drew on today",
+      );
+    });
+
+    // The borrowing case, which is why the refresh walks every document rather
+    // than only the edited one. doc-no-readable-date has no readable date at
+    // all, so its anchor comes from the OTHER visible timeline's extent; an
+    // edit that moves that extent has to move it too.
+    it("moves a borrowing document's parked event when the edit changes the extent it borrows", async function () {
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        noReadableDateDocument(),
+      );
+      await createDocumentNote(libraryID, STORAGE_TAG, borrowSourceDocument());
+
+      const win = Zotero.getMainWindows()[0] as any;
+      const doc = win.document as Document;
+      await api.openTimelineTab();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
+      const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+      const borrowerId = "doc-no-readable-date:ev-broken";
+      const yearOf = () =>
+        new Date(
+          timeline.itemsData.get().find((i: any) => String(i.id) === borrowerId)
+            .start,
+        ).getFullYear();
+      const before = yearOf();
+
+      // Move the source document's only readable date by three centuries.
+      timeline.setSelection(["doc-borrow-source:ev-source"]);
+      const dateInput = (await waitFor(() => {
+        const el = panel.querySelector(
+          `.${DATE_INPUT_CLASS}`,
+        ) as HTMLInputElement | null;
+        return el && el.value === "1990-01-01" ? el : null;
+      }, "the editor to open on the borrowed-from event")) as HTMLInputElement;
+      dateInput.value = "1690-01-01";
+      dateInput.dispatchEvent(new win.Event("input", { bubbles: true }));
+      (
+        panel.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement
+      ).click();
+
+      const after = await waitFor(
+        () => (yearOf() !== before ? yearOf() : null),
+        "the borrowing document's parked event to follow the new extent",
+      );
+      assert.isBelow(
+        after as number,
+        before,
+        "the borrower did not follow its source moving earlier",
       );
     });
 
