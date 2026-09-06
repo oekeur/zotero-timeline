@@ -504,6 +504,7 @@ export function renderCanvas(
   activateDocument: (documentId: string | null) => void;
   getActiveDocument: () => string | null;
   setTagFilter: (tags: ReadonlySet<string>) => void;
+  refreshParkedAnchorsAfterEdit: (documentId: string) => void;
 } {
   // Keyed by document id and shared with `onMove` below, so a write updates
   // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
@@ -651,6 +652,30 @@ export function renderCanvas(
     const editable = libraryEditable && documentId === activeDocumentId;
     for (const event of doc.events) {
       items.update(buildTimelineItem(documentId, event, anchor, editable));
+    }
+  }
+
+  /**
+   * The one place an edit made in this tab re-derives parked positions.
+   *
+   * buildTimelineItem falls back to `new Date()` when it is handed no anchor,
+   * so an event that becomes parked through the editor drew on today and left
+   * the viewport entirely - it read as deleted until the tab was reopened,
+   * which recomputed anchors properly on the way in.
+   *
+   * Two documents can move, not one. The edited document's own parked events
+   * follow its readable extent, and a document with NO readable date borrows
+   * the visible extent, so an edit that changed what is readable anywhere
+   * moves every borrower too. That is the same rule the groups listener below
+   * applies on a visibility change, for the same reason.
+   */
+  function refreshParkedAnchorsAfterEdit(documentId: string): void {
+    rebuildDocumentItems(documentId);
+    for (const [otherId, doc] of documents) {
+      if (otherId === documentId || readableExtent(doc) !== null) {
+        continue;
+      }
+      rebuildDocumentItems(otherId);
     }
   }
 
@@ -1042,5 +1067,6 @@ export function renderCanvas(
     activateDocument,
     getActiveDocument: () => activeDocumentId,
     setTagFilter,
+    refreshParkedAnchorsAfterEdit,
   };
 }
