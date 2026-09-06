@@ -10,6 +10,10 @@ import {
   type TimelineDocument,
 } from "../src/modules/timeline/schema";
 import { STORAGE_TAG, listTimelines } from "../src/modules/timeline/storage";
+import {
+  SAVE_BUTTON_CLASS,
+  DATE_INPUT_CLASS,
+} from "../src/modules/timeline/eventEditor";
 import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
 import { waitFor } from "./waitFor";
 
@@ -299,6 +303,80 @@ describe("parked and flagged events", function () {
       assert.isTrue(
         parkedItem!.classList.contains("zt-unreadable"),
         "a parked event must be styled as unreadable",
+      );
+    });
+
+    // The defect this guards (TASK-63's subject, same seam as TASK-50's tag
+    // control): onEditorChange wrote the edited item with NO parked anchor,
+    // and buildTimelineItem falls back to `new Date()` when handed none, so an
+    // event edited into an unreadable date jumped to today and left the
+    // viewport. It read as deleted until the tab was reopened, which recomputed
+    // anchors on the way in and put it back.
+    //
+    // Asserted on the item's start year rather than on its presence: the item
+    // was always in the DataSet, just drawn two centuries away, so any check
+    // for "is it still there" passes against the bug.
+    it("keeps an event edited into an unreadable date at its document's anchor, not on today", async function () {
+      await createDocumentNote(libraryID, STORAGE_TAG, ownSpanDocument());
+
+      const win = Zotero.getMainWindows()[0] as any;
+      const doc = win.document as Document;
+      await api.openTimelineTab();
+      const timeline = await waitFor(
+        () => api.getCurrentTimeline(),
+        "the timeline to render",
+      );
+
+      const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+      timeline.setSelection(["doc-parked-own-span:ev-later"]);
+      const dateInput = (await waitFor(() => {
+        const el = panel.querySelector(
+          `.${DATE_INPUT_CLASS}`,
+        ) as HTMLInputElement | null;
+        return el && el.value === "1710-01-01" ? el : null;
+      }, "the editor to open on the event being parked")) as HTMLInputElement;
+
+      dateInput.value = "sometime in the 1700s";
+      dateInput.dispatchEvent(new win.Event("input", { bubbles: true }));
+      const saveButton = (await waitFor(
+        () => panel.querySelector(`.${SAVE_BUTTON_CLASS}`),
+        "the editor's save button",
+      )) as HTMLButtonElement;
+      saveButton.click();
+
+      const drawn = await waitFor(() => {
+        const item = timeline.itemsData
+          .get()
+          .find((i: any) => String(i.id) === "doc-parked-own-span:ev-later");
+        return item && String(item.className).includes("zt-unreadable")
+          ? item
+          : null;
+      }, "the edited event to be drawn as parked");
+
+      // Compared against computeParkedAnchors rather than against a hand-
+      // picked year: that function IS the contract for where a parked event
+      // draws, and the defect was that its result was never consulted at all.
+      // A bound like "after 1700" would also have passed on the wrong date
+      // here, since parking the 1710 event leaves 1700 as the only readable
+      // one and the anchor lands inside that same year.
+      const { timelines } = await listTimelines(libraryID);
+      const stored = timelines.find(
+        (t) => t.doc.id === "doc-parked-own-span",
+      )!.doc;
+      const expected = computeParkedAnchors(
+        new Map([[stored.id, stored]]),
+        new Set([stored.id]),
+      ).get(stored.id)!;
+
+      assert.notEqual(
+        new Date((drawn as any).start).getFullYear(),
+        new Date().getFullYear(),
+        "a newly parked event drew on today instead of its document's anchor",
+      );
+      assert.equal(
+        new Date((drawn as any).start).getTime(),
+        expected.getTime(),
+        "the drawn position does not match the anchor computeParkedAnchors specifies",
       );
     });
 

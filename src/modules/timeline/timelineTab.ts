@@ -608,6 +608,11 @@ export async function openTimelineTab(): Promise<void> {
       // The wrapped setSelection re-renders the panel as empty on its own.
       timeline.setSelection([]);
     }
+    // Where a parked event draws depends on what is readable, and this edit
+    // may have just changed that - in either direction, and for documents
+    // other than this one. The items written above carry no anchor at all,
+    // which drew a newly parked event on today and pushed it out of view.
+    refreshParkedAnchorsAfterEdit(change.documentId);
     // An edit made HERE changes which tags exist, and nothing else was going
     // to notice. The chip bank is recomputed inside renderSidebar, which runs
     // after a toggle, a reorder, and after the refresh observer rebuilds -
@@ -638,6 +643,7 @@ export async function openTimelineTab(): Promise<void> {
     activateDocument: activateTimeline,
     getActiveDocument,
     setTagFilter,
+    refreshParkedAnchorsAfterEdit,
   } = renderCanvas(
     canvas as unknown as HTMLElement,
     timelines,
@@ -952,6 +958,7 @@ export async function openTimelineTab(): Promise<void> {
       activateDocument: activateTimeline,
       getActiveDocument,
       setTagFilter,
+      refreshParkedAnchorsAfterEdit,
     } = renderCanvas(
       canvas as unknown as HTMLElement,
       fresh.timelines,
