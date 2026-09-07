@@ -53,6 +53,14 @@ the one that gets rebuilt.
   the moment the completion line prints. Prefer this for a one-shot pass/fail.
   Safe alongside a dev Zotero from `npm start`: it kills its own process group,
   not everything matching `zotero-bin`.
+- `ZT_TEST_ENTRIES=<file>[,<file>] npm run test:fast` — the same run narrowed to
+  named spec files under `test/`, with or without the `.test.ts` suffix. A full
+  run is around ten minutes and a narrowed one under a minute, which is what
+  makes an instrumented diagnostic loop affordable; two attempts at one guard
+  predicate were each paid for at full-run price and came back contradicting
+  each other. **Diagnosis only, never a merge signal:** this suite has specs
+  that pass alone and fail in company. See
+  `docs/contributing/testing-howto.md` for the directory-glob trap behind it.
 - `npm run clean:profile` — the `prestart` cleanup on demand.
 - `npm run docs:dev` / `docs:build` / `docs:preview` — the VitePress site under
   `docs/`. `docs:build` fails on a dead internal link.

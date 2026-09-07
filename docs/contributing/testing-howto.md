@@ -27,6 +27,33 @@ scripts/verify.sh --test-only
 
 Skips build and lint when you have already run them.
 
+## Narrowing the run to one file
+
+```bash
+ZT_TEST_ENTRIES=itemPaneSection npm run test:fast
+```
+
+Runs only `test/itemPaneSection.test.ts`. Comma-separate for several files, and
+write each one with or without the `.test.ts` suffix. Unset, the whole `test`
+directory runs.
+
+Use it when you are diagnosing rather than verifying. A full run is around ten
+minutes; a narrowed one is under a minute, which is the difference between a
+question you can ask five times and one you can afford to ask twice. Two
+attempts at one guard predicate were each paid for at full-run price and came
+back contradicting each other.
+
+**Never merge on a narrowed run.** This suite has a history of specs that pass
+alone and fail in company: fixture state is shared, and files run in order.
+A narrowed run tells you about the specs you named and nothing about the rest.
+
+One trap worth knowing if you change how this works. `zotero-plugin-scaffold`
+globs each configured test entry as a **directory**
+(`${dir}/**/*.{spec,test}.[jt]s`), so pointing it at a file matches nothing and
+the run reports `0 passed` rather than failing. `zotero-plugin.config.ts`
+builds a directory of symlinks under `.scaffold/test-subset` for this reason,
+and esbuild follows them to the real files.
+
 ## Writing a test
 
 Tests live in `test/` and are ordinary Mocha with Chai's `assert`. They execute
