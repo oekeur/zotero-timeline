@@ -21,7 +21,21 @@ source that contradicts it are stored differently and drawn differently.
 ## Requirements
 
 Zotero 7, 8, 9 or 10. The plugin declares `strict_min_version` 6.999 and
-`strict_max_version` 10.\*.
+`strict_max_version` 10.0.\*.
+
+The ceiling is narrow on purpose. The plugin replaces
+`Zotero.CollectionTreeRow.prototype.getSearchObject` to keep its own storage
+notes out of the items list, and it registers a custom `Zotero_Tabs` tab type
+whose state persists into the profile's `session.json`. Neither is documented
+API, so a Zotero major the plugin has never been tested against is likelier to
+break it quietly than to work. A ceiling that is too low makes the plugin absent
+from Tools > Plugins, which touches no data and is undone by a release; a
+ceiling that is too high lets it load and misbehave on top of a library.
+
+Widening it back is a decision to make against those two call sites, not a
+default. Note also that it cannot be tested locally: beta and source builds
+ignore `strict_max_version` entirely, and the development profile runs a beta,
+so the ceiling only ever applies to users on stable builds.
 
 ## The pieces you will meet
 

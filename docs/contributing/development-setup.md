@@ -3,8 +3,8 @@
 ## Prerequisites
 
 - Node.js 22 or newer, and npm.
-- A Zotero binary to develop against. Zotero 7 through 10 are supported; the CI
-  matrix pins 7.0.32, 8.0.4, 9.0.4 and 10.0.
+- A Zotero binary to develop against. Zotero 7 through 10.0 are supported; the
+  CI matrix pins 7.0.32, 8.0.4, 9.0.4 and 10.0.
 - Linux is assumed by `scripts/verify.sh` and `scripts/clean-dev-profile.mjs`,
   which identify running Zotero processes through `/proc` and `ps`.
 

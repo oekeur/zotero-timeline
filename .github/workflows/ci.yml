@@ -39,7 +39,7 @@ jobs:
           path: .scaffold/build
 
   # One job per Zotero major the manifest claims support for
-  # (addon/manifest.json: strict_min_version 6.999, strict_max_version 10.*).
+  # (addon/manifest.json: strict_min_version 6.999, strict_max_version 10.0.*).
   #
   # The versions are pinned rather than pulled from the beta channel. Left to
   # itself the scaffold downloads `channel=beta` un-pinned, so CI would test a

@@ -48,7 +48,10 @@ uncertainty is representable: `1621?`, `1580~`, `[1580..1590]`, `1943-05/1943-06
 
 ## Compatibility
 
-Zotero 7 through 10 (`strict_min_version` 6.999, `strict_max_version` 10.\*).
+Zotero 7 through 10.0 (`strict_min_version` 6.999, `strict_max_version`
+10.0.\*). The ceiling is deliberately narrow because the plugin leans on two
+undocumented internals; see
+[Getting started](docs/user-guide/getting-started.md#requirements).
 
 ## Development
 
