@@ -91,6 +91,18 @@ export const JUMP_BUTTON_CLASS = "zoterotimeline-jump-go";
 export const JUMP_ERROR_CLASS = "zoterotimeline-jump-error";
 
 let timelineTabID: string | undefined;
+// The main window whose Zotero_Tabs holds the open tab.
+//
+// There is one timeline tab for the process, not one per window. Every piece
+// of state the tab needs (the vis instance, the drawn documents, the refresh
+// observer, the tag filter) is module-level, while Zotero_Tabs is per window,
+// so a second window opening its own tab would overwrite all of it and closing
+// either tab would tear down the survivor's canvas. Recording the owning
+// window is what makes the single instance reachable from anywhere: asked to
+// open the tab from another window, openTimelineTab selects it where it
+// already is and raises that window, rather than building a second one over
+// the first one's state. Decided with Oscar 2026-09-07 (TASK-64 AC #5).
+let timelineTabWindow: Window | undefined;
 let teardownTimeline: (() => void) | undefined;
 // The canvas-refresh observer's registration id. Module-level because the
 // tab's onClose is defined before the observer is registered and has to be
@@ -387,16 +399,59 @@ function el<K extends keyof HTMLElementTagNameMap>(
   ) as unknown as HTMLElementTagNameMap[K];
 }
 
-export async function openTimelineTab(): Promise<void> {
-  const Zotero_Tabs = ztoolkit.getGlobal("Zotero_Tabs");
+/**
+ * The window holding the open timeline tab, or undefined when none is open.
+ *
+ * Checks the tab is still in that window's tab bar rather than trusting
+ * timelineTabID alone: a tab closed by Zotero itself (a session restore
+ * dropping it, the window going away) never runs the onClose that clears the
+ * id, and acting on a stale id selects nothing while reporting success.
+ */
+function openTabWindow():
+  | { win: _ZoteroTypes.MainWindow & Window }
+  | undefined {
+  if (!timelineTabID || !timelineTabWindow || timelineTabWindow.closed) {
+    return undefined;
+  }
+  const win = timelineTabWindow as _ZoteroTypes.MainWindow & Window;
+  const tabs = win.Zotero_Tabs as any;
+  if (!tabs?._tabs?.some((t: any) => t.id === timelineTabID)) {
+    return undefined;
+  }
+  return { win };
+}
 
-  if (
-    timelineTabID &&
-    Zotero_Tabs._tabs.some((t: any) => t.id === timelineTabID)
-  ) {
-    Zotero_Tabs.select(timelineTabID);
+/**
+ * Opens the timeline tab, or selects it where it already is.
+ *
+ * `into` is the window that asked. Both entry points know it (the menuitem
+ * from its own document, the shortcut from the event's), and passing it is
+ * what makes "the tab opens in the window whose Tools menu you clicked"
+ * structural. Resolving it from Zotero.getMainWindow() instead makes it
+ * depend on which window the platform currently calls frontmost, which is
+ * right whenever a person clicked something and wrong wherever focus is not
+ * a real thing: the live suite drives both entry points on a second window
+ * with no window manager, and every open landed in the first window.
+ *
+ * Omitted by the test API and by any caller with no window of its own, which
+ * falls back to the frontmost one.
+ */
+export async function openTimelineTab(
+  into?: _ZoteroTypes.MainWindow,
+): Promise<void> {
+  const open = openTabWindow();
+  if (open) {
+    open.win.Zotero_Tabs.select(timelineTabID!);
+    // Raises the window the tab is already in. Without it a click in another
+    // window's Tools menu selects a tab the user cannot see and looks like
+    // nothing happened.
+    open.win.focus();
     return;
   }
+
+  const frontmostTabs = ztoolkit.getGlobal("Zotero_Tabs");
+  const Zotero_Tabs =
+    (into?.Zotero_Tabs as typeof frontmostTabs | undefined) ?? frontmostTabs;
 
   const { id, container } = Zotero_Tabs.add({
     type: TAB_TYPE,
@@ -405,6 +460,7 @@ export async function openTimelineTab(): Promise<void> {
     select: true,
     onClose: () => {
       timelineTabID = undefined;
+      timelineTabWindow = undefined;
       if (refreshObserverID) {
         Zotero.Notifier.unregisterObserver(refreshObserverID);
         refreshObserverID = undefined;
@@ -423,6 +479,7 @@ export async function openTimelineTab(): Promise<void> {
 
   const doc = container.ownerDocument!;
   const win = doc.defaultView!;
+  timelineTabWindow = win;
 
   // Before anything from the bundle touches the DOM. ensureDocumentHead
   // matters because the XUL document has no <head> and stylesheet injection
@@ -1701,15 +1758,36 @@ export async function openTimelineTab(): Promise<void> {
   Zotero.debug(`[ZoteroTimeline] canvas rendered into tab ${id} (${TAB_TYPE})`);
 }
 
-export function registerTimelineMenu(): void {
-  ztoolkit.Menu.register("menuTools", {
+/**
+ * Adds the Tools > Timeline entry to one main window.
+ *
+ * Per window, and called from onMainWindowLoad rather than once from
+ * onStartup: a window opened after the plugin started carried no entry at all,
+ * because MenuManager.register resolves the string form "menuTools" through
+ * Zotero.getMainWindow(), which is one window rather than every window. Passing
+ * the popup element directly is what targets a named window.
+ *
+ * The id guard is what keeps a second call idempotent. onMainWindowLoad also
+ * runs for the windows that already exist at startup, so without it the first
+ * window would carry two identical entries.
+ */
+export function registerTimelineMenu(win: _ZoteroTypes.MainWindow): void {
+  const doc = win.document;
+  if (doc.getElementById(MENU_ID)) {
+    return;
+  }
+  const popup = doc.querySelector("#menu_ToolsPopup");
+  if (!popup) {
+    return;
+  }
+  ztoolkit.Menu.register(popup as XUL.MenuPopup, {
     tag: "menuitem",
     id: MENU_ID,
     label: getString("timeline-tab-label"),
     commandListener: () => {
       // Nothing catches for us here, and the tab is added before the body is
       // built, so an unhandled rejection would leave an empty tab and no clue.
-      void openTimelineTab().catch((err) => {
+      void openTimelineTab(win).catch((err) => {
         Zotero.debug(
           `[ZoteroTimeline] openTimelineTab failed: ${err?.stack ?? String(err)}`,
         );
@@ -1751,7 +1829,13 @@ export function registerTimelineShortcut(): void {
     if (isTextEntryTarget(textEntryTarget(ev))) {
       return;
     }
-    void openTimelineTab().catch((err) => {
+    // The window the key press landed in. One registration covers every main
+    // window (KeyboardManager attaches its listeners per window), so the
+    // event is the only thing that says which one asked.
+    const win = (ev.target as Node | null)?.ownerDocument?.defaultView as
+      | _ZoteroTypes.MainWindow
+      | undefined;
+    void openTimelineTab(win).catch((err) => {
       Zotero.debug(
         `[ZoteroTimeline] openTimelineTab failed: ${err?.stack ?? String(err)}`,
       );
@@ -1760,9 +1844,13 @@ export function registerTimelineShortcut(): void {
 }
 
 export function closeTimelineTab(): void {
-  if (!timelineTabID) {
+  const open = openTabWindow();
+  if (!open) {
+    timelineTabID = undefined;
+    timelineTabWindow = undefined;
     return;
   }
-  ztoolkit.getGlobal("Zotero_Tabs").close(timelineTabID);
+  open.win.Zotero_Tabs.close(timelineTabID!);
   timelineTabID = undefined;
+  timelineTabWindow = undefined;
 }
