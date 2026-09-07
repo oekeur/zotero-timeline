@@ -348,10 +348,27 @@ export async function ensureDocumentShowing(
   targetDocumentId: string,
   targetLibraryID: number,
 ): Promise<boolean> {
-  const open = getCurrentTimeline() as
-    | { groupsData: { get: (id: string) => unknown } }
-    | undefined;
-  if (open && !open.groupsData.get(targetDocumentId)) {
+  // Whether THIS TAB already holds the document, which is not the same
+  // question as whether the canvas is currently drawing it.
+  //
+  // The check used to ask the vis instance: `timeline.groupsData.get(id)`.
+  // That is a DataView filtered to visible groups, not the raw DataSet -
+  // measured 2026-09-07, its constructor is _DataView and get() on a timeline
+  // toggled out of view returns null. So a timeline hidden through the sidebar
+  // looked exactly like a timeline in another library: it asked the user to
+  // confirm a cross-library switch that was not happening, and on confirm
+  // closed and reopened the tab, discarding its state, to reach a document
+  // that was loaded the whole time.
+  //
+  // readableTimelines is the honest source: the documents this tab read when
+  // it opened, visibility being a separate concern the sidebar owns. Making a
+  // loaded-but-hidden timeline visible is openCreateEventLocally's job and it
+  // already does it, which is why this only has to stop intercepting.
+  const open = getCurrentTimeline();
+  const loadedHere = readableTimelines.some(
+    (t) => t.doc.id === targetDocumentId,
+  );
+  if (open && !loadedHere) {
     const targetLibrary = Zotero.Libraries.get(targetLibraryID);
     const targetLibraryName = targetLibrary ? targetLibrary.name : "";
     const currentLibraryName = currentTabLibraryName();
