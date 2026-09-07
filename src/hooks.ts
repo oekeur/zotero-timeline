@@ -17,7 +17,6 @@ import {
   registerTimelineShortcut,
   setTimelineDeleteConfirmForTests,
 } from "./modules/timeline/timelineTab";
-import { createZToolkit } from "./utils/ztoolkit";
 import {
   registerContainerObserver,
   unregisterContainerObserver,
@@ -74,7 +73,11 @@ async function onStartup() {
 
   initLocale();
 
-  registerTimelineMenu();
+  // The Tools entry is registered per window from onMainWindowLoad, not here.
+  // The shortcut is not: ztoolkit's KeyboardManager attaches its keydown and
+  // keyup listeners to every main window itself, through a Services.wm
+  // listener it installs when the first callback is registered, so one
+  // registration covers windows opened later as well.
   registerTimelineShortcut();
   registerItemPaneSection();
 
@@ -128,9 +131,6 @@ async function onStartup() {
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
-  // Create ztoolkit for every window
-  addon.data.ztoolkit = createZToolkit();
-
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-mainWindow.ftl`,
   );
@@ -158,6 +158,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     sourcePruneObserverID = registerSourcePruneObserver();
   }
   registerLibraryFilter();
+  registerTimelineMenu(win);
 
   if (!addSourcesActionRegistered) {
     addSourcesActionRegistered = true;
@@ -188,8 +189,27 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   }
 }
 
+/**
+ * Releases what this window's load claimed, which is the stylesheet and
+ * nothing else.
+ *
+ * Everything the load hook registers besides that is process-wide, not
+ * per-window: the three observers watch the database, the library filter
+ * patches CollectionTreeRow's prototype, and ztoolkit.unregisterAll() removes
+ * every element the toolkit ever made in every window. Releasing any of it
+ * here means closing one main window disarms the plugin in the ones still
+ * open. Measured 2026-09-07 against a second window: closing it left the
+ * cache observer unregistered, so listTimelinesCached kept serving stale
+ * documents and the surviving window's canvas stopped redrawing on a note
+ * write. onShutdown is where that teardown belongs, and it does it now.
+ */
 async function onMainWindowUnload(win: Window): Promise<void> {
   removeStylesheet(win.document, PANE_STYLESHEET_ID);
+}
+
+function onShutdown(): void {
+  closeTimelineTab();
+  unregisterItemPaneSection();
   if (containerObserverID !== null) {
     unregisterContainerObserver(containerObserverID);
     containerObserverID = null;
@@ -203,12 +223,6 @@ async function onMainWindowUnload(win: Window): Promise<void> {
     sourcePruneObserverID = null;
   }
   unregisterLibraryFilter();
-  ztoolkit.unregisterAll();
-}
-
-function onShutdown(): void {
-  closeTimelineTab();
-  unregisterItemPaneSection();
   // Every window, not just one: onMainWindowUnload does not fire for a window
   // that is still open when the plugin is disabled, and a link left behind
   // outlives the plugin that owns the file it points at.
