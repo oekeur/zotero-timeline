@@ -102,6 +102,14 @@ let refreshObserverID: string | undefined;
 // suppression and the single-flight coalescing are both defined by a count,
 // and a spec cannot observe either from the rendered DOM alone.
 let rebuildCount = 0;
+// How many times rebuildCanvas has been entered, suppressed passes included.
+// Separate from rebuildCount because the two answer different questions: this
+// one is what the single-flight coalescing is defined in terms of (a burst
+// produces one pass, plus one more if anything arrived while it ran), and
+// rebuildCount cannot express it: a coalesced pass that finds the canvas
+// already current never increments rebuildCount, so a count of one is
+// indistinguishable from a pass that never ran at all.
+let rebuildPassCount = 0;
 // The open tab's own notify, exposed so a spec can drive the exact function
 // the observer registers rather than reaching into Zotero.Notifier's
 // internals. documentCache's cacheObserverForTesting is the same seam for
@@ -157,6 +165,15 @@ export function getActiveTimeline(): string | null {
  */
 export function rebuildsSoFar(): number {
   return rebuildCount;
+}
+
+/**
+ * How many passes through the rebuild have run, whether or not they redrew.
+ * This is the observable the single-flight coalescing is defined against; see
+ * rebuildPassCount.
+ */
+export function rebuildPassesSoFar(): number {
+  return rebuildPassCount;
 }
 
 /**
@@ -903,6 +920,7 @@ export async function openTimelineTab(): Promise<void> {
    * render standing rather than blanking the tab.
    */
   async function rebuildCanvas(): Promise<void> {
+    rebuildPassCount += 1;
     let fresh;
     try {
       fresh = await listTimelinesCached(libraryID);

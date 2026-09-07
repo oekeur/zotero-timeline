@@ -78,6 +78,31 @@ describe("refresh the canvas when a storage note changes underneath it", functio
     return note;
   }
 
+  /**
+   * Waits until no rebuild pass has run for a beat.
+   *
+   * The coalescing assertions below count passes across a burst they deliver
+   * themselves, so a pass still in flight from the fixture would land in that
+   * count and make it a race. Written as its own loop rather than through
+   * waitFor: the condition is "the counter did not move since last look",
+   * which needs state carried between polls and a poll interval wide enough
+   * for a pass to show up in, and waitFor's contract is a side-effect-free
+   * probe on a 20ms tick.
+   */
+  async function quiesce(): Promise<void> {
+    const deadline = Date.now() + 15000;
+    let last = -1;
+    while (Date.now() < deadline) {
+      const now = api().rebuildPassesSoFar();
+      if (now === last) {
+        return;
+      }
+      last = now;
+      await Zotero.Promise.delay(250);
+    }
+    throw new Error("quiesce: the canvas never stopped rebuilding");
+  }
+
   // AC #1
   it("redraws when a rendered timeline's note is written from outside the canvas", async function () {
     const note = await openWithOneTimeline();
@@ -172,14 +197,65 @@ describe("refresh the canvas when a storage note changes underneath it", functio
     assert.ok(stored, "the storage queue stopped draining after the observer");
   });
 
-  // AC #4
-  it("coalesces notifications arriving during a rebuild into exactly one further rebuild", async function () {
+  /**
+   * AC #4, as two specs because the single-flight has two halves and one count
+   * cannot express both.
+   *
+   * The earlier form of this asserted that a burst raised rebuildsSoFar by
+   * exactly two. Measured 2026-09-07 (TASK-65) with a per-pass trace of every
+   * notify, schedule and rebuild: all five notifications arrive, the first
+   * starts a pass and the other four set the dirty bit, and exactly one further
+   * pass runs. Nothing is dropped. The counted delta lands on one because that
+   * coalesced pass finds the canvas already current and suppresses itself,
+   * which is correct. rebuildsSoFar counts only passes that redrew, so a delta
+   * of one there is indistinguishable from four notifications being thrown
+   * away, the exact failure the assertion existed to catch. Six consecutive
+   * isolated runs gave a delta of one; the same spec passed under the full
+   * suite, so it was pinning an interleaving rather than a guarantee.
+   *
+   * rebuildPassesSoFar counts every pass, suppressed ones included, so the
+   * coalescing can be asserted directly. The property that a burst never leaves
+   * the canvas stale is a separate assertion, below, because it is about what
+   * is drawn rather than how many times.
+   */
+  it("collapses a burst of notifications into exactly one further rebuild pass", async function () {
     const note = await openWithOneTimeline();
+    await quiesce();
 
-    // Change the note under the tab so each notification has real work, then
-    // deliver a burst. One rebuild runs; the rest of the burst collapses into
-    // exactly one more, so the count rises by two rather than by five.
-    await updateTimelineDocument(
+    const notify = api().refreshObserverForTesting();
+    assert.ok(notify, "no canvas-refresh observer is registered");
+
+    const before = api().rebuildPassesSoFar();
+    for (let i = 0; i < 5; i += 1) {
+      notify("modify", "item", [note.id]);
+    }
+
+    // Nothing to poll for: the assertion is that no further pass runs, so a
+    // fixed wait is the honest way to express it (see waitFor's docblock).
+    await Zotero.Promise.delay(2500);
+    const passes = api().rebuildPassesSoFar() - before;
+    assert.equal(
+      passes,
+      2,
+      `a burst of five notifications produced ${passes} rebuild passes; expected the first to start one and the other four to collapse into exactly one more`,
+    );
+  });
+
+  // AC #4, the half that matters to a user: whatever order a burst and the
+  // write that triggered it settle in, the canvas ends up showing the write.
+  // This is what a dropped notification would break, and it is asserted
+  // against what is drawn rather than against a count.
+  it("leaves the canvas current when a burst lands during a rebuild", async function () {
+    const note = await openWithOneTimeline();
+    await quiesce();
+
+    const notify = api().refreshObserverForTesting();
+    assert.ok(notify, "no canvas-refresh observer is registered");
+
+    // Bursts on both sides of the write, so the rebuild that reads stale
+    // content and the rebuild that reads committed content both happen while
+    // another is in flight.
+    const write = updateTimelineDocument(
       (current) => ({
         ...current,
         events: [...current.events, anEvent("ev-burst", "Burst", "1800")],
@@ -187,31 +263,23 @@ describe("refresh the canvas when a storage note changes underneath it", functio
       "doc-refresh",
       libraryID,
     );
-    await waitFor(
-      () => api().rebuildsSoFar() > 0,
-      "the first rebuild to have run",
-      { timeout: 15000 },
-    );
-
-    const before = api().rebuildsSoFar();
-    const notify = api().refreshObserverForTesting();
-    assert.ok(notify, "no canvas-refresh observer is registered");
+    for (let i = 0; i < 5; i += 1) {
+      notify("modify", "item", [note.id]);
+    }
+    await write;
     for (let i = 0; i < 5; i += 1) {
       notify("modify", "item", [note.id]);
     }
 
-    await Zotero.Promise.delay(2500);
-    const delta = api().rebuildsSoFar() - before;
-    // Exactly two, and both halves matter. The burst's first notification
-    // starts a rebuild; the other four arrive while it is in flight and
-    // collapse into exactly one more. Five would mean the dirty bit is not
-    // coalescing, one would mean the four were dropped, which is the failure
-    // that leaves a prune invisible until the tab is reopened.
-    assert.equal(
-      delta,
-      2,
-      `a burst of five notifications produced ${delta} rebuilds; expected the first to start one and the rest to coalesce into one more`,
+    await waitFor(
+      () =>
+        (api().getVisibleTimelines() ?? []).some((t: any) =>
+          t.doc.events.some((e: any) => e.id === "ev-burst"),
+        ),
+      "the burst's write to reach the canvas",
+      { timeout: 15000 },
     );
+    assert.ok(note.id, "fixture note missing");
   });
 
   // AC #5
