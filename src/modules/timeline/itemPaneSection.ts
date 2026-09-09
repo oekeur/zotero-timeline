@@ -29,7 +29,12 @@ import type { FluentMessageId } from "../../../typings/i10n";
 import { listTimelinesCached } from "./documentCache";
 import { labelFor, peekVocabulary } from "./vocabulary";
 import { labelForSource } from "./sourceLabels";
-import { CONTAINER_TAG, STORAGE_TAG, VOCABULARY_TAG } from "./storage";
+import {
+  CONTAINER_TAG,
+  onStorageWrite,
+  STORAGE_TAG,
+  VOCABULARY_TAG,
+} from "./storage";
 import { ensureDocumentShowing, getCurrentTimeline } from "./timelineTab";
 import type { Event, SourceRef } from "./schema";
 
@@ -49,6 +54,24 @@ export const UNREADABLE_NOTE_CLASS = "zoterotimeline-citing-unreadable-note";
 /** Whether `item` could ever be cited: never the plugin's own notes, never an attachment. */
 export function isEligibleItem(item: Zotero.Item): boolean {
   return !item.isAttachment() && !PLUGIN_TAGS.some((tag) => item.hasTag(tag));
+}
+
+/**
+ * The item the pane is displaying right now, read from the pane's own
+ * item-details element rather than ZoteroPane.getSelectedItems(): that
+ * reports the items list's selection, which is a different thing from what
+ * the pane actually shows and has been measured to disagree with it.
+ * Undefined when `body` is no longer connected to a pane, which is a stale
+ * reference kept past its own teardown rather than the pane's current item.
+ */
+export function paneItemFor(body: HTMLElement): Zotero.Item | undefined {
+  if (!body.isConnected) {
+    return undefined;
+  }
+  const details = body.closest("item-details") as
+    | (Element & { item?: Zotero.Item })
+    | null;
+  return details?.item ?? undefined;
 }
 
 function citesItem(source: SourceRef, item: Zotero.Item): boolean {
@@ -311,6 +334,26 @@ export async function renderCitingEventsContent(
 
 let registeredPaneID: string | false = false;
 
+/**
+ * One entry per this section's own DOM element, not per window. Zotero's
+ * item pane creates a fresh item-details (and therefore a fresh instance of
+ * this section, each with its own body and its own bound `refresh`) not just
+ * for the library pane but for every reader or note tab's context pane too
+ * (contextPane.js's `_addItemContext`, gated on `Zotero_Tabs.hasContextPane`
+ * for both tab types) - all in the same window. Keying on the window instead
+ * of the element meant the last one to call `onInit` in a window won last:
+ * opening any reader or note tab pointed a storage write's refresh at that
+ * tab's copy instead of the library pane's, leaving the library pane stuck
+ * showing its answer from before the write.
+ */
+type PaneInstance = {
+  body?: HTMLElement;
+  refresh?: () => Promise<void>;
+};
+const paneInstances = new Map<HTMLElement, PaneInstance>();
+
+let unsubscribeStorageWrite: (() => void) | null = null;
+
 export function registerItemPaneSection(): void {
   registeredPaneID = Zotero.ItemPaneManager.registerSection({
     paneID: PANE_ID,
@@ -327,6 +370,28 @@ export function registerItemPaneSection(): void {
       setEnabled(isEligibleItem(item));
       return true;
     },
+    // Captures the `refresh` Zotero hands this specific section instance, so
+    // a storage write can re-render through Zotero's own path (see the
+    // onStorageWrite subscriber below) instead of writing into the body
+    // itself. Keyed on `body`, which Zotero sets once per element and hands
+    // back unchanged to onDestroy, so init and destroy agree on which entry
+    // is theirs.
+    onInit: ({ body, refresh }) => {
+      const instance = paneInstances.get(body) ?? {};
+      instance.refresh = refresh;
+      paneInstances.set(body, instance);
+    },
+    // The element this section instance is torn down for - its tab closed,
+    // or the section unregistered - stops being a target for a write's
+    // refresh. Without this, a closed reader or note tab's entry outlives
+    // its element: its `refresh` calls into a disconnected section, which
+    // `_handleRefresh`'s `initialized` guard silently no-ops on forever, and
+    // its `body` (no longer connected) makes every later write's
+    // `paneItemFor` check fail too - neither is a crash, so a leaked entry
+    // is invisible until the write it should have routed elsewhere is lost.
+    onDestroy: ({ body }) => {
+      paneInstances.delete(body);
+    },
     // Dispatched from onRender rather than onAsyncRender. Zotero's item pane
     // only calls onAsyncRender for a pane currently scrolled into the
     // container's visible viewport (chrome/content/zotero/elements/
@@ -338,12 +403,113 @@ export function registerItemPaneSection(): void {
     // regardless of scroll position. It cannot itself be async, so it starts
     // the read and lets it finish in the background.
     onRender: ({ body, item }) => {
+      const instance = paneInstances.get(body) ?? {};
+      instance.body = body;
+      paneInstances.set(body, instance);
       void renderCitingEventsContent(body, item);
     },
   });
+
+  // Zotero moves the pane onto a newly written note's parent without
+  // reselecting it, so onRender never fires again to pick up a citation just
+  // written. Re-reading on every storage write, not just on a selection
+  // change, is what keeps the section from reading stale after a write like
+  // that.
+  //
+  // Goes through the section's own `refresh` rather than writing into the
+  // body directly. Zotero's own render loop sets `box.item` and disables the
+  // section (`box.hidden = true`) BEFORE testing whether to call render, so
+  // for an item this section is disabled for - an attachment, or the
+  // plugin's own container auto-selected right after this write creates it -
+  // the box is hidden, render() is never called, and its cached
+  // render-dependency key is therefore never updated to the new item.
+  // Writing into the body directly for that item, as an earlier version of
+  // this listener did, left the wrong answer sitting in the body: reselecting
+  // the original item found its cached dependency key unchanged, skipped
+  // rendering entirely, and kept showing the ineligible item's content.
+  // `refresh()` runs through the same path a toggled-open section uses: it
+  // resets that cached key unconditionally and, while the section is hidden,
+  // only marks a render pending rather than touching the body, so the next
+  // selection that makes the section visible again is guaranteed to render
+  // fresh instead of finding a stale, unchanged key.
+  //
+  // paneItemFor() is still read fresh at call time to decide whether to
+  // refresh at all - `refresh()` itself has no way to say which item or
+  // library it would render for, so the library match has to be checked
+  // first, against whatever item each live instance's own body currently
+  // shows. Every instance is checked, not just one: the library pane and
+  // every open reader or note tab's context pane each have their own
+  // instance in the same window, and any of them can be showing an item in
+  // the write's library.
+  // emitStorageWrite runs a snapshot of listeners, so a write inside the same
+  // emit that unregisters this section (clearing paneInstances below) can
+  // still reach this callback once more; iterating an emptied map is a no-op.
+  //
+  // A write landing while the instance's own item-details is not the
+  // selected Zotero_Tabs tab needs a second lever besides `refresh()`.
+  // `refresh()` reaches only this section's own suppressed-render flag: the
+  // item-details element sets `skipRender` on every pane it owns (including
+  // this one) whenever its tab is not selected, and `_forceRenderAll` takes
+  // the `hidden || skipRender` branch, which marks a render pending on the
+  // *section* but never touches the item-details element itself. Reselecting
+  // the tab later does nothing on its own: item-details' own `_handleTabSelect`
+  // clears `skipRender` but calls `render()` again only when item-details'
+  // own `_pendingRender` is already true, and nothing sets that flag except
+  // item-details' own `render()` running while `skipRender` is set - which
+  // this write never triggers. Arming `_pendingRender` directly here is what
+  // makes tab reselection pick the write back up.
+  unsubscribeStorageWrite = onStorageWrite((libraryID) => {
+    for (const instance of paneInstances.values()) {
+      const { body, refresh } = instance;
+      if (!body || !refresh) {
+        continue;
+      }
+      const item = paneItemFor(body);
+      if (!item || item.libraryID !== libraryID) {
+        continue;
+      }
+      void refresh();
+      armPendingRenderIfSuppressed(body);
+    }
+  });
+}
+
+/**
+ * `_pendingRender` is private state of Zotero's `item-details` element
+ * (chrome/content/zotero/elements/itemDetails.js). There is no public API for
+ * forcing a suppressed pane to resume rendering; that behaviour lives
+ * entirely inside that element's own `notify()`, which this mirrors.
+ * Verified against Zotero 10.0-beta.25 (`/opt/zotero-beta/app/application.ini`);
+ * re-check this reach against `itemDetails.js` on any Zotero upgrade. Scroll
+ * position is deliberately not preserved across a render this triggers: an
+ * earlier version tried, and each of three attempts introduced its own
+ * cosmetic defect in Zotero's render gating, so this trades a wrong scroll
+ * offset for a predictable one.
+ */
+type ItemDetailsElement = Element & {
+  skipRender?: boolean;
+  _pendingRender?: boolean;
+};
+
+/**
+ * See the write subscriber above for why `refresh()` alone leaves a
+ * background tab's pane stuck: this arms the containing item-details
+ * element's own resume path so reselecting its tab renders the write instead
+ * of finding nothing pending.
+ */
+function armPendingRenderIfSuppressed(body: HTMLElement): void {
+  const details = body.closest("item-details") as ItemDetailsElement | null;
+  if (details?.skipRender) {
+    details._pendingRender = true;
+  }
 }
 
 export function unregisterItemPaneSection(): void {
+  if (unsubscribeStorageWrite) {
+    unsubscribeStorageWrite();
+    unsubscribeStorageWrite = null;
+  }
+  paneInstances.clear();
   if (!registeredPaneID) {
     return;
   }

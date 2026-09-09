@@ -50,6 +50,13 @@ import {
   registerItemPaneSection,
   unregisterItemPaneSection,
 } from "./modules/timeline/itemPaneSection";
+import {
+  buildNoteHtml,
+  createTaggedNote,
+  STORAGE_TAG,
+  StorageError,
+} from "./modules/timeline/storage";
+import type { TimelineDocument } from "./modules/timeline/schema";
 import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 
 let containerObserverID: string | null = null;
@@ -66,6 +73,37 @@ let addToNewEventActionRegistered = false;
 // one document and Zotero can have several main windows open.
 const PANE_STYLESHEET_ID = "zoterotimeline-pane-stylesheet";
 const PANE_STYLESHEET_URL = "chrome://zoterotimeline/content/zoteroPane.css";
+
+/**
+ * Writes a timeline document note through the plugin's own storage module,
+ * so a spec can produce the post-commit write signal onStorageWrite fires.
+ * The scaffold bundles a full second copy of src/ into every spec file, so a
+ * spec that imported storage.ts directly and called its write functions
+ * would be talking to a different module instance than the one this plugin's
+ * registered listeners subscribe to; going through addon.api instead reaches
+ * the instance that is actually running.
+ *
+ * Refuses before the write reaches the queue when the library is not
+ * writable or the document has no name, the same two refusals createTimeline
+ * makes - without them a doomed write reached saveTx and rejected from
+ * inside the queue instead of being refused up front.
+ */
+async function createDocumentNoteForTests(
+  libraryID: number,
+  doc: TimelineDocument,
+): Promise<Zotero.Item> {
+  const library = Zotero.Libraries.get(libraryID);
+  if (!library || !library.editable) {
+    throw new StorageError(
+      "not-writable",
+      `library ${libraryID} is not writable`,
+    );
+  }
+  if (doc.name.trim() === "") {
+    throw new StorageError("invalid-schema", "a timeline needs a name");
+  }
+  return createTaggedNote(libraryID, STORAGE_TAG, buildNoteHtml(doc));
+}
 
 async function onStartup() {
   await Promise.all([
@@ -124,6 +162,9 @@ async function onStartup() {
     refreshObserverForTesting,
     openAddSourcesDialog,
     openCreateEventOnTimeline,
+    createDocumentNoteForTests,
+    registerItemPaneSection,
+    unregisterItemPaneSection,
   };
 
   await Promise.all(

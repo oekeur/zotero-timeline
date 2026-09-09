@@ -7,6 +7,7 @@ import {
   STORAGE_TAG,
   VOCABULARY_TAG,
   findContainers,
+  findOrCreateContainer,
   searchVocabularyNotes,
   whenStorageIdle,
 } from "../src/modules/timeline/storage";
@@ -20,6 +21,7 @@ import {
   UNREADABLE_NOTE_CLASS,
   findCitingEvents,
   isEligibleItem,
+  paneItemFor,
   renderCitingEventsContent,
 } from "../src/modules/timeline/itemPaneSection";
 import {
@@ -389,6 +391,28 @@ describe("item-pane section: which events cite this item", function () {
       api.setCrossLibrarySwitchConfirmForTests(allowSwitch);
     });
 
+    // Writes the citing note through the plugin's own registered storage
+    // module (via addon.api) rather than this file's raw-note fixture. These
+    // three specs rely on the section refreshing in place after a write - the
+    // whole point of the storage-write subscriber under test - and a raw note
+    // write never reaches it: emitStorageWrite only fires from storage.ts's
+    // own write functions.
+    async function documentCitingWritten(
+      name: string,
+      id: string,
+      item: Zotero.Item,
+      typeId = "cites",
+    ) {
+      const base = documentNamed(name, id);
+      const doc = addSource(base, base.events[0].id, {
+        kind: "item",
+        libraryID,
+        key: item.key,
+        typeId,
+      })!;
+      return api.createDocumentNoteForTests(libraryID, doc);
+    }
+
     after(function () {
       api.setCrossLibrarySwitchConfirmForTests(allowSwitch);
     });
@@ -426,7 +450,7 @@ describe("item-pane section: which events cite this item", function () {
     // AC #1
     it("opens the timeline tab and selects the event when none is open", async function () {
       const cited = await regularItem();
-      await documentCiting("Timeline A", "tl-jump-a", cited);
+      await documentCitingWritten("Timeline A", "tl-jump-a", cited);
 
       await clickRow(cited, "tl-jump-a");
 
@@ -444,7 +468,7 @@ describe("item-pane section: which events cite this item", function () {
     // AC #2
     it("selects the event on an already-open tab without reopening it", async function () {
       const cited = await regularItem();
-      await documentCiting("Timeline A", "tl-jump-a", cited);
+      await documentCitingWritten("Timeline A", "tl-jump-a", cited);
       await api.openTimelineTab();
       const before = await waitFor(
         () => api.getCurrentTimeline(),
@@ -474,8 +498,8 @@ describe("item-pane section: which events cite this item", function () {
     it("toggles a hidden target timeline visible without hiding a sibling that was already showing", async function () {
       const cited = await regularItem();
       const other = await regularItem("Other");
-      await documentCiting("Timeline A", "tl-jump-a", cited);
-      await documentCiting("Timeline B", "tl-jump-b", other);
+      await documentCitingWritten("Timeline A", "tl-jump-a", cited);
+      await documentCitingWritten("Timeline B", "tl-jump-b", other);
       await api.openTimelineTab();
 
       const win = Zotero.getMainWindows()[0] as any;
@@ -584,6 +608,526 @@ describe("item-pane section: which events cite this item", function () {
           "declining the switch must not reopen the tab",
         );
       });
+    });
+  });
+
+  describe("paneItemFor", function () {
+    it("returns the item the pane's own item-details element is displaying", async function () {
+      const win = Zotero.getMainWindows()[0] as any;
+      const item = await regularItem();
+
+      await win.ZoteroPane.selectItem(item.id);
+      const section = await waitFor(
+        () =>
+          win.document.querySelector(
+            'item-pane-custom-section[data-pane*="citing-events"]',
+          ),
+        "the section to register in the real item pane",
+      );
+      const body = section.querySelector('[data-type="body"]');
+
+      const displayed = paneItemFor(body);
+      assert.isDefined(displayed);
+      assert.equal(displayed!.id, item.id);
+    });
+
+    it("returns undefined for a body that is not connected to any pane", function () {
+      const win = Zotero.getMainWindows()[0] as any;
+      const body = win.document.createElement("div");
+      assert.isUndefined(paneItemFor(body));
+    });
+  });
+
+  // Driven entirely through the real registered section and
+  // Zotero.ZoteroTimeline.api, for the same reason "jump to event" above is:
+  // the subscriber lives in the plugin's own running module instance, and a
+  // write made through this file's own copy of storage.ts would never reach
+  // it. The container is pre-created in every spec so the citing write is
+  // never the library's first write - a first write's own container creation
+  // is a new top-level item that Zotero auto-selects, which would steal the
+  // pane away from the item under test for reasons that have nothing to do
+  // with the subscriber (see "jump to event" above for the measured detail).
+  describe("re-rendering on a storage write", function () {
+    let api: any;
+    let win: any;
+
+    before(function () {
+      api = (Zotero as any).ZoteroTimeline.api;
+      win = Zotero.getMainWindows()[0] as any;
+    });
+
+    async function selectAndAwaitBody(item: Zotero.Item): Promise<HTMLElement> {
+      await win.ZoteroPane.selectItem(item.id);
+      const section = await waitFor(
+        () =>
+          win.document.querySelector(
+            'item-pane-custom-section[data-pane*="citing-events"]',
+          ),
+        "the section to register in the real item pane",
+      );
+      return section.querySelector('[data-type="body"]');
+    }
+
+    const sectionSelector =
+      'item-pane-custom-section[data-pane*="citing-events"]';
+
+    /**
+     * Records which element's `_forceRenderAll` actually ran on a write, by
+     * wrapping it on the custom element's shared prototype (there is one
+     * registered class per tag name, so this covers every citing-events
+     * section instance in the window - the library pane's and every open
+     * reader or note tab's context pane's alike). Labels each call by its
+     * containing item-details' id, or "library" for the one with none,
+     * because that id is the one thing that tells apart a copy that should
+     * never have been refreshing from the one that should.
+     */
+    function instrumentSectionRefreshes(): {
+      calls: string[];
+      restore: () => void;
+    } {
+      const ctor = win.customElements.get("item-pane-custom-section");
+      const original = ctor.prototype._forceRenderAll;
+      const calls: string[] = [];
+      ctor.prototype._forceRenderAll = async function (
+        this: HTMLElement,
+        ...args: unknown[]
+      ) {
+        const details = this.closest("item-details");
+        calls.push(details ? details.id : "library");
+        return original.apply(this, args);
+      };
+      return {
+        calls,
+        restore: () => {
+          ctor.prototype._forceRenderAll = original;
+        },
+      };
+    }
+
+    /**
+     * Opens an unrelated note in its own tab, which is what actually creates
+     * the second item-details (and therefore the second instance of this
+     * section) that exposes the per-window keying bug: contextPane.js's
+     * `_addItemContext` runs for a note tab exactly as it does for a reader
+     * tab. Returns to the library tab once the note tab's own copy of the
+     * section has registered, so a caller's write lands with the library
+     * pane selected again, matching what opening a PDF or note and returning
+     * to the library actually leaves selected.
+     */
+    async function openNoteTab(): Promise<Zotero.Item> {
+      const note = new Zotero.Item("note");
+      note.libraryID = libraryID;
+      note.setNote("unrelated note");
+      await note.saveTx();
+      extras.push(note);
+
+      await Zotero.Notes.open(note.id, undefined, { openInWindow: false });
+      await waitFor(
+        () =>
+          win.document.querySelectorAll(sectionSelector).length >= 2
+            ? true
+            : null,
+        "the note tab's own citing-events section to register",
+      );
+      return note;
+    }
+
+    async function openAndReturnFromNoteTab(): Promise<Zotero.Item> {
+      const note = await openNoteTab();
+      win.Zotero_Tabs.select("zotero-pane");
+      return note;
+    }
+
+    function closeNoteTab(note: Zotero.Item): void {
+      const tabID = win.Zotero_Tabs.getTabIDByItemID(note.id);
+      if (tabID) {
+        win.Zotero_Tabs.close(tabID);
+      }
+    }
+
+    it("re-renders in place after a write in the item's own library, without any selection change", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+        kind: "item",
+        libraryID,
+        key: item.key,
+        typeId: "cites",
+      })!;
+      await api.createDocumentNoteForTests(libraryID, doc);
+
+      await waitFor(
+        () => body.querySelector(`.${GROUP_CLASS}`),
+        "the section to refresh in place after the citing write",
+      );
+      assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+      assert.deepEqual(
+        win.ZoteroPane.getSelectedItems().map((i: any) => i.id),
+        [item.id],
+        "the selection changed",
+      );
+    });
+
+    // The defect this fixes: adding an item as a source to an event happens
+    // from the timeline tab, which is a Zotero_Tabs tab like any reader or
+    // note tab, so this is the write path the whole feature is used through.
+    // `refresh()` alone leaves the library pane's own item-details stuck
+    // with nothing pending (see the write subscriber's own comment); without
+    // also arming that element's `_pendingRender`, reselecting the library
+    // tab renders nothing and this spec times out still showing the
+    // empty-state.
+    it("shows a citation once the library tab is reselected after the write landed while the timeline tab was selected", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      await api.openTimelineTab();
+      try {
+        const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        await api.createDocumentNoteForTests(libraryID, doc);
+
+        win.Zotero_Tabs.select("zotero-pane");
+
+        await waitFor(
+          () => body.querySelector(`.${GROUP_CLASS}`),
+          "the library pane's section to refresh once its tab is reselected",
+        );
+        assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+      } finally {
+        api.closeTimelineTab();
+      }
+    });
+
+    it("does not re-render for a write landing in a different library", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+      const canary = win.document.createElement("div");
+      canary.className = "test-canary";
+      body.appendChild(canary);
+
+      const group = new Zotero.Group();
+      Object.assign(group as unknown as Record<string, unknown>, {
+        id: 424242,
+        name: "Other library",
+        description: "",
+        version: 1,
+        editable: true,
+        filesEditable: true,
+      });
+      await group.saveTx();
+      try {
+        await api.createDocumentNoteForTests(
+          group.libraryID,
+          documentNamed("Elsewhere", "tl-elsewhere"),
+        );
+
+        assert.isNotNull(
+          body.querySelector(".test-canary"),
+          "a write in a different library re-rendered the section",
+        );
+        assert.isNull(body.querySelector(`.${GROUP_CLASS}`));
+      } finally {
+        await eraseAllPluginItems(group.libraryID);
+        await group.eraseTx();
+      }
+    });
+
+    // The library-match check runs before either lever (refresh() or arming
+    // the containing item-details' _pendingRender), so a write in a
+    // different library must stay inert whether the library pane's own tab
+    // is selected or not.
+    it("does not arm a re-render for a write landing in a different library while the timeline tab is selected", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      await api.openTimelineTab();
+      const group = new Zotero.Group();
+      Object.assign(group as unknown as Record<string, unknown>, {
+        id: 424243,
+        name: "Other library 2",
+        description: "",
+        version: 1,
+        editable: true,
+        filesEditable: true,
+      });
+      await group.saveTx();
+      try {
+        await api.createDocumentNoteForTests(
+          group.libraryID,
+          documentNamed("Elsewhere 2", "tl-elsewhere-2"),
+        );
+
+        win.Zotero_Tabs.select("zotero-pane");
+        await waitFor(
+          () => body.querySelector(`.${EMPTY_CLASS}`),
+          "the empty state to still be showing once the library tab is reselected",
+        );
+        assert.isNull(body.querySelector(`.${GROUP_CLASS}`));
+      } finally {
+        api.closeTimelineTab();
+        await eraseAllPluginItems(group.libraryID);
+        await group.eraseTx();
+      }
+    });
+
+    // Reproduces the routing bug a per-window instance registry has: opening
+    // a reader or note tab creates a second item-details in the SAME window
+    // (contextPane.js's `_addItemContext`), each with its own instance of
+    // this section and its own bound `refresh`. A registry keyed by window
+    // lets the tab's `onInit` overwrite the library pane's entry, so a write
+    // made after returning to the library refreshes the tab's copy - which
+    // is not even showing - while the library pane, still holding the
+    // pre-write answer, never runs `_forceRenderAll` at all.
+    it("refreshes the library pane's own section, not another item-details' copy, when a note tab has also been opened", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      const note = await openAndReturnFromNoteTab();
+      const { calls, restore } = instrumentSectionRefreshes();
+
+      try {
+        const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        await api.createDocumentNoteForTests(libraryID, doc);
+
+        try {
+          await waitFor(
+            () => body.querySelector(`.${GROUP_CLASS}`),
+            "the library pane's section to refresh in place after the citing write",
+          );
+        } catch (err) {
+          throw new Error(
+            `${(err as Error).message} Refresh ran on ${JSON.stringify(calls)}. Body: ${body.textContent}`,
+          );
+        }
+        assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+      } finally {
+        restore();
+        closeNoteTab(note);
+      }
+    });
+
+    // The other direction of the spec above: the write lands while the note
+    // tab (not the library tab) is selected, so both the multi-instance
+    // routing and the reselect-to-render arming have to be right together for
+    // the library pane, and only the library pane, to end up showing it.
+    it("refreshes the library pane's own section, not the note tab's copy, once the library tab is reselected after a write made while the note tab was selected", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      const note = await openNoteTab();
+      const { calls, restore } = instrumentSectionRefreshes();
+
+      try {
+        const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        await api.createDocumentNoteForTests(libraryID, doc);
+
+        win.Zotero_Tabs.select("zotero-pane");
+
+        try {
+          await waitFor(
+            () => body.querySelector(`.${GROUP_CLASS}`),
+            "the library pane's section to refresh once its tab is reselected",
+          );
+        } catch (err) {
+          throw new Error(
+            `${(err as Error).message} Refresh ran on ${JSON.stringify(calls)}. Body: ${body.textContent}`,
+          );
+        }
+        assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+      } finally {
+        restore();
+        closeNoteTab(note);
+      }
+    });
+
+    it("keeps refreshing the library pane after a note tab is opened and closed again", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      const note = await openAndReturnFromNoteTab();
+      const noteTabID = win.Zotero_Tabs.getTabIDByItemID(note.id);
+      win.Zotero_Tabs.close(noteTabID);
+      const { calls, restore } = instrumentSectionRefreshes();
+
+      try {
+        const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        await api.createDocumentNoteForTests(libraryID, doc);
+
+        try {
+          await waitFor(
+            () => body.querySelector(`.${GROUP_CLASS}`),
+            "the library pane to keep refreshing after the note tab closed",
+          );
+        } catch (err) {
+          throw new Error(
+            `${(err as Error).message} Refresh ran on ${JSON.stringify(calls)}. Body: ${body.textContent}`,
+          );
+        }
+        assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+      } finally {
+        restore();
+      }
+    });
+
+    it("stops refreshing once unregistered", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      api.unregisterItemPaneSection();
+      try {
+        const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        await api.createDocumentNoteForTests(libraryID, doc);
+        await Zotero.Promise.delay(300);
+
+        assert.isNull(
+          body.querySelector(`.${GROUP_CLASS}`),
+          "a write after unregistering still re-rendered the section",
+        );
+      } finally {
+        api.registerItemPaneSection();
+        // A fresh item rather than re-selecting `item`: Zotero's own custom
+        // section wrapper skips onRender for an item/tab pairing it has
+        // already rendered before, regardless of what happened in between
+        // (see "jump to event" above for the measured detail), and `item`
+        // was already rendered once at the top of this spec.
+        const recovered = await regularItem("Recovery check");
+        const recoveredBody = await selectAndAwaitBody(recovered);
+        await waitFor(
+          () => recoveredBody.querySelector(`.${EMPTY_CLASS}`),
+          "the section to render again once re-registered",
+        );
+      }
+    });
+
+    // Zotero disables this section for an item before ever calling its
+    // render hook (setEnabled runs inside box.item's setter, ahead of the
+    // render loop's own hidden check), so the render-dependency key the loop
+    // uses to skip a redundant render is never updated for an ineligible
+    // item. Writing straight into the body for it, as an earlier version of
+    // this subscriber did, left that wrong answer sitting there permanently:
+    // the key still matched the ORIGINAL item once the user came back, so
+    // the loop treated it as already rendered and never called the hook
+    // again.
+    it("leaves the section correct for the original item after a write while the pane shows an item the section is disabled for", async function () {
+      await findOrCreateContainer(libraryID);
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      const attachment = await linkedAttachment(item);
+      await win.ZoteroPane.selectItem(attachment.id);
+
+      const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+        kind: "item",
+        libraryID,
+        key: item.key,
+        typeId: "cites",
+      })!;
+      await api.createDocumentNoteForTests(libraryID, doc);
+
+      await win.ZoteroPane.selectItem(item.id);
+      await waitFor(
+        () => body.querySelector(`.${GROUP_CLASS}`),
+        "the section to show the write once the original item is reselected",
+      );
+      assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+    });
+
+    // The same defect reached from the other direction: a library with no
+    // container yet. Its first write creates one, and Zotero auto-selects
+    // that new top-level item - which this section is disabled for, so this
+    // hits the same hidden-section path as the spec above without an
+    // attachment or a pre-created container anywhere in it.
+    it("shows the citation for the displayed item once it is reselected after the write that creates the library's first container", async function () {
+      const item = await regularItem();
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => body.querySelector(`.${EMPTY_CLASS}`),
+        "the initial empty-state render",
+      );
+
+      const doc = addSource(documentNamed("Timeline A", "tl-a"), "e-1", {
+        kind: "item",
+        libraryID,
+        key: item.key,
+        typeId: "cites",
+      })!;
+      await api.createDocumentNoteForTests(libraryID, doc);
+
+      await win.ZoteroPane.selectItem(item.id);
+      await waitFor(
+        () => body.querySelector(`.${GROUP_CLASS}`),
+        "the section to show the citation once the cited item is reselected",
+      );
+      assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
     });
   });
 });
