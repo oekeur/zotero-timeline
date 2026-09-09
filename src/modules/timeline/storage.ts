@@ -140,6 +140,48 @@ export async function whenStorageIdle(): Promise<void> {
   await queue;
 }
 
+export type StorageWriteListener = (libraryID: number) => void;
+
+// A Notifier observer cannot carry this signal: at an "add" notification a
+// new note's tags are not yet queryable, and there is nothing else in the
+// notification to tell a citing write apart from any other item change. The
+// write path itself is the only place that knows a plugin write landed, which
+// is why this listener set lives here rather than on top of Notifier.
+const storageWriteListeners = new Set<StorageWriteListener>();
+
+/**
+ * Subscribes to every storage write this module commits, once each write has
+ * landed. Returns a function that removes the listener.
+ */
+export function onStorageWrite(cb: StorageWriteListener): () => void {
+  storageWriteListeners.add(cb);
+  return () => {
+    storageWriteListeners.delete(cb);
+  };
+}
+
+/**
+ * Notifies every registered listener that a write landed in `libraryID`. A
+ * listener that throws, synchronously or by returning a rejected promise, is
+ * logged and does not stop the others from running. Iterates a snapshot of
+ * the listener set: a listener that unsubscribes and resubscribes itself
+ * inside its own handler must not be re-visited on this emit.
+ */
+function emitStorageWrite(libraryID: number): void {
+  for (const listener of Array.from(storageWriteListeners)) {
+    try {
+      const result: unknown = listener(libraryID);
+      if (result && typeof (result as Promise<void>).then === "function") {
+        (result as Promise<void>).catch((err) => {
+          logFailure("[zoteroTimeline] a storage write listener threw", err);
+        });
+      }
+    } catch (err) {
+      logFailure("[zoteroTimeline] a storage write listener threw", err);
+    }
+  }
+}
+
 /**
  * The plugin's container items in a library, lowest key first.
  *
@@ -564,6 +606,7 @@ export async function updateTimelineDocument(
       );
     }
     await saveDocumentToNote(note, result.doc, onOversize);
+    emitStorageWrite(libraryID);
     return result.doc;
   });
 }
@@ -719,7 +762,9 @@ export async function createTaggedNote(
   tag: string,
   html: string,
 ): Promise<Zotero.Item> {
-  return enqueue(() => createNoteUnqueued(libraryID, tag, html));
+  const item = await enqueue(() => createNoteUnqueued(libraryID, tag, html));
+  emitStorageWrite(libraryID);
+  return item;
 }
 
 function emptyTimelineDocument(name: string): TimelineDocument {
@@ -839,6 +884,7 @@ export async function deleteTimeline(
     note.deleted = true;
     await note.saveTx();
   });
+  emitStorageWrite(libraryID);
 }
 
 /**
