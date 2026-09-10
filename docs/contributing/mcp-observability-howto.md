@@ -32,17 +32,24 @@ per worktree, so this is once per worktree. Almost all of it is automatic.
    not a failed write. `extensions.mcp-rdp.port` does stay, so that is the one
    to grep for when checking the profile.
 
-2. Nothing to register. The client side is single-valued, so each port needs
-   its own entry, and the whole pool is already registered in Oscar's user
-   config: `zotero-dev` on 6100 for the main checkout, and `zotero-dev-6101`
-   through `zotero-dev-6110` for worktrees. Pre-registering is not tidiness. A
-   newly added entry only connects at the **next** session start, so registering
-   one when a worktree appears leaves the session that needs the rig without it.
+2. Nothing to register by hand. The client side is single-valued, so each port
+   needs its own entry, and the same hook writes this checkout's entries into
+   `.mcp.json` at its root: `zotero-dev` on 6100 for the main checkout,
+   `zotero-dev-<port>` for 6101-6105. The file is gitignored because the port
+   differs per worktree, and the names are listed in
+   `.claude/settings.local.json` so a background or `--print` session connects
+   without an approval prompt.
 
-   The hook warns and prints the `claude mcp add` line if the pool ever has a
-   gap. If you run it yourself, do not use `npx install-mcp`: it can write a
-   config with neither `-y` nor a version, which then runs whatever `npx` has
-   cached.
+   Registering per checkout rather than machine-wide is what keeps the process
+   count sane. These are stdio servers with no lazy start, so a user-scope entry
+   spawns in every Claude session on the machine, in every project, including
+   pre-warmed ones doing no work.
+
+   **Restart Claude in the checkout after provisioning.** A newly added entry
+   only connects at the **next** session start, and `/mcp` reconnects existing
+   servers without rescanning config. Provisioning runs before any session
+   starts in the checkout it provisions, which is what makes that constraint
+   harmless.
 
 3. Call the entry that matches your port. Port 6100 means the `mcp__zotero-dev__*`
    tools; port `N` means `mcp__zotero-dev-N__*`. Then run `npm start`, call
