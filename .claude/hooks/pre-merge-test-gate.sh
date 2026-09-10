@@ -64,7 +64,7 @@ except ValueError:
     print("NOREF" if re.search(r"\bgit\b[\s\S]*\bmerge\b", cmd) else "NOMERGE")
     sys.exit(0)
 
-# The subcommand only counts when it is git's. Matching the bare word anywhere
+# The subcommand only counts when git owns it. Matching the bare word anywhere
 # in the token list blocked heredocs whose PROSE contained it -- a notes file,
 # a commit body, a doc paragraph -- none of which merge anything.
 git_global_takes_value = {"-C", "-c", "--git-dir", "--work-tree",
