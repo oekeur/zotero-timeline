@@ -25,7 +25,7 @@
     "clean:profile": "node scripts/clean-dev-profile.mjs",
     "prestart": "node scripts/clean-dev-profile.mjs",
     "start": "zotero-plugin serve",
-    "start:headless": "env -u WAYLAND_DISPLAY xvfb-run -a npm start",
+    "start:headless": "node scripts/headless.mjs npm start",
     "build": "zotero-plugin build && tsc --noEmit",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
