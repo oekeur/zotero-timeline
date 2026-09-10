@@ -35,7 +35,11 @@ import {
   STORAGE_TAG,
   VOCABULARY_TAG,
 } from "./storage";
-import { ensureDocumentShowing, getCurrentTimeline } from "./timelineTab";
+import {
+  ensureDocumentShowing,
+  getCurrentTimeline,
+  revealHiddenTimeline,
+} from "./timelineTab";
 import type { Event, SourceRef } from "./schema";
 
 const PANE_ID = "zoterotimeline-citing-events";
@@ -158,15 +162,11 @@ function sourceLine(
   return `${reference} — ${typeText}`;
 }
 
-/** The slice of a vis Timeline instance a jump needs: the same groupsData
- * DataSet renderCanvas built and the sidebar's own controls write into (not a
- * second copy), and the wrapped setSelection that makes a scripted selection
- * reach the editor panel the way a click does. */
+/** The slice of a vis Timeline instance a jump needs: the wrapped
+ * setSelection that makes a scripted selection reach the editor panel the way
+ * a click does. Revealing a hidden timeline is not this instance's job - see
+ * revealHiddenTimeline below for why. */
 type JumpableTimeline = {
-  groupsData: {
-    get(id: string): { id: string; visible?: boolean } | null;
-    update(data: { id: string; visible: boolean }): unknown;
-  };
   setSelection(ids: string[]): void;
 };
 
@@ -178,9 +178,14 @@ type JumpableTimeline = {
  *
  * Once the tab shows the target, a timeline toggled out of view is toggled
  * back on (a selection on an undrawn item lands nowhere) and nothing else is
- * touched: no other timeline is hidden. Selecting the event through the
- * wrapped setSelection also makes its document the active one (canvas.ts's
- * own handleSelectionChange), so the jump needs no separate activation call.
+ * touched: no other timeline is hidden. That reveal goes through
+ * timelineTab.ts's own revealHiddenTimeline rather than
+ * timeline.groupsData.get() here: groupsData is a DataView filtered to
+ * visible groups (see ensureDocumentShowing's comment for where that was
+ * measured), so get() on the very timeline this jump needs to reveal always
+ * returns null. Selecting the event through the wrapped setSelection also
+ * makes its document the active one (canvas.ts's own handleSelectionChange),
+ * so the jump needs no separate activation call.
  */
 export async function jumpToEvent(
   win: Window,
@@ -205,10 +210,7 @@ export async function jumpToEvent(
     if (!timeline) {
       return;
     }
-    const group = timeline.groupsData.get(documentId);
-    if (group && group.visible === false) {
-      timeline.groupsData.update({ id: documentId, visible: true });
-    }
+    revealHiddenTimeline(documentId);
     timeline.setSelection([`${documentId}:${eventId}`]);
   } catch (err) {
     logFailure(

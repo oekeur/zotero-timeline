@@ -165,6 +165,14 @@ let selectedTagFilter = new Set<string>();
 let openCreateEventHandler:
   | ((documentId: string, items: Zotero.Item[]) => void)
   | undefined;
+// The open tab's own "make this loaded document visible again" entry point,
+// set and reset the same way openCreateEventHandler is and for the same
+// reason: revealHiddenTimeline is called from outside the tab's own closure
+// (the item pane's jump-to-event), so it needs a stable reference into the
+// raw groups DataSet groupsDS() holds, not the DataView getCurrentTimeline()
+// exposes - see ensureDocumentShowing's comment for why that DataView cannot
+// answer this question either.
+let revealHiddenTimelineHandler: ((documentId: string) => void) | undefined;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -238,6 +246,18 @@ export function getLastMovePayload(): any {
 
 export function getCurrentTimeline(): any {
   return currentTimeline;
+}
+
+/**
+ * Toggles `documentId` visible again if it is loaded in the open tab but
+ * hidden, and re-renders the sidebar so its checkbox agrees. A no-op when no
+ * tab is open, the document is not loaded there, or it is already visible.
+ * Exported for the item pane's jump-to-event, which otherwise has no reach
+ * into groupsDS() - the raw DataSet a hidden timeline's `visible` flag lives
+ * on - from outside this module's own closure.
+ */
+export function revealHiddenTimeline(documentId: string): void {
+  revealHiddenTimelineHandler?.(documentId);
 }
 
 /**
@@ -633,6 +653,7 @@ export async function openTimelineTab(
       getActiveDocumentId = undefined;
       selectedTagFilter = new Set();
       openCreateEventHandler = undefined;
+      revealHiddenTimelineHandler = undefined;
     },
   });
   timelineTabID = id;
@@ -959,6 +980,24 @@ export async function openTimelineTab(
     );
   }
   openCreateEventHandler = openCreateEventLocally;
+
+  /**
+   * The item pane jump-to-event's reveal step: the same DataSet write
+   * openCreateEventLocally makes above, pulled out since a jump has no create
+   * form to render afterward. Defined once, referenced through the
+   * module-level revealHiddenTimelineHandler, for the same reason
+   * openCreateEventLocally is.
+   */
+  function revealHiddenTimelineLocally(documentId: string): void {
+    const group = groupsDS()
+      .get({ order: "order" })
+      .find((g) => g.id === documentId);
+    if (group && group.visible === false) {
+      groupsDS().update({ id: documentId, visible: true });
+      renderSidebar();
+    }
+  }
+  revealHiddenTimelineHandler = revealHiddenTimelineLocally;
 
   /**
    * Everything that lives on the vis instance and would go with it.

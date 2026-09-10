@@ -864,27 +864,57 @@ export function renderCanvas(
    * never moves here. Listening on the groups DataSet itself, rather than
    * requiring the sidebar's toggle handler to call back in, is what makes this
    * work without the sidebar (timelineTab.ts) knowing parked events exist:
-   * `visible` already flows through this DataSet for every reason TASK-39
-   * built it, and this just reads the same field.
+   * `visible` already flows through this DataSet for every reason it was
+   * built, and this just reads the same field.
    *
    * Reads only `documents`, already held in memory from the initial render or
    * updated in place by onMove/click-to-create above - no document is
-   * re-read, which is what TASK-39's carried-in criterion requires.
+   * re-read.
    *
-   * The same listener also carries the active-lane fallback (TASK-16): if
-   * the active document just stopped being visible - toggled off directly,
-   * or (activeDocumentId already null) never chosen because nothing was
-   * visible until this update - activation moves to the topmost still-
-   * visible timeline, the rows' own `order` already sorted ascending by
-   * `documentGroupRows()` below - document rows only, never a sub-lane
-   * (TASK-15): a sub-lane's `order` is scoped to its own siblings under one
-   * parent, not comparable against another document's, so it must never be
-   * read as if it were one. Ordinary reordering or toggling a lane *on* while
-   * the active one stays visible leaves this condition false and activation
-   * untouched, which is what keeps a toggle-on from stealing the handles out
-   * from under whoever is mid-edit elsewhere.
+   * The same listener also carries the active-lane fallback: if the active
+   * document just stopped being visible - toggled off directly, or
+   * (activeDocumentId already null) never chosen because nothing was visible
+   * until this update - activation moves to the topmost still-visible
+   * timeline, the rows' own `order` already sorted ascending by
+   * `documentGroupRows()` below - document rows only, never a sub-lane: a
+   * sub-lane's `order` is scoped to its own siblings under one parent, not
+   * comparable against another document's, so it must never be read as if it
+   * were one. Ordinary reordering or toggling a lane *on* while the active
+   * one stays visible leaves this condition false and activation untouched,
+   * which is what keeps a toggle-on from stealing the handles out from under
+   * whoever is mid-edit elsewhere.
+   *
+   * The work itself runs a microtask after the groups DataSet's own "update"
+   * dispatch finishes, never inside this listener's own call frame.
+   * `DataSetPart._trigger` (vis-data/peer/umd/vis-data.js:12192-12199) calls
+   * every subscriber of an event synchronously, one after another on one call
+   * stack; `groups.on("update", ...)` below is one of those subscribers, so a
+   * write made from inside it runs with the groups DataSet's own dispatch
+   * loop still on the stack underneath it, not after it. That is not a
+   * redraw-timing difference between the two DataSets: `ItemSet._onUpdate`
+   * (items) and `_onAddGroups` (groups) both end the same way, at
+   * `body.emitter.emit("_change", { queue: true })`
+   * (vis-timeline-graph2d.js:28498 and :28583), and Core's own "_change"
+   * listener (:32064-32068) sends a queued change to `_redraw`, which
+   * `throttle()` (:13641) always defers to the next requestAnimationFrame -
+   * never synchronously, from either an items write or a groups write. What
+   * the microtask actually escapes is the open DataSet dispatch itself:
+   * writing `items` from inside the still-running `groups` "update" dispatch
+   * is what let vis-timeline reach into a group it had not finished
+   * reconciling and throw (measured: `groups.update({ visible: true })` on a
+   * document holding a parked event, from either the sidebar checkbox or a
+   * jump-triggered reveal, throws inside vis-timeline's own
+   * `_orderGroups`). Deferring past the dispatch removes the re-entrancy
+   * without changing what gets drawn: `pendingParkedAndActivationRefresh`
+   * coalesces several synchronous `groups.update()` calls (batch reorders, a
+   * hide followed immediately by a reveal) into the single microtask that
+   * runs after the last of them, and that microtask re-reads visibility
+   * fresh rather than closing over anything computed before it ran, so the
+   * result reflects every write that landed by the time it executes, not
+   * just the one that happened to schedule it.
    */
-  groups.on("update", () => {
+  let pendingParkedAndActivationRefresh = false;
+  function refreshParkedAnchorsAndActivation(): void {
     const rows = documentGroupRows();
     const visibleIds = new Set(
       rows.filter((group) => group.visible !== false).map((g) => String(g.id)),
@@ -896,6 +926,7 @@ export function renderCanvas(
     }
 
     const anchors = computeParkedAnchors(documents, visibleIds);
+    const updates: ReturnType<typeof buildTimelineItem>[] = [];
     for (const [documentId, doc] of documents) {
       if (readableExtent(doc) !== null) {
         continue; // this document's own anchor never depends on visibility
@@ -906,10 +937,30 @@ export function renderCanvas(
         try {
           toTimelineRange(event.date);
         } catch {
-          items.update(buildTimelineItem(documentId, event, anchor, editable));
+          updates.push(buildTimelineItem(documentId, event, anchor, editable));
         }
       }
     }
+    if (updates.length > 0) {
+      items.update(updates);
+    }
+  }
+  groups.on("update", () => {
+    if (pendingParkedAndActivationRefresh) {
+      return;
+    }
+    pendingParkedAndActivationRefresh = true;
+    void Promise.resolve().then(() => {
+      pendingParkedAndActivationRefresh = false;
+      try {
+        refreshParkedAnchorsAndActivation();
+      } catch (err) {
+        logFailure(
+          `[zoteroTimeline] failed to refresh parked anchors and activation: ${(err as Error).message}`,
+          err,
+        );
+      }
+    });
   });
 
   // Selecting a single item also activates its document (clicking an event
