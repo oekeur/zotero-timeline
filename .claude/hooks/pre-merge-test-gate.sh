@@ -58,14 +58,34 @@ cmd = sys.stdin.read()
 try:
     t = shlex.split(cmd)
 except ValueError:
-    # Unbalanced quoting: fall back to the raw text. Only the presence of the
-    # word decides, so an unparseable command still cannot smuggle a merge past.
-    print("NOREF" if re.search(r"\bmerge\b", cmd) else "NOMERGE")
+    # Unbalanced quoting: fall back to the raw text. Require "git" as well as
+    # the subcommand, so an unparseable command still cannot smuggle one past
+    # while ordinary prose mentioning the word is not treated as one.
+    print("NOREF" if re.search(r"\bgit\b[\s\S]*\bmerge\b", cmd) else "NOMERGE")
     sys.exit(0)
 
-try:
-    i = t.index("merge") + 1
-except ValueError:
+# The subcommand only counts when it is git's. Matching the bare word anywhere
+# in the token list blocked heredocs whose PROSE contained it -- a notes file,
+# a commit body, a doc paragraph -- none of which merge anything.
+git_global_takes_value = {"-C", "-c", "--git-dir", "--work-tree",
+                          "--namespace", "--exec-path", "--config-env"}
+i = None
+for j, tok in enumerate(t):
+    if tok != "git" and not tok.endswith("/git"):
+        continue
+    k = j + 1
+    while k < len(t):
+        if t[k] in git_global_takes_value:
+            k += 2
+            continue
+        if t[k].startswith("-"):
+            k += 1
+            continue
+        break
+    if k < len(t) and t[k] == "merge":
+        i = k + 1
+        break
+if i is None:
     print("NOMERGE")
     sys.exit(0)
 
