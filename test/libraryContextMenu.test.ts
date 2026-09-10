@@ -141,6 +141,37 @@ describe("libraryContextMenu", function () {
     });
   });
 
+  // The ellipsis is a convention, not decoration: both entries take the user
+  // somewhere to finish the job rather than acting on the click, and a reader
+  // checking the FTL source cannot tell whether the string it holds is the one
+  // Fluent actually resolved onto the element. So this reads the registered
+  // elements, which is what a user sees.
+  describe("the entries' labels", function () {
+    let win: any;
+
+    before(function () {
+      win = Zotero.getMainWindows()[0];
+    });
+
+    for (const [what, id] of [
+      ["the plain entry", "zotero-timeline-menuitem-add-to-new-event"],
+      ["the submenu", "zotero-timeline-menuitem-add-to-new-event-submenu"],
+    ]) {
+
+      it(`${what} keeps its trailing ellipsis`, function () {
+        const element = win.document.getElementById(id) as Element | null;
+        assert.ok(element, `${id} is not registered`);
+        const label = element!.getAttribute("label") ?? "";
+        assert.notEqual(label, "", `${id} has no resolved label`);
+        assert.match(
+          label,
+          /\u2026$/,
+          `${what} must end in an ellipsis, not "${label}"`,
+        );
+      });
+    }
+  });
+
   describe("the submenu's shape", function () {
     let libraryID: number;
 

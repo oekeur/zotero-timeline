@@ -93,13 +93,17 @@ describe("add to new event, from the library context menu", function () {
 
   // AC #1, #2
   it("opens the editor on the chosen timeline with the selection attached, and writes nothing yet", async function () {
-    await createDocumentNote(
+    const note = await createDocumentNote(
       libraryID,
       STORAGE_TAG,
       emptyDocument("Target", "tl-target"),
     );
     const a = await savedItem("Source A");
     const b = await savedItem("Source B");
+    // The stored bytes, not the event count: a write that added an event and
+    // removed another, or that only touched the document's name, leaves the
+    // count at zero and would pass an assertion made on it.
+    const storedBefore = note.getNote();
 
     await api.openCreateEventOnTimeline(win, "tl-target", libraryID, [a, b]);
     const panel = await openPanel();
@@ -117,6 +121,12 @@ describe("add to new event, from the library context menu", function () {
       await eventsOn("tl-target"),
       0,
       "opening the editor must not write anything",
+    );
+    const reread = (await Zotero.Items.getAsync(note.id)) as Zotero.Item;
+    assert.equal(
+      reread.getNote(),
+      storedBefore,
+      "opening the editor must leave the stored note byte-for-byte unchanged",
     );
   });
 
