@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { CURRENT_SCHEMA_VERSION } from "../src/modules/timeline/schema";
 import {
   STORAGE_TAG,
   createTimeline,
@@ -6,8 +7,13 @@ import {
   onStorageWrite,
   renameTimeline,
   updateTimelineDocument,
+  updateVocabulary,
   whenStorageIdle,
 } from "../src/modules/timeline/storage";
+import {
+  addLinkType,
+  renameLinkType,
+} from "../src/modules/timeline/vocabulary";
 import {
   createDocumentNote,
   documentNamed,
@@ -194,5 +200,86 @@ describe("storage: the write signal", function () {
     } finally {
       Zotero.logError = originalLogError;
     }
+  });
+
+  it("emits once, carrying the library id, when a vocabulary type is renamed in a library that already has a vocabulary note", async function () {
+    const created = await updateVocabulary(libraryID, (vocabulary) =>
+      addLinkType(vocabulary, "eyewitness"),
+    );
+    const target = created!.types.find((t) => t.label === "eyewitness")!;
+    const { calls } = listen();
+
+    await updateVocabulary(libraryID, (vocabulary) =>
+      renameLinkType(vocabulary, target.id, "eyewitness account"),
+    );
+
+    assert.deepEqual(calls, [[libraryID]]);
+  });
+
+  it("emits once, carrying the library id, on the first vocabulary write in a library with no vocabulary note yet", async function () {
+    const { calls } = listen();
+
+    await updateVocabulary(libraryID, (vocabulary) =>
+      addLinkType(vocabulary, "first type"),
+    );
+
+    assert.deepEqual(calls, [[libraryID]]);
+  });
+
+  it("emits nothing when a vocabulary write is refused for a non-writable library", async function () {
+    const unwritableLibraryID = -999;
+    const originalGet = Zotero.Libraries.get;
+    Zotero.Libraries.get = ((id: number) =>
+      id === unwritableLibraryID
+        ? ({ editable: false } as unknown as ReturnType<
+            typeof Zotero.Libraries.get
+          >)
+        : originalGet.call(
+            Zotero.Libraries,
+            id,
+          )) as typeof Zotero.Libraries.get;
+    const { calls } = listen();
+
+    try {
+      let caught: unknown;
+      try {
+        await updateVocabulary(unwritableLibraryID, (vocabulary) =>
+          addLinkType(vocabulary, "x"),
+        );
+      } catch (err) {
+        caught = err;
+      }
+      assert.instanceOf(caught, Error);
+    } finally {
+      Zotero.Libraries.get = originalGet;
+    }
+
+    assert.deepEqual(calls, []);
+  });
+
+  it("emits nothing when a vocabulary write is refused for emptying the vocabulary", async function () {
+    const { calls } = listen();
+
+    let caught: unknown;
+    try {
+      await updateVocabulary(libraryID, () => ({
+        version: CURRENT_SCHEMA_VERSION,
+        types: [],
+      }));
+    } catch (err) {
+      caught = err;
+    }
+
+    assert.instanceOf(caught, Error);
+    assert.deepEqual(calls, []);
+  });
+
+  it("emits nothing when a vocabulary mutate returns null", async function () {
+    const { calls } = listen();
+
+    const result = await updateVocabulary(libraryID, () => null);
+
+    assert.isNull(result);
+    assert.deepEqual(calls, []);
   });
 });

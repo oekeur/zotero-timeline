@@ -957,6 +957,7 @@ export async function updateVocabulary(
     } else {
       await createNoteUnqueued(libraryID, VOCABULARY_TAG, html);
     }
+    emitStorageWrite(libraryID);
     return result.doc;
   });
 }

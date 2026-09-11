@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { addSource } from "../src/modules/timeline/mutations";
+import { CURRENT_SCHEMA_VERSION } from "../src/modules/timeline/schema";
 import { UNKNOWN_TYPE_LABEL } from "../src/modules/timeline/vocabulary";
 import { clearCache, parsesSoFar } from "../src/modules/timeline/documentCache";
 import {
@@ -19,12 +20,21 @@ import {
   STORAGE_TAG,
   VOCABULARY_TAG,
   buildNoteHtml,
+  buildVocabularyNoteHtml,
+  createTaggedNote,
   findContainers,
   findOrCreateContainer,
   listTimelines,
   searchVocabularyNotes,
   whenStorageIdle,
 } from "../src/modules/timeline/storage";
+import {
+  EDIT_BUTTON_CLASS,
+  ERROR_CLASS as VOCAB_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  ROW_CLASS as VOCAB_ROW_CLASS,
+  SAVE_BUTTON_CLASS as VOCAB_SAVE_BUTTON_CLASS,
+} from "../src/modules/timeline/vocabularySettings";
 import {
   EMPTY_CLASS,
   GROUP_CLASS,
@@ -1596,6 +1606,136 @@ describe("item-pane section: which events cite this item", function () {
         "the section to show the citation once the cited item is reselected",
       );
       assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
+    });
+
+    function citingRowMetaText(body: HTMLElement): string {
+      return body.querySelector(`.${ROW_META_CLASS}`)?.textContent ?? "";
+    }
+
+    // Rename runs through the real vocabulary editor (api.renderVocabularySettings)
+    // rather than a spec-imported updateVocabulary: the latter emits into the
+    // test bundle's own listener set, which this section's real subscriber
+    // never hears.
+    it("repaints the row's type label after a vocabulary rename, without reselecting the item", async function () {
+      await findOrCreateContainer(libraryID);
+      await createTaggedNote(
+        libraryID,
+        VOCABULARY_TAG,
+        buildVocabularyNoteHtml({
+          version: CURRENT_SCHEMA_VERSION,
+          types: [{ id: "cites", label: "cites" }],
+        }),
+      );
+      const item = await regularItem();
+      const doc = addSource(
+        documentNamed("Timeline A", "tl-vocab-rename"),
+        "e-1",
+        { kind: "item", libraryID, key: item.key, typeId: "cites" },
+      )!;
+      await api.createDocumentNoteForTests(libraryID, doc);
+
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => (citingRowMetaText(body).includes("cites") ? true : null),
+        "the citing row to show the original type label",
+      );
+
+      const editor = win.document.createElement("div");
+      await api.renderVocabularySettings(editor);
+      (editor.querySelector(`.${VOCAB_ROW_CLASS}`) as HTMLElement).click();
+      (
+        editor.querySelector(`.${EDIT_BUTTON_CLASS}`) as HTMLButtonElement
+      ).click();
+      const input = editor.querySelector(
+        `.${FIELD_INPUT_CLASS}`,
+      ) as HTMLInputElement;
+      input.value = "directly cites";
+      (
+        editor.querySelector(`.${VOCAB_SAVE_BUTTON_CLASS}`) as HTMLButtonElement
+      ).click();
+
+      await waitFor(
+        () =>
+          citingRowMetaText(body).includes("directly cites") ? true : null,
+        "the citing row to repaint with the renamed label without reselecting the item",
+      );
+      assert.deepEqual(
+        win.ZoteroPane.getSelectedItems().map((i: any) => i.id),
+        [item.id],
+        "the selection changed",
+      );
+    });
+
+    it("leaves the citing row showing the old label when a vocabulary rename is refused", async function () {
+      await findOrCreateContainer(libraryID);
+      await createTaggedNote(
+        libraryID,
+        VOCABULARY_TAG,
+        buildVocabularyNoteHtml({
+          version: CURRENT_SCHEMA_VERSION,
+          types: [{ id: "cites", label: "cites" }],
+        }),
+      );
+      const item = await regularItem();
+      const doc = addSource(
+        documentNamed("Timeline A", "tl-vocab-refused"),
+        "e-1",
+        { kind: "item", libraryID, key: item.key, typeId: "cites" },
+      )!;
+      await api.createDocumentNoteForTests(libraryID, doc);
+
+      const body = await selectAndAwaitBody(item);
+      await waitFor(
+        () => (citingRowMetaText(body).includes("cites") ? true : null),
+        "the citing row to show the original type label",
+      );
+      const originalText = citingRowMetaText(body);
+
+      const editor = win.document.createElement("div");
+      await api.renderVocabularySettings(editor);
+      (editor.querySelector(`.${VOCAB_ROW_CLASS}`) as HTMLElement).click();
+      (
+        editor.querySelector(`.${EDIT_BUTTON_CLASS}`) as HTMLButtonElement
+      ).click();
+      const input = editor.querySelector(
+        `.${FIELD_INPUT_CLASS}`,
+      ) as HTMLInputElement;
+      input.value = "directly cites";
+
+      const originalGet = Zotero.Libraries.get;
+      Zotero.Libraries.get = ((id: number) =>
+        id === libraryID
+          ? ({ editable: false } as unknown as ReturnType<
+              typeof Zotero.Libraries.get
+            >)
+          : originalGet.call(
+              Zotero.Libraries,
+              id,
+            )) as typeof Zotero.Libraries.get;
+      try {
+        (
+          editor.querySelector(
+            `.${VOCAB_SAVE_BUTTON_CLASS}`,
+          ) as HTMLButtonElement
+        ).click();
+        await waitFor(
+          () => editor.querySelector(`.${VOCAB_ERROR_CLASS}`),
+          "the editor to show a write-refused error",
+        );
+      } finally {
+        Zotero.Libraries.get = originalGet;
+      }
+
+      // No emit is a negative assertion with no condition to poll for; a
+      // fixed delay is the honest way to give a (wrongly) refreshing section
+      // time to show it.
+      await Zotero.Promise.delay(300);
+      assert.equal(
+        citingRowMetaText(body),
+        originalText,
+        "the row changed even though the write was refused",
+      );
+      assert.notInclude(citingRowMetaText(body), "directly cites");
     });
   });
 });
