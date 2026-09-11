@@ -62,11 +62,6 @@ import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 let containerObserverID: string | null = null;
 let cacheObserverID: string | null = null;
 let sourcePruneObserverID: string | null = null;
-// Guards registerTimelineContextAction the same way the observer ids above
-// guard their own registration: onMainWindowLoad runs once per main window,
-// but a menuitem id is registered once for the process, not once per window.
-let addSourcesActionRegistered = false;
-let addToNewEventActionRegistered = false;
 
 // The plugin's own main-window sheet: the tab shell and the event editor, and
 // whatever m-6's item-pane section adds. Per window, because a link belongs to
@@ -206,66 +201,60 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   registerLibraryFilter();
   registerTimelineMenu(win);
 
-  if (!addSourcesActionRegistered) {
-    addSourcesActionRegistered = true;
-    registerTimelineContextAction(
-      win,
-      "zotero-timeline-menuitem-add-sources",
-      {
-        flat: getString("context-add-sources-flat"),
-        submenu: getString("context-add-sources-submenu"),
-      },
-      "chrome://zotero/skin/16/universal/link.svg",
-      "…",
-      (entry) => {
-        const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
-        if (!selection.ok) {
-          return;
-        }
-        void openAddSourcesDialog(entry, selection.items).catch((err) => {
-          logFailure(
-            `[zoteroTimeline] failed to open the add-as-sources dialog: ${
-              (err as Error).message
-            }`,
-            err,
-          );
-        });
-      },
-    );
-  }
+  registerTimelineContextAction(
+    win,
+    "zotero-timeline-menuitem-add-sources",
+    {
+      flat: getString("context-add-sources-flat"),
+      submenu: getString("context-add-sources-submenu"),
+    },
+    "chrome://zotero/skin/16/universal/link.svg",
+    "…",
+    (entry) => {
+      const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
+      if (!selection.ok) {
+        return;
+      }
+      void openAddSourcesDialog(entry, selection.items).catch((err) => {
+        logFailure(
+          `[zoteroTimeline] failed to open the add-as-sources dialog: ${
+            (err as Error).message
+          }`,
+          err,
+        );
+      });
+    },
+  );
 
-  if (!addToNewEventActionRegistered) {
-    addToNewEventActionRegistered = true;
-    registerTimelineContextAction(
-      win,
-      "zotero-timeline-menuitem-add-to-new-event",
-      {
-        flat: getString("context-add-to-new-event-flat"),
-        submenu: getString("context-add-to-new-event-submenu"),
-      },
-      "chrome://zotero/skin/16/universal/plus.svg",
-      "…",
-      (entry) => {
-        const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
-        if (!selection.ok) {
-          return;
-        }
-        void openCreateEventOnTimeline(
-          win,
-          entry.documentId,
-          entry.libraryID,
-          selection.items,
-        ).catch((err) => {
-          logFailure(
-            `[zoteroTimeline] failed to open the add-to-new-event form: ${
-              (err as Error).message
-            }`,
-            err,
-          );
-        });
-      },
-    );
-  }
+  registerTimelineContextAction(
+    win,
+    "zotero-timeline-menuitem-add-to-new-event",
+    {
+      flat: getString("context-add-to-new-event-flat"),
+      submenu: getString("context-add-to-new-event-submenu"),
+    },
+    "chrome://zotero/skin/16/universal/plus.svg",
+    "…",
+    (entry) => {
+      const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
+      if (!selection.ok) {
+        return;
+      }
+      void openCreateEventOnTimeline(
+        win,
+        entry.documentId,
+        entry.libraryID,
+        selection.items,
+      ).catch((err) => {
+        logFailure(
+          `[zoteroTimeline] failed to open the add-to-new-event form: ${
+            (err as Error).message
+          }`,
+          err,
+        );
+      });
+    },
+  );
 }
 
 /**

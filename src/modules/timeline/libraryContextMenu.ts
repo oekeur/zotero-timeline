@@ -187,6 +187,13 @@ export type TimelineContextLabels = {
  * A selection spanning libraries never reaches `act`: the flat entry stays
  * visible so the refusal is where the user was looking, but disabled, with
  * `computeMenuShape`'s message as its tooltip.
+ *
+ * Per window, and called from onMainWindowLoad rather than once from
+ * onStartup: the toolkit's string form "item" resolves the item menupopup
+ * through Zotero.getMainWindow(), one window rather than every window, so a
+ * window opened after startup got neither entry. Resolving the popup from
+ * win.document and guarding on the menuitem id is what registerTimelineMenu
+ * in timelineTab.ts already does for the Tools entry.
  */
 export function registerTimelineContextAction(
   win: _ZoteroTypes.MainWindow,
@@ -196,11 +203,20 @@ export function registerTimelineContextAction(
   submenuItemSuffix: string,
   act: (timeline: TimelineMenuEntry) => void,
 ): void {
+  const doc = win.document;
+  if (doc.getElementById(id)) {
+    return;
+  }
+  const popup = doc.querySelector("#zotero-itemmenu");
+  if (!popup) {
+    return;
+  }
+
   function shape(event: Event): Promise<MenuShape> {
     return computeMenuShape(event, win.ZoteroPane.getSelectedItems());
   }
 
-  ztoolkit.Menu.register("item", {
+  ztoolkit.Menu.register(popup as XUL.MenuPopup, {
     tag: "menuitem",
     id,
     label: labels.flat,
@@ -228,7 +244,7 @@ export function registerTimelineContextAction(
     },
   });
 
-  ztoolkit.Menu.register("item", {
+  ztoolkit.Menu.register(popup as XUL.MenuPopup, {
     tag: "menu",
     id: `${id}-submenu`,
     popupId: `${id}-popup`,
