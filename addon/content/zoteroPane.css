@@ -252,6 +252,12 @@
   font-size: 0.9em;
 }
 
+.zoterotimeline-tag-filter-notice {
+  color: var(--fill-secondary);
+  font-size: 0.9em;
+  margin-bottom: 6px;
+}
+
 .zoterotimeline-tag-filter-list {
   display: flex;
   flex-wrap: wrap;

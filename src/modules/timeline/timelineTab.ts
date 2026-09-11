@@ -173,6 +173,15 @@ let openCreateEventHandler:
 // exposes - see ensureDocumentShowing's comment for why that DataView cannot
 // answer this question either.
 let revealHiddenTimelineHandler: ((documentId: string) => void) | undefined;
+// The open tab's own "clear the tag filter so this event stops being hidden
+// by it" entry point, set and reset the same way revealHiddenTimelineHandler
+// is and for the same reason: admitEventThroughTagFilter is called from
+// outside the tab's own closure (the item pane's jump-to-event), so it needs
+// a stable reference into selectedTagFilter and renderSidebar, neither of
+// which this module exposes directly.
+let admitEventThroughTagFilterHandler:
+  | ((documentId: string, eventId: string) => boolean)
+  | undefined;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -258,6 +267,33 @@ export function getCurrentTimeline(): any {
  */
 export function revealHiddenTimeline(documentId: string): void {
   revealHiddenTimelineHandler?.(documentId);
+}
+
+/**
+ * Clears the active tag filter when it hides `eventId` in `documentId`, so a
+ * jump lands on an event the filter would otherwise keep out of the canvas's
+ * own data view. Returns whether it cleared anything, which is what the item
+ * pane's jump uses to decide there is something to land on at all - the event
+ * being admitted, filter untouched, is not itself a signal the jump acted.
+ *
+ * Reads the event's tags from the tab's own `documents` map rather than from
+ * a vis item or from `readableTimelines`: the vis item is a render artefact
+ * of the very filter this decides whether to clear, so an event the filter
+ * currently hides has none to read there, and `readableTimelines` is only
+ * ever refreshed wholesale (a rebuild, a re-open) while `documents` is the
+ * one map every write path - onEditorChange's save, click-to-create's
+ * `documents.set` - keeps current, the same reason showEditorFor and
+ * onEditorChange themselves read through it rather than through
+ * readableTimelines. A no-op when no tab is open, the pair does not resolve
+ * in the loaded documents, or the filter is already empty or already admits
+ * it. Exported for the item pane's jump-to-event, the same reason
+ * revealHiddenTimeline is.
+ */
+export function admitEventThroughTagFilter(
+  documentId: string,
+  eventId: string,
+): boolean {
+  return admitEventThroughTagFilterHandler?.(documentId, eventId) ?? false;
 }
 
 /**
@@ -654,6 +690,7 @@ export async function openTimelineTab(
       selectedTagFilter = new Set();
       openCreateEventHandler = undefined;
       revealHiddenTimelineHandler = undefined;
+      admitEventThroughTagFilterHandler = undefined;
     },
   });
   timelineTabID = id;
@@ -998,6 +1035,42 @@ export async function openTimelineTab(
     }
   }
   revealHiddenTimelineHandler = revealHiddenTimelineLocally;
+
+  // Set for exactly the renderSidebar() call a clearing jump triggers below,
+  // and read (and reset) by that same call - see renderSidebar's own use of
+  // it for why a flag rather than an argument threaded through the call.
+  let tagFilterClearedNotice = false;
+
+  /**
+   * The item pane jump-to-event's tag-filter step: clears selectedTagFilter
+   * when it is what stands between the jump and its target, so `setSelection`
+   * lands on an event the canvas's own filtered DataView would otherwise
+   * never contain. Defined once, referenced through the module-level
+   * admitEventThroughTagFilterHandler, for the same reason
+   * revealHiddenTimelineLocally is.
+   */
+  function admitEventThroughTagFilterLocally(
+    documentId: string,
+    eventId: string,
+  ): boolean {
+    if (selectedTagFilter.size === 0) {
+      return false;
+    }
+    const event = documents
+      .get(documentId)
+      ?.events.find((e) => e.id === eventId);
+    if (!event) {
+      return false;
+    }
+    if (event.tags.some((tag) => selectedTagFilter.has(tag))) {
+      return false;
+    }
+    selectedTagFilter = new Set();
+    tagFilterClearedNotice = true;
+    renderSidebar();
+    return true;
+  }
+  admitEventThroughTagFilterHandler = admitEventThroughTagFilterLocally;
 
   /**
    * Everything that lives on the vis instance and would go with it.
@@ -1643,7 +1716,15 @@ export async function openTimelineTab(
         }
         renderSidebar();
       },
+      tagFilterClearedNotice
+        ? getString("timeline-tag-filter-cleared-for-jump")
+        : undefined,
     );
+    // One-shot: the notice belongs to the render a clearing jump caused, not
+    // to whatever prompts the next one - a chip click or an unrelated
+    // rebuild both call renderSidebar() too, and neither should keep it
+    // showing.
+    tagFilterClearedNotice = false;
 
     // Two different empties, needing different sentences. Toggling every
     // timeline off is undone from the sidebar; a library holding none at all

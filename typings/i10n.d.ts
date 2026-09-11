@@ -100,6 +100,7 @@ export type FluentMessageId =
   | 'timeline-sidebar-unreadable-label'
   | 'timeline-sidebar-visible-checkbox'
   | 'timeline-tab-label'
+  | 'timeline-tag-filter-cleared-for-jump'
   | 'timeline-trashed-now'
   | 'timeline-trashed-now-unnamed'
   | 'vocabulary-add-button'

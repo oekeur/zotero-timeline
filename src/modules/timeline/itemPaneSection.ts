@@ -37,6 +37,7 @@ import {
 } from "./storage";
 import {
   ensureDocumentShowing,
+  admitEventThroughTagFilter,
   getCurrentTimeline,
   revealHiddenTimeline,
 } from "./timelineTab";
@@ -183,7 +184,13 @@ type JumpableTimeline = {
  * timeline.groupsData.get() here: groupsData is a DataView filtered to
  * visible groups (see ensureDocumentShowing's comment for where that was
  * measured), so get() on the very timeline this jump needs to reveal always
- * returns null. Selecting the event through the wrapped setSelection also
+ * returns null.
+ *
+ * A visible timeline can still hide the target through the active tag
+ * filter, which the canvas's own data view applies on top of visibility, so
+ * admitEventThroughTagFilter runs next: it clears the filter when it is what
+ * stands between the jump and its target, and does nothing when the target is
+ * already admitted. Selecting the event through the wrapped setSelection also
  * makes its document the active one (canvas.ts's own handleSelectionChange),
  * so the jump needs no separate activation call.
  */
@@ -211,6 +218,7 @@ export async function jumpToEvent(
       return;
     }
     revealHiddenTimeline(documentId);
+    admitEventThroughTagFilter(documentId, eventId);
     timeline.setSelection([`${documentId}:${eventId}`]);
   } catch (err) {
     logFailure(

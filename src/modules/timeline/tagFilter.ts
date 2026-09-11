@@ -24,6 +24,7 @@ export const TAG_FILTER_CHIP_CLASS = "zoterotimeline-tag-filter-chip";
 export const TAG_FILTER_CHIP_SELECTED_CLASS =
   "zoterotimeline-tag-filter-chip-selected";
 export const TAG_FILTER_EMPTY_CLASS = "zoterotimeline-tag-filter-empty";
+export const TAG_FILTER_NOTICE_CLASS = "zoterotimeline-tag-filter-notice";
 
 /**
  * The union of every tag on every event across `visible`, sorted for a
@@ -56,6 +57,7 @@ export function renderTagFilter(
   allTags: string[],
   selected: ReadonlySet<string>,
   onToggle: (tag: string) => void,
+  notice?: string,
 ): void {
   container.textContent = "";
   container.classList.add(TAG_FILTER_CLASS);
@@ -67,6 +69,13 @@ export function renderTagFilter(
     getLocaleID("timeline-sidebar-tags-heading"),
   );
   container.appendChild(heading);
+
+  if (notice) {
+    const noticeEl = doc.createElement("div");
+    noticeEl.classList.add(TAG_FILTER_NOTICE_CLASS);
+    noticeEl.textContent = notice;
+    container.appendChild(noticeEl);
+  }
 
   if (allTags.length === 0) {
     const empty = doc.createElement("div");

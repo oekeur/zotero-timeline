@@ -3,11 +3,25 @@ import { addSource } from "../src/modules/timeline/mutations";
 import { UNKNOWN_TYPE_LABEL } from "../src/modules/timeline/vocabulary";
 import { clearCache, parsesSoFar } from "../src/modules/timeline/documentCache";
 import {
+  SAVE_BUTTON_CLASS,
+  TAG_CLASS,
+  TAG_REMOVE_BUTTON_CLASS,
+  TAG_TEXT_CLASS,
+  TITLE_INPUT_CLASS,
+} from "../src/modules/timeline/eventEditor";
+import {
+  TAG_FILTER_CHIP_CLASS,
+  TAG_FILTER_CHIP_SELECTED_CLASS,
+  TAG_FILTER_NOTICE_CLASS,
+} from "../src/modules/timeline/tagFilter";
+import {
   CONTAINER_TAG,
   STORAGE_TAG,
   VOCABULARY_TAG,
+  buildNoteHtml,
   findContainers,
   findOrCreateContainer,
+  listTimelines,
   searchVocabularyNotes,
   whenStorageIdle,
 } from "../src/modules/timeline/storage";
@@ -606,6 +620,460 @@ describe("item-pane section: which events cite this item", function () {
           api.getVisibleTimelines().map((t: any) => t.doc.id),
           ["tl-jump-b"],
           "declining the switch must not reopen the tab",
+        );
+      });
+    });
+
+    // The active tag filter narrows the canvas's own data view, so even a
+    // revealed timeline can leave a jump's target undrawn. The jump clears
+    // the filter and says so, rather than widening it or refusing - widening
+    // cannot serve an untagged target, since itemMatchesTagFilter never
+    // admits an item with no tags under any non-empty filter.
+    describe("clearing a tag filter that hides the jump target", function () {
+      const NOTICE_TEXT = "Tag filter cleared to show this event.";
+
+      function chipFor(sidebar: HTMLElement, tag: string): HTMLButtonElement {
+        return Array.from<HTMLButtonElement>(
+          sidebar.querySelectorAll(`.${TAG_FILTER_CHIP_CLASS}`),
+        ).find((chip) => chip.textContent === tag) as HTMLButtonElement;
+      }
+
+      async function selectFilterChip(tag: string): Promise<HTMLElement> {
+        const win = Zotero.getMainWindows()[0] as any;
+        const sidebar = win.document.getElementById(
+          "zoterotimeline-sidebar",
+        ) as HTMLElement;
+        const chip = await waitFor(
+          () => chipFor(sidebar, tag),
+          `a "${tag}" tag filter chip to render`,
+        );
+        chip.click();
+        await waitFor(
+          () => (api.getSelectedTagFilter().includes(tag) ? true : null),
+          `the "${tag}" filter to apply`,
+        );
+        return sidebar;
+      }
+
+      async function documentCitingTagged(
+        name: string,
+        id: string,
+        item: Zotero.Item,
+        tags: string[],
+      ) {
+        const base = documentNamed(name, id);
+        base.events[0].tags = tags;
+        const doc = addSource(base, base.events[0].id, {
+          kind: "item",
+          libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        return api.createDocumentNoteForTests(libraryID, doc);
+      }
+
+      // vis-timeline's ItemSet.setSelection stores every id it is handed
+      // (`this.selection = [...ids]`) whether or not an item by that id is
+      // currently in its filtered view, so getSelection() alone cannot tell a
+      // landed jump from a phantom one - itemsData, the filtered DataView the
+      // Timeline actually draws from, is the honest check.
+      function isDrawn(timeline: any, id: string): boolean {
+        return timeline.itemsData.get(id) != null;
+      }
+
+      it("clears the filter and lands on an untagged target it hides, and drops the notice on the next chip click", async function () {
+        const cited = await regularItem();
+        const other = await regularItem("Other");
+        await documentCitingTagged("Timeline A", "tl-jump-untagged", cited, []);
+        await documentCitingTagged("Timeline B", "tl-jump-other-1", other, [
+          "beta",
+        ]);
+        await api.openTimelineTab();
+        const sidebar = await selectFilterChip("beta");
+
+        await clickRow(cited, "tl-jump-untagged");
+
+        const timeline = await waitFor(
+          () => api.getCurrentTimeline(),
+          "the timeline tab to open",
+        );
+        await waitFor(
+          () => (timeline.getSelection().length > 0 ? true : null),
+          "the jumped-to event to be selected",
+        );
+        assert.deepEqual(timeline.getSelection(), ["tl-jump-untagged:e-1"]);
+        assert.isTrue(
+          isDrawn(timeline, "tl-jump-untagged:e-1"),
+          "the jumped-to event was selected but never actually drawn",
+        );
+        assert.isEmpty(
+          api.getSelectedTagFilter(),
+          "the filter must be cleared once it stood between the jump and an untagged target",
+        );
+
+        const win = Zotero.getMainWindows()[0] as any;
+        const titleInput = (await waitFor(
+          () =>
+            win.document
+              .getElementById("zoterotimeline-editor")
+              ?.querySelector(`.${TITLE_INPUT_CLASS}`),
+          "the editor panel to show the jumped-to event",
+        )) as HTMLInputElement;
+        assert.equal(titleInput.value, "Emancipation");
+
+        assert.lengthOf(
+          Array.from(sidebar.querySelectorAll(`.${TAG_FILTER_NOTICE_CLASS}`)),
+          1,
+          "exactly one notice should explain the cleared filter",
+        );
+        assert.equal(
+          sidebar.querySelector(`.${TAG_FILTER_NOTICE_CLASS}`)!.textContent,
+          NOTICE_TEXT,
+        );
+        assert.lengthOf(
+          Array.from(
+            sidebar.querySelectorAll(
+              `.${TAG_FILTER_CHIP_CLASS}.${TAG_FILTER_CHIP_SELECTED_CLASS}`,
+            ),
+          ),
+          0,
+          "a chip still showed selected after the filter was cleared",
+        );
+
+        // The notice belongs to exactly the render the clearing jump caused;
+        // the next renderSidebar() - here, a chip click - must drop it.
+        await selectFilterChip("beta");
+        assert.lengthOf(
+          Array.from(sidebar.querySelectorAll(`.${TAG_FILTER_NOTICE_CLASS}`)),
+          0,
+          "the notice must not survive the next chip click",
+        );
+      });
+
+      it("clears the filter and lands on a tagged target the filter hides", async function () {
+        const cited = await regularItem();
+        const other = await regularItem("Other");
+        await documentCitingTagged("Timeline A", "tl-jump-tagged", cited, [
+          "alpha",
+        ]);
+        await documentCitingTagged("Timeline B", "tl-jump-other-2", other, [
+          "beta",
+        ]);
+        await api.openTimelineTab();
+        const sidebar = await selectFilterChip("beta");
+
+        await clickRow(cited, "tl-jump-tagged");
+
+        const timeline = await waitFor(
+          () => api.getCurrentTimeline(),
+          "the timeline tab to open",
+        );
+        await waitFor(
+          () => (timeline.getSelection().length > 0 ? true : null),
+          "the jumped-to event to be selected",
+        );
+        assert.deepEqual(timeline.getSelection(), ["tl-jump-tagged:e-1"]);
+        assert.isTrue(
+          isDrawn(timeline, "tl-jump-tagged:e-1"),
+          "the jumped-to event was selected but never actually drawn",
+        );
+        assert.isEmpty(
+          api.getSelectedTagFilter(),
+          "the filter must be cleared once it stood between the jump and its target",
+        );
+
+        assert.lengthOf(
+          Array.from(sidebar.querySelectorAll(`.${TAG_FILTER_NOTICE_CLASS}`)),
+          1,
+          "exactly one notice should explain the cleared filter",
+        );
+        assert.equal(
+          sidebar.querySelector(`.${TAG_FILTER_NOTICE_CLASS}`)!.textContent,
+          NOTICE_TEXT,
+        );
+        assert.lengthOf(
+          Array.from(
+            sidebar.querySelectorAll(
+              `.${TAG_FILTER_CHIP_CLASS}.${TAG_FILTER_CHIP_SELECTED_CLASS}`,
+            ),
+          ),
+          0,
+          "a chip still showed selected after the filter was cleared",
+        );
+      });
+
+      it("changes nothing about the filter when it already admits the target", async function () {
+        const cited = await regularItem();
+        await documentCitingTagged("Timeline A", "tl-jump-admitted", cited, [
+          "gamma",
+        ]);
+        await api.openTimelineTab();
+        const sidebar = await selectFilterChip("gamma");
+        const before = api.getSelectedTagFilter();
+
+        await clickRow(cited, "tl-jump-admitted");
+
+        const timeline = await waitFor(
+          () => api.getCurrentTimeline(),
+          "the timeline tab to open",
+        );
+        await waitFor(
+          () => (timeline.getSelection().length > 0 ? true : null),
+          "the jumped-to event to be selected",
+        );
+        assert.deepEqual(timeline.getSelection(), ["tl-jump-admitted:e-1"]);
+        assert.isTrue(
+          isDrawn(timeline, "tl-jump-admitted:e-1"),
+          "the jumped-to event was selected but never actually drawn",
+        );
+        assert.deepEqual(
+          api.getSelectedTagFilter(),
+          before,
+          "a jump onto an already-admitted event must not touch the filter",
+        );
+        assert.isNull(
+          sidebar.querySelector(`.${TAG_FILTER_NOTICE_CLASS}`),
+          "a jump that changed nothing about the filter must show no notice",
+        );
+      });
+
+      // readableTimelines - a wholesale snapshot refreshed only on a rebuild
+      // or a re-open - is not what admitEventThroughTagFilter reads: it reads
+      // the tab's own `documents` map instead, the one every write path
+      // (click-to-create, an editor save) keeps current. Reproduces the
+      // adversary's finding: click-to-create replaces the tab's `documents`
+      // entry for tl-stale with a new object (canvas.ts's addEvent returns a
+      // new document rather than mutating the old one in place), so a save
+      // straight afterward - which mutates that new object - would be
+      // invisible to a reader still holding the object from tab-open.
+      async function landsOnARetaggedEvent(
+        withClickToCreate: boolean,
+      ): Promise<void> {
+        const cited = await regularItem();
+        const other = await regularItem("Other");
+        await documentCitingTagged("Timeline A", "tl-stale", cited, ["alpha"]);
+        await documentCitingTagged("Timeline B", "tl-stale-other", other, [
+          "alpha",
+        ]);
+        await api.openTimelineTab();
+        const timeline = await waitFor(
+          () => api.getCurrentTimeline(),
+          "the timeline tab to open",
+        );
+        const win = Zotero.getMainWindows()[0] as any;
+        const panel = win.document.getElementById(
+          "zoterotimeline-editor",
+        ) as HTMLElement;
+
+        if (withClickToCreate) {
+          timeline.emit("click", {
+            item: null,
+            group: "tl-stale",
+            time: new Date(Date.UTC(1870, 0, 1)),
+          });
+          // Read back through a fresh storage parse, not
+          // api.getVisibleTimelines(): that reads readableTimelines, which
+          // (like the bug this file's own describe block is otherwise about)
+          // a click-to-create's write never updates - only the tab's own
+          // `documents` map and the canvas's in-memory copy get the result.
+          // Pre-existing and filed separately; this spec just has to avoid
+          // reading through it to observe the write at all.
+          await waitFor(async () => {
+            const { timelines } = await listTimelines(libraryID);
+            const doc = timelines.find((t) => t.doc.id === "tl-stale")?.doc;
+            return doc && doc.events.length === 2 ? true : null;
+          }, "click-to-create to land in storage");
+          await whenStorageIdle();
+        }
+
+        timeline.setSelection(["tl-stale:e-1"]);
+        await waitFor(() => {
+          const t = panel.querySelector(
+            `.${TITLE_INPUT_CLASS}`,
+          ) as HTMLInputElement | null;
+          return t && t.value === "Emancipation" ? t : null;
+        }, "the editor to open on e-1");
+        const remove = await waitFor(
+          () =>
+            Array.from<HTMLElement>(panel.querySelectorAll(`.${TAG_CLASS}`))
+              .find(
+                (chip) =>
+                  chip.querySelector(`.${TAG_TEXT_CLASS}`)?.textContent ===
+                  "alpha",
+              )
+              ?.querySelector(
+                `.${TAG_REMOVE_BUTTON_CLASS}`,
+              ) as HTMLButtonElement,
+          "the alpha tag's remove button",
+        );
+        remove.click();
+        (
+          panel.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement
+        ).click();
+        await waitFor(async () => {
+          const { timelines } = await listTimelines(libraryID);
+          const e1 = timelines
+            .find((t) => t.doc.id === "tl-stale")
+            ?.doc.events.find((e) => e.id === "e-1");
+          return e1 && e1.tags.length === 0 ? true : null;
+        }, "the tag removal to be stored");
+        await whenStorageIdle();
+        // Lets the storage-write observer's rebuild pass settle either way.
+        await Zotero.Promise.delay(500);
+
+        await selectFilterChip("alpha");
+        assert.notInclude(
+          timeline.itemsData.get().map((i: any) => String(i.id)),
+          "tl-stale:e-1",
+          "precondition: e-1 must be hidden by the alpha filter",
+        );
+
+        await clickRow(cited, "tl-stale");
+
+        await waitFor(
+          () => (timeline.getSelection().length > 0 ? true : null),
+          "the jumped-to event to be selected",
+        );
+        assert.deepEqual(timeline.getSelection(), ["tl-stale:e-1"]);
+        assert.isTrue(
+          isDrawn(timeline, "tl-stale:e-1"),
+          "the jumped-to event was selected but never actually drawn",
+        );
+        assert.isEmpty(
+          api.getSelectedTagFilter(),
+          "the filter must be cleared once it stood between the jump and the retagged target",
+        );
+      }
+
+      it("lands on an event whose tag was removed in the editor after a click-to-create in the same timeline", async function () {
+        await landsOnARetaggedEvent(true);
+      });
+
+      it("lands on an event whose tag was removed in the editor (control: no click-to-create)", async function () {
+        await landsOnARetaggedEvent(false);
+      });
+
+      it("clears the filter and lands on a target whose own timeline was hidden too", async function () {
+        const cited = await regularItem();
+        const other = await regularItem("Other");
+        await documentCitingTagged("Timeline A", "tl-both-a", cited, []);
+        await documentCitingTagged("Timeline B", "tl-both-b", other, ["beta"]);
+        await api.openTimelineTab();
+        const timeline = await waitFor(
+          () => api.getCurrentTimeline(),
+          "the timeline tab to open",
+        );
+
+        const win = Zotero.getMainWindows()[0] as any;
+        const checkbox = await waitFor<HTMLInputElement>(
+          () =>
+            win.document.querySelector(
+              '.zoterotimeline-sidebar-row[data-timeline-id="tl-both-a"] .zoterotimeline-sidebar-row-visible',
+            ),
+          "the sidebar row for tl-both-a",
+        );
+        checkbox.click();
+        await waitFor(
+          () =>
+            api.getVisibleTimelines().some((t: any) => t.doc.id === "tl-both-a")
+              ? null
+              : true,
+          "the checkbox to hide tl-both-a",
+        );
+        await selectFilterChip("beta");
+
+        await clickRow(cited, "tl-both-a");
+
+        await waitFor(
+          () => (timeline.getSelection().length > 0 ? true : null),
+          "the jumped-to event to be selected",
+        );
+        assert.deepEqual(timeline.getSelection(), ["tl-both-a:e-1"]);
+        assert.isTrue(
+          isDrawn(timeline, "tl-both-a:e-1"),
+          "the jumped-to event was selected but never actually drawn",
+        );
+        assert.isEmpty(api.getSelectedTagFilter(), "filter not cleared");
+        assert.include(
+          api.getVisibleTimelines().map((t: any) => t.doc.id),
+          "tl-both-a",
+          "the reveal must still happen alongside the filter clear",
+        );
+      });
+
+      it("leaves the filter untouched when the jumped-to event no longer resolves in the loaded document", async function () {
+        const cited = await regularItem();
+        const noteItem: Zotero.Item = await documentCitingTagged(
+          "Timeline X",
+          "tl-stale-resolve",
+          cited,
+          ["zeta"],
+        );
+
+        const win = Zotero.getMainWindows()[0] as any;
+        await win.ZoteroPane.selectItem(cited.id);
+        const sectionSelector =
+          'item-pane-custom-section[data-pane*="citing-events"]';
+        const rowSelector = `.${ROW_CLASS}[data-timeline-id="tl-stale-resolve"]`;
+        await waitFor(
+          () =>
+            win.document
+              .querySelector(sectionSelector)
+              ?.querySelector('[data-type="body"]')
+              ?.querySelector(rowSelector),
+          "the citing row to render for the original event id",
+        );
+
+        // Renamed directly on the note, bypassing the plugin's own write
+        // queue - the same raw-write seam the "re-rendering on a storage
+        // write" specs above use to prove a write outside storage.ts's own
+        // functions reaches no subscriber - so the item pane's
+        // already-rendered row keeps pointing at an event id that no longer
+        // exists once the tab (re)loads the document fresh.
+        const renamedBase = documentNamed("Timeline X", "tl-stale-resolve");
+        renamedBase.events[0].id = "e-1-renamed";
+        renamedBase.events[0].tags = ["zeta"];
+        const renamed = addSource(renamedBase, "e-1-renamed", {
+          kind: "item",
+          libraryID,
+          key: cited.key,
+          typeId: "cites",
+        })!;
+        noteItem.setNote(buildNoteHtml(renamed));
+        await noteItem.saveTx();
+
+        await api.openTimelineTab();
+        const timeline = await waitFor(
+          () => api.getCurrentTimeline(),
+          "the timeline tab to open",
+        );
+        await waitFor(
+          () =>
+            api
+              .getVisibleTimelines()
+              .find((t: any) => t.doc.id === "tl-stale-resolve")
+              ?.doc.events.some((e: any) => e.id === "e-1-renamed")
+              ? true
+              : null,
+          "the tab to load the renamed event",
+        );
+        await selectFilterChip("zeta");
+
+        await clickRow(cited, "tl-stale-resolve");
+        // Nothing ever resolves to a drawn item on this path, so there is no
+        // positive condition to poll for; this only gives the click a chance
+        // to have acted if admitEventThroughTagFilter had wrongly cleared the
+        // filter for an event it could not find.
+        await Zotero.Promise.delay(500);
+
+        assert.deepEqual(
+          api.getSelectedTagFilter(),
+          ["zeta"],
+          "an event that no longer resolves in the loaded document must not touch the filter",
+        );
+        assert.isFalse(
+          isDrawn(timeline, "tl-stale-resolve:e-1"),
+          "the stale event id must not appear drawn",
         );
       });
     });

@@ -142,3 +142,9 @@ event-editor-duplicate-done-without-sources =
 # the same batch. The event and every other source were still written; this
 # names which were skipped rather than reporting a plain success.
 event-editor-create-sources-skipped = Not added, already among the sources above: { $names }.
+
+# Shown in the sidebar's tag section after a jump clears the active tag
+# filter because it hid the jumped-to event. Read through getString, not
+# data-l10n-id, for the same reason as the block above: the sidebar is
+# rebuilt from scratch on every renderSidebar() call, this one included.
+timeline-tag-filter-cleared-for-jump = Tag filter cleared to show this event.
