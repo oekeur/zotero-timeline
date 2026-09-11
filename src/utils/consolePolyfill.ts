@@ -10,7 +10,7 @@ function emit(level: number, args: unknown[]): void {
   if (typeof Zotero === "undefined") {
     return;
   }
-  Zotero.debug(`[ZoteroTimeline] ${args.join(" ")}`, level);
+  Zotero.debug(`[zoteroTimeline] ${args.join(" ")}`, level);
 }
 
 if (typeof console === "undefined") {

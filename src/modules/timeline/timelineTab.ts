@@ -782,7 +782,7 @@ export async function openTimelineTab(
   canvasModule = mod;
   moduleEvalEnv = mod.MODULE_EVAL_ENV;
   Zotero.debug(
-    `[ZoteroTimeline] vis module evaluated with ${JSON.stringify(moduleEvalEnv)}`,
+    `[zoteroTimeline] vis module evaluated with ${JSON.stringify(moduleEvalEnv)}`,
   );
 
   const libraryID = resolveLibraryID(win);
@@ -1313,7 +1313,7 @@ export async function openTimelineTab(
       fresh = await listTimelinesCached(libraryID);
     } catch (err) {
       Zotero.debug(
-        `[ZoteroTimeline] rebuild aborted, the library would not read: ${
+        `[zoteroTimeline] rebuild aborted, the library would not read: ${
           (err as Error)?.message ?? String(err)
         }`,
       );
@@ -1331,7 +1331,7 @@ export async function openTimelineTab(
     );
     if (stoppedParsing.length > 0) {
       Zotero.debug(
-        `[ZoteroTimeline] rebuild skipped, ${stoppedParsing.length} drawn note(s) stopped parsing: ${stoppedParsing
+        `[zoteroTimeline] rebuild skipped, ${stoppedParsing.length} drawn note(s) stopped parsing: ${stoppedParsing
           .map((u) => `${u.noteItemID} ${u.reason}: ${u.message}`)
           .join("; ")}`,
       );
@@ -1413,7 +1413,7 @@ export async function openTimelineTab(
         await rebuildCanvas();
       } while (rebuildRequested);
     } catch (err) {
-      logFailure("timeline rebuild", err);
+      logFailure("[zoteroTimeline] timeline rebuild", err);
     } finally {
       rebuilding = false;
     }
@@ -2093,7 +2093,7 @@ export async function openTimelineTab(
   renderSidebar();
   showEditorFor(null);
 
-  Zotero.debug(`[ZoteroTimeline] canvas rendered into tab ${id} (${TAB_TYPE})`);
+  Zotero.debug(`[zoteroTimeline] canvas rendered into tab ${id} (${TAB_TYPE})`);
 }
 
 /**
@@ -2126,8 +2126,9 @@ export function registerTimelineMenu(win: _ZoteroTypes.MainWindow): void {
       // Nothing catches for us here, and the tab is added before the body is
       // built, so an unhandled rejection would leave an empty tab and no clue.
       void openTimelineTab(win).catch((err) => {
-        Zotero.debug(
-          `[ZoteroTimeline] openTimelineTab failed: ${err?.stack ?? String(err)}`,
+        logFailure(
+          `[zoteroTimeline] openTimelineTab failed: ${(err as Error)?.message ?? String(err)}`,
+          err,
         );
       });
     },
@@ -2174,8 +2175,9 @@ export function registerTimelineShortcut(): void {
       | _ZoteroTypes.MainWindow
       | undefined;
     void openTimelineTab(win).catch((err) => {
-      Zotero.debug(
-        `[ZoteroTimeline] openTimelineTab failed: ${err?.stack ?? String(err)}`,
+      logFailure(
+        `[zoteroTimeline] openTimelineTab failed: ${(err as Error)?.message ?? String(err)}`,
+        err,
       );
     });
   });

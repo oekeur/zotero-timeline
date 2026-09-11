@@ -28,6 +28,10 @@ import {
   resolveSelection,
 } from "./modules/timeline/libraryContextMenu";
 import { openAddSourcesDialog } from "./modules/timeline/addSourcesDialog";
+import {
+  openBugReport,
+  openFeatureRequest,
+} from "./modules/timeline/issueReporter";
 
 import {
   parsesSoFar,
@@ -157,6 +161,8 @@ async function onStartup() {
     refreshObserverForTesting,
     openAddSourcesDialog,
     openCreateEventOnTimeline,
+    openBugReport,
+    openFeatureRequest,
     createDocumentNoteForTests,
     registerItemPaneSection,
     unregisterItemPaneSection,

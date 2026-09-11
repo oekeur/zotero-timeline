@@ -99,3 +99,14 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* ---------- Feedback ---------- */
+
+/* The two buttons sit on one row and wrap rather than overflow: the
+ * preferences pane is narrower on some platforms than the labels are wide. */
+.zoterotimeline-feedback-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}

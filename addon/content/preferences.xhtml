@@ -29,6 +29,30 @@
   </label>
   <html:div class="zoterotimeline-vocab-container"></html:div>
 </groupbox>
+<groupbox aria-labelledby="zoterotimeline-feedback-heading">
+  <label>
+    <html:h2
+      id="zoterotimeline-feedback-heading"
+      data-l10n-id="pref-feedback-heading"
+    ></html:h2>
+  </label>
+  <html:div class="zoterotimeline-feedback-buttons">
+    <button
+      class="zoterotimeline-feedback-bug"
+      data-l10n-id="pref-feedback-bug-button"
+      oncommand="Zotero.ZoteroTimeline.api.openBugReport()"
+    />
+    <button
+      class="zoterotimeline-feedback-feature"
+      data-l10n-id="pref-feedback-feature-button"
+      oncommand="Zotero.ZoteroTimeline.api.openFeatureRequest()"
+    />
+  </html:div>
+  <html:p
+    class="zoterotimeline-pref-help"
+    data-l10n-id="pref-feedback-help"
+  ></html:p>
+</groupbox>
 <vbox>
   <html:label
     data-l10n-id="pref-help"

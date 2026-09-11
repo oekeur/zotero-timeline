@@ -1,0 +1,12 @@
+pref-title = Zotero Timeline
+pref-hide-timeline-notes =
+    .label = Het eigen item van Zotero Timeline verbergen in mijn bibliotheek
+pref-hide-timeline-notes-help = Zotero Timeline bewaart je tijdlijnen in een notitie-item in elke bibliotheek, zodat ze meesynchroniseren met de rest. Zet dit uit als je die items in je bibliotheek wilt zien.
+pref-vocabulary-heading = Linktypes
+pref-feedback-heading = Feedback
+pref-feedback-bug-button =
+    .label = Een bug melden…
+pref-feedback-feature-button =
+    .label = Een functie voorstellen…
+pref-feedback-help = Een bug melden opent een formulier op GitHub met je pluginversie, je Zotero-versie, je besturingssysteem en de recente foutmeldingen van deze plugin al ingevuld. Er wordt niets verzonden totdat je het formulier daar indient, en elk veld blijft eerst bewerkbaar.
+pref-help = { $name } Build { $version } { $time }

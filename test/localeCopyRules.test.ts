@@ -135,8 +135,17 @@ describe("locale copy rules", function () {
   // on a rendered tab because the read-only-with-no-timelines case needs a
   // library nobody here can produce; timelineReadOnly.test.ts drives the
   // rendered half.
+  //
+  // The word for "sidebar" is locale-specific, so the rule takes a per-locale
+  // term rather than one pattern for every bundle: en-US says "sidebar",
+  // nl-NL says "zijbalk". A locale with no entry here fails rather than
+  // passing vacuously, so adding a locale without updating this map is caught.
   it("gives the empty canvas a sentence that names the next move", function () {
     const wanted = "timeline-canvas-no-timelines";
+    const termByLocale: Record<string, RegExp> = {
+      "en-US": /sidebar/i,
+      "nl-NL": /zijbalk/i,
+    };
     const found = bundles.flatMap((b) =>
       values(b)
         .filter((v) => v.id.endsWith(wanted))
@@ -147,9 +156,14 @@ describe("locale copy rules", function () {
       `no ${wanted} message exists, so a library with no timelines renders a blank canvas with no explanation`,
     );
     for (const { locale, value } of found) {
+      const term = termByLocale[locale];
+      assert.isDefined(
+        term,
+        `${locale} has no expected term in this rule's map; add one before shipping the locale`,
+      );
       assert.match(
         value,
-        /sidebar/i,
+        term,
         `${locale}'s empty-canvas message does not say where to go next: ${value}`,
       );
     }
@@ -177,6 +191,51 @@ describe("locale copy rules", function () {
             );
           }
         }
+      }
+    }
+  });
+
+  /**
+   * The flat key-set rule above reads the id `values()` attaches to each
+   * entry, and `values()` attaches an attribute's id to its PARENT message -
+   * so a bundle that moves a `.label` value onto the message line instead of
+   * keeping it as an attribute keeps the same id set while actually breaking
+   * every `data-l10n-id` consumer that reads that attribute. Counting message
+   * lines and attribute lines separately, straight off the raw text rather
+   * than through `values()`, is what catches that: the two counts have to
+   * match per locale per file, not just the ids.
+   */
+  it("has the same message and attribute count in every locale, per file", function () {
+    const MESSAGE_LINE = /^[A-Za-z][\w-]*\s*=/;
+    const ATTRIBUTE_LINE = /^\s+\.[\w-]+\s*=/;
+
+    function counts(text: string): { messages: number; attributes: number } {
+      const lines = text.split("\n");
+      return {
+        messages: lines.filter((l) => MESSAGE_LINE.test(l)).length,
+        attributes: lines.filter((l) => ATTRIBUTE_LINE.test(l)).length,
+      };
+    }
+
+    const byFile = new Map<
+      string,
+      Map<string, { messages: number; attributes: number }>
+    >();
+    for (const bundle of bundles) {
+      const perLocale = byFile.get(bundle.file) ?? new Map();
+      perLocale.set(bundle.locale, counts(bundle.text));
+      byFile.set(bundle.file, perLocale);
+    }
+
+    for (const [file, perLocale] of byFile) {
+      const locales = [...perLocale.keys()];
+      const [first, ...rest] = locales;
+      for (const locale of rest) {
+        assert.deepEqual(
+          perLocale.get(locale),
+          perLocale.get(first),
+          `${file}: ${locale}'s message/attribute count does not match ${first}'s, so a value moved between a message and an attribute`,
+        );
       }
     }
   });
