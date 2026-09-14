@@ -238,6 +238,25 @@ export async function hasHiddenTimelineData(
   return allContainers.length > liveContainers.length;
 }
 
+/**
+ * Whether the library's container is itself in the trash - the one case
+ * where creating a timeline genuinely cannot work, as opposed to a trashed
+ * note or two beside a container that is still live.
+ *
+ * The exact question findOrCreateContainer answers before it decides whether
+ * a missing container means "make one" or "refuse": no live container, and a
+ * trashed one exists. hasHiddenTimelineData answers a broader question - any
+ * plugin data hidden at all - which is also true when only a note is
+ * trashed, a state where the plus control works fine.
+ */
+export async function isContainerTrashed(libraryID: number): Promise<boolean> {
+  const [live, all] = await Promise.all([
+    findContainers(libraryID),
+    findContainers(libraryID, { includeTrashed: true }),
+  ]);
+  return live.length === 0 && all.length > 0;
+}
+
 // Zotero re-serialises a note's HTML through its own ProseMirror schema after
 // save, wrapping the body in a data-schema-version div and dropping attributes
 // the schema does not know, including an id on our <pre>. That happens without

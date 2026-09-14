@@ -63,6 +63,8 @@ timeline-canvas-no-timelines = This library has no timelines yet. Use the plus c
 
 timeline-canvas-no-timelines-read-only = This library has no timelines.
 
+timeline-canvas-container-trashed = This library's timeline container is in the trash. Restore it to get your timelines back; the plus control will not create a new one over it.
+
 timeline-sidebar-none-visible = No timelines are visible. Toggle one on in the sidebar to see it here.
 
 timeline-sidebar-tags-heading = Tags

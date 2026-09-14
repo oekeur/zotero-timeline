@@ -162,9 +162,34 @@ describe("timeline sidebar: creating a timeline", function () {
     container.deleted = true;
     await container.saveTx();
 
+    // The canvas-refresh observer now reacts to the container's own trash,
+    // the same way it reacts to a note's, so the two fixtures - children of
+    // the container just trashed - leave the visible set on their own
+    // before Create is even clicked: Zotero's item search excludes a child
+    // of a deleted parent, and a rebuild picks that up.
+    await waitFor(
+      () => (api.getVisibleTimelines().length === 0 ? true : null),
+      "the fixtures to leave the sidebar once their container is trashed",
+    );
+
+    // The rebuild that empties the sidebar also re-renders the still-open
+    // create form (creatingTimeline is untouched by any of this), which
+    // replaces nameInput and the confirm button with fresh, blank, disabled
+    // ones - typing and clicking the pre-rebuild references again would
+    // dispatch nothing and pass vacuously. Re-querying and re-typing is what
+    // actually reaches the confirm click the race is testing.
+    const nameInputAfter = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-name",
+    ) as HTMLInputElement;
+    nameInputAfter.value = "Too Late";
+    nameInputAfter.dispatchEvent(new Event("input"));
     const confirmButton = sidebar.querySelector(
       ".zoterotimeline-sidebar-create-confirm",
     ) as HTMLButtonElement;
+    assert.isFalse(
+      confirmButton.disabled,
+      "confirm stayed disabled after retyping the name into the rebuilt form",
+    );
     confirmButton.click();
     // Asserting nothing gets created has no condition to poll for.
     await Zotero.Promise.delay(500);
@@ -175,16 +200,25 @@ describe("timeline sidebar: creating a timeline", function () {
     // refusal (proven directly in the storage-level test) is what stops.
     // What this proves at the tab's own level is that clicking Create through
     // the race left the sidebar working normally rather than wedged: no new
-    // timeline exists, and the two fixtures are still listed.
+    // timeline exists, and the trashed fixtures stay gone rather than the
+    // click resurrecting them through some other path.
     const names = api
       .getVisibleTimelines()
       .map((t: any) => t.doc.name as string);
     assert.notInclude(names, "Too Late");
-    assert.sameMembers(names, ["Dutch Revolt", "Source production"]);
+    assert.isEmpty(names);
     assert.lengthOf(
       await findContainers(libraryID),
       0,
       "a replacement container was created over trashed data",
+    );
+    // Proves the click actually reached createTimelineOrWarn rather than
+    // having dispatched nothing: on refusal the handler still sets
+    // creatingTimeline = false and re-renders, which is what closes the
+    // form. A click that never fired would leave it open.
+    assert.isNull(
+      sidebar.querySelector(".zoterotimeline-sidebar-create-name"),
+      "the create form is still open, so the click never reached the write path",
     );
   });
 });

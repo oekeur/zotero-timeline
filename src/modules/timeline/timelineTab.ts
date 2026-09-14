@@ -18,11 +18,14 @@ import { ensureStylesheet } from "../../utils/stylesheet";
 import { logFailure } from "../../utils/logging";
 import { listTimelinesCached } from "./documentCache";
 import {
+  CONTAINER_TAG,
   createTimeline,
   deleteTimeline,
   hasHiddenTimelineData,
+  isContainerTrashed,
   renameTimeline,
   searchStorageNotes,
+  STORAGE_TAG,
   StorageError,
   type StoredTimeline,
   type UnreadableTimeline,
@@ -816,6 +819,14 @@ export async function openTimelineTab(
     timelines.map((t) => [t.doc.id, t.doc]),
   );
 
+  // Whether the empty canvas prompt renderSidebar() renders below should name
+  // the trash rather than say the library holds nothing - checked here and
+  // again on every rebuild pass (not only when the result is empty: see
+  // rebuildCanvas's own comment on why it cannot skip a pass that changes
+  // nothing else), since renderSidebar is synchronous and this is not.
+  let containerTrashed =
+    timelines.length === 0 && (await isContainerTrashed(libraryID));
+
   // canvas.ts's click-to-create replaces its copy of a document rather than
   // mutating it in place (addEvent returns a new document), so `documents`
   // and `readableTimelines` diverge the moment that happens unless both are
@@ -1337,6 +1348,33 @@ export async function openTimelineTab(
       return;
     }
 
+    // The await above can outlast the tab: an `add` notification is enough
+    // to schedule this rebuild, and a caller that fires such a write then
+    // closes the tab before the read below resolves is exactly
+    // itemPaneSection.test.ts's citation-write spec. onClose clears
+    // timelineTabID, so a mismatch here means this closure's tab is gone;
+    // rendering into its torn-down canvas and reassigning the module-level
+    // currentTimeline/timelineGroups/getActiveDocumentId would resurrect
+    // state for a tab that no longer exists.
+    if (id !== timelineTabID) {
+      return;
+    }
+
+    // Ahead of every early return below, not just the paths that redraw: an
+    // empty-to-empty pass (the container erased out of the trash, say) hits
+    // drawnMatches and returns before ever reaching the assignment this used
+    // to be part of, leaving the flag stuck on whatever set it true last with
+    // nothing left to recheck it until the tab is reopened.
+    const containerTrashedBefore = containerTrashed;
+    containerTrashed =
+      fresh.timelines.length === 0 && (await isContainerTrashed(libraryID));
+    // A second place this can outlast the tab, for the same reason as the
+    // check above: the await just above is this closure's second chance to
+    // have been left behind by a close.
+    if (id !== timelineTabID) {
+      return;
+    }
+
     // A note this tab drew that no longer parses leaves the previous render
     // standing rather than being quietly dropped from the canvas. Redrawing
     // without it would make a timeline vanish on a corrupt or half-synced
@@ -1356,6 +1394,12 @@ export async function openTimelineTab(
     }
 
     if (drawnMatches(fresh.timelines)) {
+      // Nothing drawn changes, but the empty-canvas prompt's own message
+      // might: it reads containerTrashed rather than the canvas, and this is
+      // the only path an empty-to-empty pass takes.
+      if (containerTrashed !== containerTrashedBefore) {
+        renderSidebar();
+      }
       return;
     }
 
@@ -1437,7 +1481,8 @@ export async function openTimelineTab(
   }
 
   /**
-   * Redraws when a note this tab drew changes underneath it.
+   * Redraws when a note this tab drew changes underneath it, or when a
+   * storage note this tab does not yet hold becomes readable.
    *
    * Returns void and awaits nothing, and that is load-bearing rather than
    * stylistic. Zotero awaits every observer's return value inside the commit
@@ -1447,22 +1492,80 @@ export async function openTimelineTab(
    * settles, and every later write in the session hangs with nothing thrown
    * and nothing in the debug log.
    *
-   * Filtering to notes this tab holds is what keeps an unrelated item edit
-   * from redrawing the canvas. A note that is new to this library is not in
-   * that set, which is correct for `modify`: a timeline created in another
-   * window arrives as `add`, and picking that up is a separate concern from
-   * this one.
+   * A `modify` of a note already in readableTimelines is the common case: an
+   * edit made elsewhere to a timeline this tab is drawing. Two more branches
+   * cover a note that is not yet held: an `add` for one created in another
+   * window or arriving by sync, and a `modify` of a storage-tagged note this
+   * tab does not hold, for one restored from the trash directly (a plain
+   * modify that flips `deleted`). Both read the tag straight off the item
+   * rather than through storage or the document cache - the tag rows land
+   * before commit, so it is readable by the time Zotero delivers this
+   * notification, and reading it here needs no search.
+   *
+   * A fourth branch covers restoring the note's own parent instead of the
+   * note: Zotero's trash hides a note whose parent is trashed without
+   * flagging the note itself (search.js excludes a child of a deleted
+   * parent), so trashing the container takes every timeline under it down
+   * with no notification for any of them, and restoring the container fires
+   * `modify` for the container id alone - never for the notes it was
+   * hiding. Recognised the same way storage finds it, by the container tag,
+   * not by title or position.
+   *
+   * A fifth event, `delete`, gets no branch of its own below because there
+   * is nothing left to read by the time it arrives: the item is gone, so its
+   * tag cannot be checked, and by extension neither can whether it was the
+   * container. It schedules a rebuild whenever containerTrashed is currently
+   * true instead - the only state an erase can actually change, since that
+   * is the sole condition the empty-canvas prompt's "the container is
+   * trashed" message depends on, and the only way that flag gets rechecked
+   * once true is a rebuild running at all. A cached container id was tried
+   * first and dropped: findContainers excludes trashed items, so a container
+   * already trashed when the tab opened, or a second one trashed and erased
+   * after the first, was never in the cache and left the prompt stuck.
+   * Reacting to the flag rather than an id also keeps a `delete` while the
+   * flag is false - a note this tab is actively drawing erased outright,
+   * which timelineDragPayload.test.ts's failed-write spec does deliberately
+   * to force updateTimelineDocument into a not-found refusal without
+   * disturbing the canvas - from redrawing anything, the regression an
+   * unconditional rebuild-on-delete caused before this.
+   *
+   * Filtering otherwise keeps an edit to an item with nothing to do with
+   * this plugin from redrawing the canvas: no branch below fires for an id
+   * whose item is neither a storage-tagged note nor the container.
    */
   function notifyTimelineChanged(
     event: _ZoteroTypes.Notifier.Event,
     type: _ZoteroTypes.Notifier.Type,
     ids: string[] | number[],
   ): void {
-    if (event !== "modify" || type !== "item") {
+    if (type !== "item") {
+      return;
+    }
+    if (event === "delete") {
+      if (containerTrashed) {
+        void scheduleRebuild();
+      }
+      return;
+    }
+    if (event !== "modify" && event !== "add") {
       return;
     }
     const ours = new Set(readableTimelines.map((t) => t.noteItemID));
-    if (!ids.some((id) => ours.has(Number(id)))) {
+    const relevant = ids.some((rawId) => {
+      const numId = Number(rawId);
+      if (event === "modify" && ours.has(numId)) {
+        return true;
+      }
+      const item = Zotero.Items.get(numId) as Zotero.Item | false;
+      if (item === false) {
+        return false;
+      }
+      if (item.isNote() && item.hasTag(STORAGE_TAG)) {
+        return true;
+      }
+      return item.hasTag(CONTAINER_TAG);
+    });
+    if (!relevant) {
       return;
     }
     void scheduleRebuild();
@@ -1743,22 +1846,29 @@ export async function openTimelineTab(
     // showing.
     tagFilterClearedNotice = false;
 
-    // Two different empties, needing different sentences. Toggling every
+    // Three different empties, needing different sentences. Toggling every
     // timeline off is undone from the sidebar; a library holding none at all
-    // cannot be. Saying "toggle one on" to someone with nothing to toggle is
-    // the misreading this prompt exists to prevent, and an unexplained blank
-    // canvas is the one that already cost a misdiagnosis (TASK-56).
+    // cannot be, and neither can one whose container is itself in the trash
+    // - the plus control refuses there too (createDefaultTimelineIfNeeded's
+    // own check, the same one findOrCreateContainer makes), so telling the
+    // user to use it would be a second wrong answer. A trashed note beside a
+    // live container is not this case: the plus works fine there, so it gets
+    // the ordinary no-timelines message. Saying "toggle one on" to someone
+    // with nothing to toggle is the misreading this prompt exists to
+    // prevent, and an unexplained blank canvas is the one that already cost
+    // a misdiagnosis (TASK-56).
     //
-    // A writable library never rests here: opening the tab gives it its first
-    // timeline (createDefaultTimelineIfNeeded, TASK-45's job, not repeated
-    // here). What lands here is a library that cannot be written, or one
-    // whose timelines are all in the trash.
+    // A writable library with a live container never rests here: opening the
+    // tab gives it its first timeline (createDefaultTimelineIfNeeded,
+    // TASK-45's job, not repeated here).
     const anyVisible = rows.some((group) => group.visible !== false);
     const message =
       rows.length === 0
-        ? libraryEditable
-          ? "timeline-canvas-no-timelines"
-          : "timeline-canvas-no-timelines-read-only"
+        ? containerTrashed
+          ? "timeline-canvas-container-trashed"
+          : libraryEditable
+            ? "timeline-canvas-no-timelines"
+            : "timeline-canvas-no-timelines-read-only"
         : !anyVisible
           ? "timeline-sidebar-none-visible"
           : null;

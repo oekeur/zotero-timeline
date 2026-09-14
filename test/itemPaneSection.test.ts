@@ -562,12 +562,16 @@ describe("item-pane section: which events cite this item", function () {
       );
     });
 
-    // AC #3. A real second Zotero library needs live sync machinery this
-    // harness has no way to fake, so this reproduces the exact signal
-    // ensureDocumentShowing actually reacts to - a document absent from the
-    // already-open tab's own loaded groups - by creating it only after the
-    // tab opened.
-    describe("a timeline not loaded in the already-open tab", function () {
+    // AC #3. The canvas-refresh observer now relists a storage note added to
+    // the tab's own library while the tab is open (the fix for a timeline
+    // restored from the trash, or created elsewhere, not appearing until the
+    // tab was closed and reopened), so a document written after the tab
+    // opened is no longer reliably absent from its loaded groups by the time
+    // a jump reaches ensureDocumentShowing: this exercises that ordinary
+    // path, and asserts the jump lands on the event without the cross-
+    // library-style prompt, rather than exploiting the old timing gap to
+    // force one.
+    describe("a timeline added to the same library while the tab is open", function () {
       async function setUp(): Promise<{ cited: Zotero.Item }> {
         const cited = await regularItem();
         await documentCiting(
@@ -588,11 +592,140 @@ describe("item-pane section: which events cite this item", function () {
         return { cited };
       }
 
+      it("relists the new timeline and jumps straight to its event, without prompting", async function () {
+        const { cited } = await setUp();
+        let promptCalled = false;
+        api.setCrossLibrarySwitchConfirmForTests(() => {
+          promptCalled = true;
+          return true;
+        });
+
+        await clickRow(cited, "tl-jump-a");
+        await waitFor(
+          () =>
+            api.getCurrentTimeline()?.getSelection().length > 0 ? true : null,
+          "the jumped-to event to be selected once the relist catches up",
+        );
+
+        assert.deepEqual(api.getCurrentTimeline().getSelection(), [
+          "tl-jump-a:e-1",
+        ]);
+        assert.include(
+          api.getVisibleTimelines().map((t: any) => t.doc.id),
+          "tl-jump-a",
+        );
+        assert.isFalse(
+          promptCalled,
+          "a note added to the tab's own library prompted for a library switch",
+        );
+      });
+    });
+
+    // AC #3, the genuinely cross-library half. The observer above only ever
+    // re-lists the open tab's own libraryID (rebuildCanvas calls
+    // listTimelinesCached(libraryID)), so a document that lives in a
+    // different library stays outside readableTimelines no matter how fast
+    // it runs; this is the one case ensureDocumentShowing's confirm-and-
+    // switch path still fires for, and the only place left to prove it does.
+    describe("a timeline not loaded in the already-open tab", function () {
+      let group: any;
+
+      beforeEach(async function () {
+        group = new Zotero.Group();
+        Object.assign(group as unknown as Record<string, unknown>, {
+          id: 424244,
+          name: "Switch target",
+          description: "",
+          version: 1,
+          editable: true,
+          filesEditable: true,
+        });
+        await group.saveTx();
+      });
+
+      afterEach(async function () {
+        // Before erasing, not after: a confirmed switch reopens the tab on
+        // the group library, so this hook - which runs before the outer
+        // describe's own closeTimelineTab, Mocha unwinds afterEach
+        // innermost-first - is closing a tab that may now be watching
+        // exactly the notes it is about to erase. Zotero_Tabs.close() runs
+        // the tab's onClose, which releases the canvas-refresh observer,
+        // asynchronously (see timelineMenuShortcut.test.ts's own teardown),
+        // so erasing has to wait for the tab to actually be gone rather than
+        // just for the close call to return.
+        const win = Zotero.getMainWindows()[0] as any;
+        // Away from the group's own item before its library is wiped: the
+        // confirmed-switch spec leaves it selected, and eraseTx on the
+        // Zotero.Group cascades to erase that very item while it is still
+        // showing, which is a harsher operation than the per-item eraseTx
+        // the outer afterEach uses and not one to leave anything watching.
+        win.ZoteroPane.collectionsView.selectLibrary(libraryID);
+        api.closeTimelineTab();
+        await waitFor(
+          () =>
+            !(win.Zotero_Tabs?._tabs ?? []).some(
+              (t: any) => t.type === "zoterotimeline-timeline",
+            ) || undefined,
+          "the timeline tab to be gone before erasing the group library",
+        );
+        await eraseAllPluginItems(group.libraryID);
+        await group.eraseTx();
+      });
+
+      // Deliberately not pushed onto the shared `extras` array the outer
+      // describe's afterEach erases one by one: group.eraseTx() above
+      // already cascades every item in that library, this one included, and
+      // a second eraseTx() on an already-erased item throws.
+      async function citedInGroup(title: string): Promise<Zotero.Item> {
+        const item = new Zotero.Item("document");
+        item.libraryID = group.libraryID;
+        item.setField("title", title);
+        await item.saveTx();
+        return item;
+      }
+
+      async function documentCitingInGroup(
+        name: string,
+        id: string,
+        item: Zotero.Item,
+      ) {
+        const base = documentNamed(name, id);
+        const doc = addSource(base, base.events[0].id, {
+          kind: "item",
+          libraryID: group.libraryID,
+          key: item.key,
+          typeId: "cites",
+        })!;
+        return createDocumentNote(group.libraryID, STORAGE_TAG, doc);
+      }
+
+      async function setUp(): Promise<{ cited: Zotero.Item }> {
+        const cited = await citedInGroup("Group cited");
+        await documentCiting(
+          "Timeline B",
+          "tl-jump-b",
+          await regularItem("Other"),
+        );
+        await api.openTimelineTab();
+        const win = Zotero.getMainWindows()[0] as any;
+        await waitFor(
+          () =>
+            win.document.querySelector(
+              '.zoterotimeline-sidebar-row[data-timeline-id="tl-jump-b"]',
+            ),
+          "the tab to load tl-jump-b before the switch",
+        );
+        await documentCitingInGroup("Timeline A", "tl-jump-a", cited);
+        return { cited };
+      }
+
       it("prompts naming the target library and re-resolves onto it when confirmed", async function () {
         const { cited } = await setUp();
         let message = "";
+        let calls = 0;
         api.setCrossLibrarySwitchConfirmForTests(
           (_win: unknown, _title: string, msg: string) => {
+            calls += 1;
             message = msg;
             return true;
           },
@@ -605,8 +738,23 @@ describe("item-pane section: which events cite this item", function () {
           "the jumped-to event to be selected after the switch",
         );
 
-        const libraryName = (Zotero.Libraries.get(libraryID) as any).name;
-        assert.include(message, libraryName);
+        assert.strictEqual(
+          calls,
+          1,
+          "the switch prompt must fire exactly once",
+        );
+        const currentLibraryName = (Zotero.Libraries.get(libraryID) as any)
+          .name;
+        assert.include(
+          message,
+          currentLibraryName,
+          "prompt names the current library",
+        );
+        assert.include(
+          message,
+          "Switch target",
+          "prompt names the target library",
+        );
         assert.deepEqual(api.getCurrentTimeline().getSelection(), [
           "tl-jump-a:e-1",
         ]);
@@ -614,11 +762,21 @@ describe("item-pane section: which events cite this item", function () {
           api.getVisibleTimelines().map((t: any) => t.doc.id),
           "tl-jump-a",
         );
+        assert.notInclude(
+          api.getVisibleTimelines().map((t: any) => t.doc.id),
+          "tl-jump-b",
+          "the reopened tab must be on the group library, not the one it started on",
+        );
       });
 
       it("leaves the open tab untouched when the switch is declined", async function () {
         const { cited } = await setUp();
-        api.setCrossLibrarySwitchConfirmForTests(() => false);
+        let calls = 0;
+        api.setCrossLibrarySwitchConfirmForTests(() => {
+          calls += 1;
+          return false;
+        });
+        const before = api.getCurrentTimeline();
 
         await clickRow(cited, "tl-jump-a");
         // Declining has no condition to poll for: the assertion is that
@@ -626,6 +784,16 @@ describe("item-pane section: which events cite this item", function () {
         // acted if it had ignored the decline.
         await Zotero.Promise.delay(500);
 
+        assert.strictEqual(
+          calls,
+          1,
+          "the switch prompt must fire exactly once",
+        );
+        assert.strictEqual(
+          api.getCurrentTimeline(),
+          before,
+          "declining the switch must not reopen the tab",
+        );
         assert.deepEqual(
           api.getVisibleTimelines().map((t: any) => t.doc.id),
           ["tl-jump-b"],

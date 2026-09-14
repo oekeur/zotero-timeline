@@ -70,6 +70,7 @@ export type FluentMessageId =
   | 'pref-title'
   | 'pref-vocabulary-heading'
   | 'timeline-approaching-size-limit'
+  | 'timeline-canvas-container-trashed'
   | 'timeline-canvas-no-timelines'
   | 'timeline-canvas-no-timelines-read-only'
   | 'timeline-chrome-fit'

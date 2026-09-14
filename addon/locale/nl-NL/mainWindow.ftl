@@ -63,6 +63,8 @@ timeline-canvas-no-timelines = Deze bibliotheek heeft nog geen tijdlijnen. Gebru
 
 timeline-canvas-no-timelines-read-only = Deze bibliotheek heeft geen tijdlijnen.
 
+timeline-canvas-container-trashed = De tijdlijncontainer van deze bibliotheek staat in de prullenbak. Herstel hem om je tijdlijnen terug te krijgen; het plusteken maakt er geen nieuwe over aan.
+
 timeline-sidebar-none-visible = Er zijn geen tijdlijnen zichtbaar. Zet er een aan in de zijbalk om hem hier te zien.
 
 timeline-sidebar-tags-heading = Tags
