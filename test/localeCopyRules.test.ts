@@ -19,6 +19,8 @@ describe("locale copy rules", function () {
 
   type Bundle = { locale: string; file: string; text: string };
   const bundles: Bundle[] = [];
+  const shippedLocales: string[] = [];
+  let bundleScript = "";
 
   before(async function () {
     // Zotero's own accessor, rather than a path guessed from the checkout: the
@@ -26,6 +28,11 @@ describe("locale copy rules", function () {
     // and the plugin's root is wherever the scaffold installed the build.
     const root = await (Zotero as any).Plugins.getRootURI(PLUGIN_ID);
     assert.ok(root, "could not resolve the plugin's root URI");
+
+    const scriptPath = decodeURIComponent(
+      `${root}content/scripts/zoterotimeline.js`.replace(/^file:\/\//, ""),
+    );
+    bundleScript = (await Zotero.File.getContentsAsync(scriptPath)) as string;
 
     const localeDir = `${root}locale/`.replace(/^file:\/\//, "");
     const locales = (await IOUtils.getChildren(decodeURIComponent(localeDir)))
@@ -35,6 +42,7 @@ describe("locale copy rules", function () {
       locales,
       "no locale directories found; this spec would pass vacuously",
     );
+    shippedLocales.push(...locales);
 
     for (const locale of locales) {
       const dir = decodeURIComponent(`${localeDir}${locale}`);
@@ -235,6 +243,118 @@ describe("locale copy rules", function () {
           perLocale.get(locale),
           perLocale.get(first),
           `${file}: ${locale}'s message/attribute count does not match ${first}'s, so a value moved between a message and an attribute`,
+        );
+      }
+    }
+  });
+
+  // getString() resolves only what initLocale() loads (addon.ftl and
+  // preferences.ftl - mainWindow.ftl is for data-l10n-id only). A key put in
+  // the wrong file still "succeeds": Fluent returns the raw id with nothing
+  // logged, so this reads the built bundle for every literal key argument
+  // getString() is actually called with and checks it against the loaded
+  // files, rather than trusting a source-level convention nothing enforces.
+  //
+  // Checked through a fresh Localization instance pinned to each shipped
+  // locale in turn (the four-arg constructor's last argument), not through
+  // the plugin's own running instance: that one resolves against whatever
+  // locale this machine is running in, en-US on this machine and on CI, so it
+  // can only ever prove en-US. A key whose EN message has a value but whose
+  // NL message is attribute-only (or missing) would pass that check and still
+  // render nl-NL users the raw id.
+  //
+  // A line-based "does this id exist" check would also pass an attribute-only
+  // message (`pref-hide-timeline-notes = \n .label = ...`) even though
+  // getString() without a branch reads `pattern.value`, which is null for one
+  // of those - exactly the failure this guard exists to catch. Going through
+  // the real resolver also handles a multi-line selector correctly for free.
+  it("has every literal getString() key resolve to a value in addon.ftl or preferences.ftl, in every shipped locale", function () {
+    const ADDON_REF_PREFIX = "zoterotimeline-";
+    const win = Zotero.getMainWindow() as any;
+    const Loc = (globalThis as any).Localization ?? win.Localization;
+    assert.ok(Loc, "no Localization constructor was found");
+
+    // Guards the guard: a locale directory removed later must fail this spec
+    // rather than silently shrink it back to an en-US-only check.
+    assert.isAtLeast(
+      shippedLocales.length,
+      2,
+      `fewer than two locales were read (${JSON.stringify(shippedLocales)}); this per-locale check would be vacuous`,
+    );
+    assert.include(
+      shippedLocales,
+      "nl-NL",
+      "nl-NL is not among the read locales; this guard needs it to prove non-English coverage",
+    );
+
+    const resolvers = new Map(
+      shippedLocales.map((locale) => [
+        locale,
+        new Loc(
+          [
+            `${ADDON_REF_PREFIX}addon.ftl`,
+            `${ADDON_REF_PREFIX}preferences.ftl`,
+          ],
+          true,
+          undefined,
+          [locale],
+        ),
+      ]),
+    );
+
+    function hasValue(locale: string, key: string): boolean {
+      const pattern = resolvers
+        .get(locale)!
+        .formatMessagesSync([{ id: `${ADDON_REF_PREFIX}${key}` }])[0];
+      return !!pattern && pattern.value !== null;
+    }
+
+    // Attribute-only is exactly what this guard has to reject: prove the
+    // predicate itself rejects a known one, in every locale, before trusting
+    // it below.
+    for (const locale of shippedLocales) {
+      assert.isFalse(
+        hasValue(locale, "pref-hide-timeline-notes"),
+        `${locale}: pref-hide-timeline-notes is attribute-only (.label only); the predicate must reject it, not just confirm the id exists`,
+      );
+    }
+
+    // Matches getString( followed by a string literal, tolerating the call
+    // and its argument landing on separate lines (addSourcesDialog.ts does
+    // this). The word boundary keeps this off _getString's own internal
+    // calls, whose name also ends in "getString(" but is never followed by a
+    // literal - it forwards whatever getString() was called with.
+    const LITERAL_CALL = /\bgetString\(\s*["']([\w-]+)["']/g;
+    const found = new Set<string>();
+    let match: RegExpExecArray | null;
+    while ((match = LITERAL_CALL.exec(bundleScript)) !== null) {
+      found.add(match[1]);
+    }
+    assert.isNotEmpty(
+      found,
+      "no getString() calls with a literal key were found in the built bundle; this spec would pass vacuously",
+    );
+
+    // containerGuard.ts calls getString(warning.key, ...), where warning.key
+    // is TrashWarning's three-member union - a computed argument the regex
+    // above cannot see. Enumerated by hand instead.
+    const computedKeys = [
+      "container-trashed-now",
+      "timeline-trashed-now",
+      "timeline-trashed-now-unnamed",
+    ];
+
+    for (const locale of shippedLocales) {
+      for (const key of found) {
+        assert.isTrue(
+          hasValue(locale, key),
+          `${locale}: getString("${key}") resolves to no value (missing, or an attribute-only message) in addon.ftl or preferences.ftl`,
+        );
+      }
+      for (const key of computedKeys) {
+        assert.isTrue(
+          hasValue(locale, key),
+          `${locale}: containerGuard's computed getString(warning.key) key "${key}" resolves to no value in addon.ftl or preferences.ftl`,
         );
       }
     }

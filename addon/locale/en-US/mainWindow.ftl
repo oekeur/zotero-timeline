@@ -70,7 +70,6 @@ timeline-sidebar-tags-empty = No tags on the visible timelines yet. Add one from
 
 event-editor-empty = Select an event to edit it, or click an empty spot on the canvas to create one there.
 event-editor-empty-read-only = Select an event to see its details.
-event-editor-untitled-title = Untitled event
 event-editor-title-label = Title
 event-editor-date-label = Date
 event-editor-end-date-label = End date

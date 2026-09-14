@@ -236,11 +236,7 @@ read the expectations as they are now, not as the source suggests.
    already drawn on the lane (`itemsData.length` goes up by one) and the lane
    becomes active, but nothing is written: the storage note's `getNote()` is
    byte-for-byte unchanged until Save.
-   **Known defect (TASK-73):** the draft's title field reads the literal
-   `zoterotimeline-event-editor-untitled-title`, because that key lives in
-   `mainWindow.ftl` and `getString` does not read that file. Until it is
-   fixed, always type a title before Save; a Save with the field untouched
-   stores that string.
+   The draft's title field reads `Untitled event` until it is edited.
 
 2. **Do** Type `Bastille falls`, press Save.
    **Expect** the note now holds one event with that title and date; the box

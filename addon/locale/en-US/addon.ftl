@@ -129,6 +129,8 @@ add-sources-dialog-result-skipped = Already cited under this type, so not attach
 # click handler rather than during render, which is what makes getString safe
 # here, and they are shown in a ProgressWindow because the write rebuilds the
 # panel that raised them.
+event-editor-untitled-title = Untitled event
+
 event-editor-duplicate-done = Copied to { $timeline }.
 
 event-editor-duplicate-done-without-sources =
