@@ -94,27 +94,66 @@ function parentArgs(ppid) {
 
 const env = { ...process.env };
 let argv = command;
-let before = new Set();
 if (wrap) {
   delete env.WAYLAND_DISPLAY;
   reapStrandedXvfb();
-  before = new Set(listXvfb().map((proc) => proc.pid));
   argv = ["xvfb-run", "-a", ...command];
   console.log("headless: running on a virtual display");
+}
+
+// Parent chain of a pid up to init, read live; a process that has exited
+// mid-walk ends the chain rather than throwing.
+function ancestorsOf(pid) {
+  const chain = [];
+  let current = pid;
+  while (current > 1) {
+    const out = spawnSync("ps", ["-o", "ppid=", "-p", String(current)], {
+      encoding: "utf8",
+    });
+    const parent = Number((out.stdout || "").trim());
+    if (!parent || Number.isNaN(parent)) break;
+    chain.push(parent);
+    current = parent;
+  }
+  return chain;
 }
 
 // Backstop for the ordinary exits, where the trap does fire first and this
 // finds nothing left to kill. It covers the case the trap misses: xvfb-run
 // gone while its server is not.
+//
+// Ownership is by descent from this run's own xvfb-run, never by "appeared
+// after we started": two runs in different worktrees overlap all the time
+// (a gate's scratch tree beside an implementer's), and a snapshot-based
+// rule made the earlier-started run kill the later one's display on exit.
+// Measured 2026-09-14: run A started, run B started 3 s later, A exited,
+// B's Xvfb was gone while B was still running; Zotero then quits with code
+// 0 mid-suite and the runner reports no completion line.
+//
+// Descent is only readable while the wrapper is alive: once xvfb-run is gone
+// its Xvfb is reparented and no chain leads back here. So the server is
+// looked up by descent shortly after launch and its pid remembered, and the
+// exit path kills that pid if something answering to Xvfb still holds it.
+let ourXvfb = null;
+
+function rememberOurXvfb() {
+  if (!wrap || !child.pid || ourXvfb !== null) return;
+  const mine = listXvfb().find((proc) =>
+    ancestorsOf(proc.pid).includes(child.pid),
+  );
+  if (mine) ourXvfb = mine.pid;
+}
+
 function killOurXvfb() {
   if (!wrap) return;
-  for (const proc of listXvfb()) {
-    if (before.has(proc.pid)) continue;
-    try {
-      process.kill(proc.pid, "SIGKILL");
-    } catch {
-      // already reaped by xvfb-run's own trap, which is the normal path
-    }
+  rememberOurXvfb();
+  if (ourXvfb === null) return;
+  const stillXvfb = listXvfb().some((proc) => proc.pid === ourXvfb);
+  if (!stillXvfb) return;
+  try {
+    process.kill(ourXvfb, "SIGKILL");
+  } catch {
+    // already reaped by xvfb-run's own trap, which is the normal path
   }
 }
 
@@ -122,6 +161,16 @@ function killOurXvfb() {
 // that kills its own process group (scripts/run-tests.mjs does) would take
 // xvfb-run with it and orphan the Xvfb server it is responsible for.
 const child = spawn(argv[0], argv.slice(1), { stdio: "inherit", env });
+// xvfb-run takes a moment to start its server; look for it a few times.
+if (wrap) {
+  let attempts = 0;
+  const poll = setInterval(() => {
+    rememberOurXvfb();
+    attempts += 1;
+    if (ourXvfb !== null || attempts >= 50) clearInterval(poll);
+  }, 200);
+  poll.unref();
+}
 child.on("error", (error) => {
   console.error(`headless: could not start ${argv[0]}: ${error.message}`);
   killOurXvfb();
