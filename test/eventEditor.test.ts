@@ -23,6 +23,8 @@ import {
   SOURCE_NAME_INPUT_CLASS,
   SOURCE_REMOVE_BUTTON_CLASS,
   SOURCE_ADD_BUTTON_CLASS,
+  CREATE_DATE_INPUT_CLASS,
+  CREATE_DATE_FEEDBACK_CLASS,
 } from "../src/modules/timeline/eventEditor";
 import {
   CURRENT_SCHEMA_VERSION,
@@ -519,7 +521,7 @@ describe("event editor panel", function () {
       );
     });
 
-    it("shows edtf's own message verbatim on a rejected string, and saves it unchanged", async function () {
+    it("shows a one-line message on a rejected string, saves it unchanged, and draws it parked", async function () {
       const { panel, doc, timeline } = await openPanel();
       await selectEvent(
         timeline,
@@ -531,21 +533,40 @@ describe("event editor panel", function () {
       const dateInput = panel.querySelector(
         `.${DATE_INPUT_CLASS}`,
       ) as HTMLInputElement;
-      setValue(doc, dateInput, "not-a-date");
+      setValue(doc, dateInput, "not a date");
+      dateInput.dispatchEvent(
+        new (doc.defaultView as any).Event("change", { bubbles: true }),
+      );
+      dateInput.dispatchEvent(
+        new (doc.defaultView as any).Event("blur", { bubbles: true }),
+      );
 
-      let expectedMessage: string;
+      // edtf's own message for this is confirmed a rejection here, but never
+      // compared against the feedback element: it is a multi-line grammar
+      // dump, and this element must show something else entirely.
       try {
-        edtfParse("not-a-date");
-        throw new Error("expected edtf to reject 'not-a-date'");
+        edtfParse("not a date");
+        throw new Error("expected edtf to reject 'not a date'");
       } catch (err) {
-        expectedMessage = (err as Error).message;
+        assert.include((err as Error).message, "\n");
       }
 
+      const expectedMessage = "Not a date this can read";
       const feedback = (await waitFor(() => {
         const el = panel.querySelector(`.${DATE_FEEDBACK_CLASS}`);
         return el && el.textContent === expectedMessage ? el : null;
-      }, "the date feedback to show edtf's rejection message")) as Element;
+      }, "the date feedback to show the one-line unreadable-date message")) as Element;
       assert.equal(feedback.textContent, expectedMessage);
+      assert.notInclude(
+        feedback.textContent ?? "",
+        "\n",
+        "the feedback element must not carry edtf's multi-line grammar dump",
+      );
+      assert.isBelow(
+        (feedback.textContent ?? "").length,
+        120,
+        "the feedback element must stay a short, one-line message",
+      );
       assert.isNull(
         feedback.querySelector(`.${DATE_FEEDBACK_FORM_CLASS}`),
         "a rejected string must not render form/range feedback",
@@ -554,6 +575,10 @@ describe("event editor panel", function () {
       const saveButton = panel.querySelector(
         `.${SAVE_BUTTON_CLASS}`,
       ) as HTMLButtonElement;
+      assert.isFalse(
+        saveButton.disabled,
+        "Save must stay enabled for an event whose date the plugin can't read",
+      );
       await waitForSave(() => saveButton.click());
 
       const { timelines } = await listTimelines(libraryID);
@@ -562,8 +587,21 @@ describe("event editor panel", function () {
         .doc.events.find((e) => e.id === "ev-utrecht")!;
       assert.equal(
         updated.date,
-        "not-a-date",
+        "not a date",
         "an edtf-rejected string must save verbatim, not be rewritten or blocked",
+      );
+
+      const drawn = await waitFor(() => {
+        const item = timeline.itemsData
+          .get()
+          .find((i: any) => String(i.id) === "doc-revolt:ev-utrecht");
+        return item && String(item.className).includes("zt-unreadable")
+          ? item
+          : null;
+      }, "the saved event to draw parked and flagged");
+      assert.ok(
+        drawn,
+        "an unparseable date must be parked and flagged, not refused",
       );
     });
 
@@ -632,6 +670,74 @@ describe("event editor panel", function () {
         updated.endDate,
         "an empty endDate field must clear the field, not save an empty string",
       );
+    });
+
+    // edtf's Interval refuses a pair whose end doesn't start after the start
+    // starts (interval.js's upper setter, `value <= this.lower`), comparing
+    // the two bounds' own start instants rather than their spans or
+    // precisions: a date-only bound is UTC midnight and a bare timestamp is
+    // local time, so a genuinely reversed pair ("1590/1580") and a
+    // spec-valid mixed-precision pair ("2001-01-01/2001", where the year
+    // 2001 starts at the same instant as its own first day) are refused for
+    // the same reason and must read the same way. edtf's own RangeError
+    // names that start instant after reserialising it as UTC, a value the
+    // user never typed, so it is never shown; a genuine grammar failure
+    // still collapses to the separate generic message.
+    const END_NOT_AFTER_START = "The end must begin after the start begins";
+
+    it("names the end-must-start-after-start refusal for a reversed interval and a mixed-precision one, distinct from a genuine grammar failure, and never leaks a reserialised instant", async function () {
+      const { panel, doc } = await openPanel();
+      await waitFor(
+        () => panel.querySelector(`.${EMPTY_PROMPT_CLASS}`),
+        "the empty-state prompt with the create form",
+      );
+
+      const dateInput = panel.querySelector(
+        `.${CREATE_DATE_INPUT_CLASS}`,
+      ) as HTMLInputElement;
+      const feedback = panel.querySelector(
+        `.${CREATE_DATE_FEEDBACK_CLASS}`,
+      ) as HTMLElement;
+
+      setValue(doc, dateInput, "1590/1580");
+      await waitFor(() => {
+        return feedback.textContent === END_NOT_AFTER_START ? true : null;
+      }, `the end-not-after-start message for a reversed interval, got "${feedback.textContent}"`);
+      assert.equal(feedback.textContent, END_NOT_AFTER_START);
+
+      // A timestamp-precision reversed interval: edtf's own RangeError would
+      // name "2001-01-01T00:00:00" reserialised to UTC, not what was typed.
+      // The panel must show the exact same message as the date-only case
+      // above, not a variant that leaks that reserialised instant.
+      setValue(doc, dateInput, "2001-01-02T00:00:00/2001-01-01T00:00:00");
+      await waitFor(() => {
+        return feedback.textContent === END_NOT_AFTER_START ? true : null;
+      }, `the end-not-after-start message for a reversed timestamp interval, got "${feedback.textContent}"`);
+      assert.equal(feedback.textContent, END_NOT_AFTER_START);
+      assert.notInclude(feedback.textContent ?? "", "invalid upper bound");
+      assert.notMatch(
+        feedback.textContent ?? "",
+        /Z$/,
+        "the feedback must not carry a UTC-reserialised instant the user never typed",
+      );
+
+      // A spec-valid mixed-precision interval, not a typo: the year 2001 and
+      // its own first day start at the same instant, so Interval refuses it
+      // on the identical check a genuinely reversed pair fails, and this
+      // must read exactly the same as those two cases above.
+      setValue(doc, dateInput, "2001-01-01/2001");
+      await waitFor(() => {
+        return feedback.textContent === END_NOT_AFTER_START ? true : null;
+      }, `the end-not-after-start message for the mixed-precision interval 2001-01-01/2001, got "${feedback.textContent}"`);
+      assert.equal(feedback.textContent, END_NOT_AFTER_START);
+
+      setValue(doc, dateInput, "not a date");
+      await waitFor(() => {
+        return feedback.textContent === "Not a date this can read"
+          ? true
+          : null;
+      }, `the generic one-line message for a real grammar failure, got "${feedback.textContent}"`);
+      assert.equal(feedback.textContent, "Not a date this can read");
     });
   });
 

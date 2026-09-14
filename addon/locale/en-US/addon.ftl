@@ -131,6 +131,24 @@ add-sources-dialog-result-skipped = Already cited under this type, so not attach
 # panel that raised them.
 event-editor-untitled-title = Untitled event
 
+# Shown under the date or end date field once its typed value fails to parse
+# as EDTF. Read through getString rather than data-l10n-id for the same
+# reason as the block above: it replaces feedback.textContent directly on
+# every keystroke, not through a static <linkset>. edtf's own rejection
+# message is a full grammar dump and never reaches this element; it still
+# reaches Zotero.debug and the parked item's own hover title (canvas.ts).
+event-editor-date-unreadable = Not a date this can read
+
+# Shown in the same feedback element, for the one other throw shape edtf can
+# produce: a string that DID parse as two dates, but whose Interval refused
+# it. That check compares the two bounds' own start instants, not their
+# spans or precisions - a date-only bound is UTC midnight and a bare
+# timestamp is local time, so a mixed-precision pair like "2001-01-01/2001"
+# is refused too, the same shape as a genuinely reversed pair. edtf's own
+# message names that start instant after converting it to UTC, a value the
+# user never typed, so this names the actual check instead.
+event-editor-date-end-before-start = The end must begin after the start begins
+
 event-editor-duplicate-done = Copied to { $timeline }.
 
 event-editor-duplicate-done-without-sources =

@@ -15,12 +15,20 @@
  * date and endDate are free-text EDTF (ISO 8601-2), never validated or
  * rewritten on save: a string this plugin's pinned edtf rejects may still be
  * valid EDTF from a level it doesn't implement, so refusing the save would
- * block a correct date the plugin merely can't read. The only feedback is a
- * live parse readout naming which of EDTF's forms the string parsed as
+ * block a correct date the plugin merely can't read. The live feedback names
+ * which of EDTF's forms the string parsed as
  * (plain/uncertain/approximate/interval/one-of/season/list) and the range it
- * resolves to, or edtf's own thrown message verbatim on a parse failure - the
- * one place a "1580..1590" typo for "1580/1590" (a set of two candidate
- * dates, not a continuous span) is still tellable apart from what was meant.
+ * resolves to, or one of two one-line readouts on a parse failure, never
+ * edtf's own thrown message: a string naming that the end's start instant
+ * isn't after the start's, for a string that parsed but whose Interval
+ * refused it on exactly that check (see updateDateFeedback's own comment for
+ * what that means in practice), a generic "not a date" for anything the
+ * grammar itself rejects. That raw message - the full grammar dump, or
+ * edtf's own upper-bound wording for a refused Interval - still reaches
+ * Zotero.debug on every failure, and reaches the user verbatim as the parked
+ * item's hover title (canvas.ts), which is where a "1580..1590" typo for
+ * "1580/1590" (a set of two candidate dates, not a continuous span) is still
+ * tellable apart from what was meant.
  *
  * The empty-state prompt (no selection) also carries a create form - title,
  * date, and a document picker when more than one timeline is loaded - the
@@ -54,7 +62,7 @@
  * comparing two chronologies is the point of this panel.
  */
 import { getLocaleID, getString } from "../../utils/locale";
-import { logFailure } from "../../utils/logging";
+import { logFailure, logTrace } from "../../utils/logging";
 import {
   toTimelineRange,
   type EdtfForm,
@@ -170,10 +178,17 @@ function formatDateRange(range: TimelineRange): string {
 
 /**
  * Parses `input` and (re)renders the live readout naming the EDTF form it
- * parsed as and the range it resolves to, or edtf's own thrown message
- * verbatim on a parse failure. Never rewrites `input`. Blank input (an
- * optional endDate left empty, or a date field mid-edit) shows no feedback at
- * all rather than an error, since it isn't a parse failure yet.
+ * parsed as and the range it resolves to. On a parse failure this shows one
+ * of two one-line readouts, never edtf's own thrown message: a generic
+ * "not a date" for anything the grammar itself rejects, or a string naming
+ * that the end must start after the start starts, for a string that parsed
+ * fine but whose Interval refused it on exactly that check (see the catch
+ * block below for what "starts after" means for a mixed-precision pair).
+ * Never rewrites `input`, and never refuses the save that follows: a string
+ * edtf rejects is still stored verbatim and drawn parked (see canvas.ts), so
+ * this panel only ever describes what was typed. Blank input (an optional
+ * endDate left empty, or a date field mid-edit) shows no feedback at all
+ * rather than an error, since it isn't a parse failure yet.
  */
 function updateDateFeedback(
   doc: Document,
@@ -189,7 +204,25 @@ function updateDateFeedback(
   try {
     range = toTimelineRange(input);
   } catch (err) {
-    feedback.textContent = (err as Error).message;
+    const message = (err as Error).message;
+    logTrace(`[zoteroTimeline] date field rejected "${input}": ${message}`);
+    // edtf@4.11.1 throws exactly two shapes: a multi-line grammar dump (or
+    // the one-line "No possible parsings") for a string it can't parse at
+    // all, or a RangeError for a string that DID parse but whose Interval
+    // refused it. That refusal (interval.js's upper setter) compares the two
+    // bounds' own START instants, not their spans or precisions: a date-only
+    // bound is UTC midnight and a bare timestamp is local time, so
+    // "2001-01-01/2001" is refused too (1 Jan 2001 UTC midnight is not after
+    // itself), the same shape as a genuinely reversed pair. Neither reading
+    // is shown verbatim: the RangeError's own message names the upper
+    // bound's start instant after edtf has reserialised it as UTC, which is
+    // a value the user never typed and, for the mixed-precision case, not
+    // even the span they were comparing.
+    feedback.textContent = getString(
+      err instanceof RangeError
+        ? "event-editor-date-end-before-start"
+        : "event-editor-date-unreadable",
+    );
     return;
   }
 
