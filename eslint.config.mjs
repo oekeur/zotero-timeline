@@ -13,5 +13,15 @@ export default zotero({
         globals: globals.node,
       },
     },
+    {
+      // The one exception to the rule above: this seeder is evaluated inside a
+      // running Zotero (Run JavaScript, or the MCP rig's zotero_execute_js)
+      // because Zotero's data layer is unreachable from Node. Its globals are
+      // the sandbox's, not Node's.
+      files: ["scripts/seed-dev-profile.js"],
+      languageOptions: {
+        globals: { Zotero: "readonly" },
+      },
+    },
   ],
 });

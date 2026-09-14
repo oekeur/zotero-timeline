@@ -114,6 +114,10 @@ export default defineConfig({
               link: "/contributing/mcp-observability-howto",
             },
             {
+              text: "Walking the user journeys",
+              link: "/contributing/user-journeys-howto",
+            },
+            {
               text: "Why the MCP observability rig was adopted",
               link: "/contributing/mcp-observability-explanation",
             },
