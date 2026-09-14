@@ -816,6 +816,21 @@ export async function openTimelineTab(
     timelines.map((t) => [t.doc.id, t.doc]),
   );
 
+  // canvas.ts's click-to-create replaces its copy of a document rather than
+  // mutating it in place (addEvent returns a new document), so `documents`
+  // and `readableTimelines` diverge the moment that happens unless both are
+  // told about the replacement. The initial renderCanvas call below and the
+  // one rebuildCanvas makes both pass this as their onDocumentChange, so a
+  // click-to-create after a rebuild keeps readableTimelines current the same
+  // way one before it does.
+  function replaceDocument(newDoc: TimelineDocument): void {
+    documents.set(newDoc.id, newDoc);
+    const index = readableTimelines.findIndex((t) => t.doc.id === newDoc.id);
+    if (index !== -1) {
+      readableTimelines[index] = { ...readableTimelines[index], doc: newDoc };
+    }
+  }
+
   // The typed create form's target list - every document rendered as a
   // canvas row, the same set click-to-create can land in.
   function creatableDocuments() {
@@ -946,8 +961,10 @@ export async function openTimelineTab(
     // a create there replaces that copy with a freshly written one rather
     // than mutating in place, so this map needs the same replacement, or
     // showEditorFor can't find the event a click-to-create just made before
-    // it calls showEditorFor to open it.
-    (doc) => documents.set(doc.id, doc),
+    // it calls showEditorFor to open it. replaceDocument also keeps
+    // readableTimelines in step, which is what getVisibleTimelines() and
+    // getAvailableTags() read.
+    replaceDocument,
   );
   currentTimeline = timeline;
   timelineGroups = groups;
@@ -1370,7 +1387,7 @@ export async function openTimelineTab(
       libraryID,
       libraryEditable,
       showEditorFor,
-      (d) => documents.set(d.id, d),
+      replaceDocument,
     ));
     currentTimeline = timeline;
     timelineGroups = groups;
