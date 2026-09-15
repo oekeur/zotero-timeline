@@ -450,7 +450,7 @@ export async function ensureDocumentShowing(
     }
     closeTimelineTab();
   }
-  await openTimelineTab();
+  await openTimelineTab(win as unknown as _ZoteroTypes.MainWindow);
   return true;
 }
 
