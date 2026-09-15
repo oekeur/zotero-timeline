@@ -631,6 +631,28 @@ export async function updateTimelineDocument(
 }
 
 /**
+ * Reads one document as it currently stands, with no mutation and no write.
+ *
+ * Enqueued on the same queue updateTimelineDocument uses, so a caller racing
+ * an in-flight save against this read is never handed the document from
+ * before that save landed - the queue serialises this behind it rather than
+ * letting the two run concurrently.
+ */
+export async function readTimelineDocument(
+  documentId: string,
+  libraryID: number,
+): Promise<TimelineDocument | null> {
+  return enqueue(async () => {
+    const note = await findNoteForDocument(documentId, libraryID);
+    if (note === null) {
+      return null;
+    }
+    await refreshNote(note);
+    return readDocumentFromNote(note).doc;
+  });
+}
+
+/**
  * Every note in a library carrying the timeline-document tag, lowest item id
  * first.
  *

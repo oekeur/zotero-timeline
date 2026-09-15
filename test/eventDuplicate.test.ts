@@ -12,11 +12,19 @@ import {
   updateTimelineDocument,
 } from "../src/modules/timeline/storage";
 import {
+  DESCRIPTION_INPUT_CLASS,
   DUPLICATE_BUTTON_CLASS,
   DUPLICATE_CONFIRM_CLASS,
   DUPLICATE_TARGET_CLASS,
+  SAVE_BUTTON_CLASS,
+  TAG_INPUT_CLASS,
+  TITLE_INPUT_CLASS,
 } from "../src/modules/timeline/eventEditor";
-import { createDocumentNote, eraseAllPluginItems } from "./support-pluginItems";
+import {
+  canvasFixtureDocuments,
+  createDocumentNote,
+  eraseAllPluginItems,
+} from "./support-pluginItems";
 import { waitFor } from "./waitFor";
 
 /**
@@ -372,5 +380,263 @@ describe("duplicate an event onto another timeline", function () {
       serializeDocument(source.doc),
       "the target now serialises identically to the source, which cannot be right",
     );
+  });
+
+  // Duplicate reads the event as it stands at click time, not as the render
+  // that opened the panel captured it (TASK-74). Both specs below drive the
+  // real editor end to end rather than copyEventInto directly, since the bug
+  // was in the control's own closure, not in the pure mutation.
+  function pressEnter(doc: Document, input: HTMLInputElement): void {
+    input.dispatchEvent(
+      new (doc.defaultView as any).KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+      }),
+    );
+  }
+
+  it("duplicates an existing event as it was saved a moment ago, not as the panel opened", async function () {
+    await createDocumentNote(
+      libraryID,
+      STORAGE_TAG,
+      aDocument("doc-source", [anEvent()]),
+    );
+    await createDocumentNote(
+      libraryID,
+      STORAGE_TAG,
+      aDocument("doc-target", []),
+    );
+
+    const win = Zotero.getMainWindows()[0] as any;
+    await api().openTimelineTab();
+    const timeline = (await waitFor(
+      () => api().getCurrentTimeline(),
+      "the canvas to render",
+    )) as any;
+    const doc = win.document as Document;
+    const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+
+    timeline.setSelection(["doc-source:ev-original"]);
+    const titleInput = (await waitFor(() => {
+      const el = panel.querySelector(
+        `.${TITLE_INPUT_CLASS}`,
+      ) as HTMLInputElement | null;
+      return el && el.value === "The original" ? el : null;
+    }, "the title field to show the original title")) as HTMLInputElement;
+
+    titleInput.value = "Copy test";
+    const descriptionInput = panel.querySelector(
+      `.${DESCRIPTION_INPUT_CLASS}`,
+    ) as HTMLTextAreaElement;
+    descriptionInput.value = "a revised account";
+    const tagInput = panel.querySelector(
+      `.${TAG_INPUT_CLASS}`,
+    ) as HTMLInputElement;
+    tagInput.value = "renamed";
+    pressEnter(doc, tagInput);
+
+    (panel.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement).click();
+    await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const saved = timelines
+        .find((t) => t.doc.id === "doc-source")
+        ?.doc.events.find((e) => e.id === "ev-original");
+      return saved?.title === "Copy test" ? true : null;
+    }, "the save to land");
+
+    (
+      (await waitFor(
+        () => panel.querySelector(`.${DUPLICATE_BUTTON_CLASS}`),
+        "the duplicate control to render",
+      )) as HTMLButtonElement
+    ).click();
+
+    const select = (await waitFor(() => {
+      const el = panel.querySelector(
+        `.${DUPLICATE_TARGET_CLASS}`,
+      ) as HTMLSelectElement | null;
+      return el && el.options.length > 0 ? el : null;
+    }, "the target list to fill")) as HTMLSelectElement;
+    select.value = `${libraryID}:doc-target`;
+
+    (
+      panel.querySelector(`.${DUPLICATE_CONFIRM_CLASS}`) as HTMLButtonElement
+    ).click();
+
+    const targetDoc = (await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const found = timelines.find((t) => t.doc.id === "doc-target")?.doc;
+      return found && found.events.length > 0 ? found : null;
+    }, "the copy to land on the target")) as TimelineDocument;
+
+    const copy = targetDoc.events[0];
+    assert.equal(
+      copy.title,
+      "Copy test",
+      "the copy carried the title from when the panel opened, not the one just saved",
+    );
+    assert.equal(
+      copy.description,
+      "a revised account",
+      "the copy carried the description from when the panel opened, not the one just saved",
+    );
+    assert.include(
+      copy.tags,
+      "renamed",
+      "the copy dropped the tag added just before saving",
+    );
+    assert.notEqual(
+      copy.id,
+      "ev-original",
+      "the copy reused the original's id",
+    );
+
+    // The title alone can't tell the original from the copy - both now read
+    // "Copy test". The selection can: it still names the original event's own
+    // id, not the copy's, which a duplicate that reselected onto its own
+    // output would get wrong. The rebuild the target's write fires (TASK-43)
+    // replaces the timeline instance wholesale, so it's fetched fresh rather
+    // than reusing the one captured at the top of the test.
+    await waitFor(() => {
+      const current = api().getCurrentTimeline() as any;
+      const selection = current?.getSelection?.() as string[] | undefined;
+      return selection?.length === 1 &&
+        selection[0] === "doc-source:ev-original"
+        ? true
+        : null;
+    }, "the selection to still name the original event");
+
+    await waitFor(() => {
+      const current = api().getCurrentTimeline() as any;
+      return current?.itemsData?.get(`doc-target:${copy.id}`) != null
+        ? true
+        : null;
+    }, "the copy to be drawn on the target lane");
+  });
+
+  it("duplicates a click-created draft as it stood after its first save", async function () {
+    for (const document of canvasFixtureDocuments()) {
+      await createDocumentNote(libraryID, STORAGE_TAG, document);
+    }
+
+    const win = Zotero.getMainWindows()[0] as any;
+    await api().openTimelineTab();
+    const timeline = (await waitFor(
+      () => api().getCurrentTimeline(),
+      "the canvas to render",
+    )) as any;
+    const doc = win.document as Document;
+    const panel = doc.getElementById("zoterotimeline-editor") as HTMLElement;
+
+    const { timelines: before } = await listTimelines(libraryID);
+    const beforeIds = new Set(
+      before
+        .find((t) => t.doc.id === "doc-revolt")!
+        .doc.events.map((e) => e.id),
+    );
+
+    // doc-revolt loads first and is already the active lane, so one click
+    // creates directly rather than needing a priming click first.
+    timeline.emit("click", {
+      item: null,
+      group: "doc-revolt",
+      time: new Date(Date.UTC(1580, 6, 13)),
+    });
+
+    const draftId = (await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const ids = timelines
+        .find((t) => t.doc.id === "doc-revolt")!
+        .doc.events.map((e) => e.id);
+      const added = ids.filter((id) => !beforeIds.has(id));
+      return added[0] ?? null;
+    }, "a new event to appear in doc-revolt")) as string;
+
+    await waitFor(
+      () =>
+        timeline.getSelection().length === 1 &&
+        timeline.getSelection()[0] === `doc-revolt:${draftId}`
+          ? true
+          : null,
+      "the new draft to be selected",
+    );
+
+    const titleInput = (await waitFor(
+      () => panel.querySelector(`.${TITLE_INPUT_CLASS}`),
+      "the editor to render for the draft",
+    )) as HTMLInputElement;
+
+    titleInput.value = "Bastille falls";
+    const tagInput = panel.querySelector(
+      `.${TAG_INPUT_CLASS}`,
+    ) as HTMLInputElement;
+    tagInput.value = "alpha";
+    pressEnter(doc, tagInput);
+
+    (panel.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement).click();
+    await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const saved = timelines
+        .find((t) => t.doc.id === "doc-revolt")
+        ?.doc.events.find((e) => e.id === draftId);
+      return saved?.title === "Bastille falls" ? true : null;
+    }, "the draft's save to land");
+
+    (
+      (await waitFor(
+        () => panel.querySelector(`.${DUPLICATE_BUTTON_CLASS}`),
+        "the duplicate control to render",
+      )) as HTMLButtonElement
+    ).click();
+
+    const select = (await waitFor(() => {
+      const el = panel.querySelector(
+        `.${DUPLICATE_TARGET_CLASS}`,
+      ) as HTMLSelectElement | null;
+      return el && el.options.length > 0 ? el : null;
+    }, "the target list to fill")) as HTMLSelectElement;
+    select.value = `${libraryID}:doc-sources`;
+
+    (
+      panel.querySelector(`.${DUPLICATE_CONFIRM_CLASS}`) as HTMLButtonElement
+    ).click();
+
+    const targetDoc = (await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const found = timelines.find((t) => t.doc.id === "doc-sources")!.doc;
+      return found.events.length > 2 ? found : null;
+    }, "the copy to land on doc-sources")) as TimelineDocument;
+
+    const copy = targetDoc.events.find(
+      (e) => e.id !== "ev-pamphlets" && e.id !== "ev-truce",
+    )!;
+    assert.equal(
+      copy.title,
+      "Bastille falls",
+      "the copy landed as the untitled fallback instead of the title saved a moment before",
+    );
+    assert.deepEqual(
+      copy.tags,
+      ["alpha"],
+      "the copy landed with no tags instead of the tag saved a moment before",
+    );
+    assert.notEqual(copy.id, draftId, "the copy reused the draft's own id");
+
+    // The selection still names the draft's own id, not the copy's - the
+    // fresh fetch is needed for the same reason as the previous spec.
+    await waitFor(() => {
+      const current = api().getCurrentTimeline() as any;
+      const selection = current?.getSelection?.() as string[] | undefined;
+      return selection?.length === 1 && selection[0] === `doc-revolt:${draftId}`
+        ? true
+        : null;
+    }, "the selection to still name the draft");
+
+    await waitFor(() => {
+      const current = api().getCurrentTimeline() as any;
+      return current?.itemsData?.get(`doc-sources:${copy.id}`) != null
+        ? true
+        : null;
+    }, "the copy to be drawn on doc-sources's lane");
   });
 });

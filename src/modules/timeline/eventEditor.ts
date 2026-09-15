@@ -85,7 +85,7 @@ import {
   resolveSourceItem,
 } from "./sourceLabels";
 import { peekVocabulary, UNKNOWN_TYPE_LABEL } from "./vocabulary";
-import { updateTimelineDocument } from "./storage";
+import { readTimelineDocument, updateTimelineDocument } from "./storage";
 import { announce, warn } from "./containerGuard";
 import { listTimelinesEverywhereCached } from "./documentCache";
 import type { Event as TimelineEvent, LinkType, SourceRef } from "./schema";
@@ -1105,14 +1105,24 @@ export function renderEventEditor(
       // never holds a SourceRef naming another library, and that invariant is
       // what makes a stray foreign libraryID diagnosable rather than normal.
       const keepSources = target.libraryID === libraryID;
-      const leftBehind = keepSources ? 0 : event.sources.length;
       try {
+        // Read fresh rather than copy the `event` this render captured: a
+        // save made earlier in this same editor session writes the document
+        // but never refreshes that closed-over object, so it would otherwise
+        // still carry whatever title, tags, description and sources were on
+        // screen when the panel opened.
+        const currentDoc = await readTimelineDocument(documentId, libraryID);
+        const currentEvent = currentDoc?.events.find((e) => e.id === event.id);
+        if (!currentEvent) {
+          return;
+        }
+        const leftBehind = keepSources ? 0 : currentEvent.sources.length;
         // One write, against the target alone. The source document is never
         // opened for writing, which is what makes "the original is untouched"
         // and "a failed write changes nothing anywhere" both true without an
         // ordering argument.
         const result = await updateTimelineDocument(
-          (current) => copyEventInto(current, event, keepSources).doc,
+          (current) => copyEventInto(current, currentEvent, keepSources).doc,
           targetDocumentId,
           target.libraryID,
         );
