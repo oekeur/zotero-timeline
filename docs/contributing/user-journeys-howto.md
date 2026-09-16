@@ -25,8 +25,9 @@ that have not are marked: J2 step 5 (drag, not stageable from the rig), J4
 step 2 (a split-library selection needs a second writable library) and J6
 step 5 (a read-only library; the profile's one group library is editable).
 The first walk corrected eleven expectations and filed four defects
-(TASK-73 to TASK-76); expect the same rate again after any change to the
-files the last section names.
+(TASK-73 to TASK-76, all landed since, with TASK-71 and TASK-74 from the
+same pass); expect the same rate again after any change to the files the
+last section names.
 
 ## Before you start
 
@@ -117,10 +118,9 @@ item the tag filter has removed from the view still comes back from
 **Two DataSets, one of them a view.** `timeline.groupsData` is a DataView
 over the visible groups; `get()` on a hidden timeline's group returns `null`.
 Reading visibility through it looks like the timeline does not exist. Read
-`api.getVisibleTimelines()` for what is showing, and know that
-`readableTimelines` behind it goes stale after a click-to-create in that
-timeline (TASK-71); read back through a fresh `listTimelines` when a step has
-just created an event by click.
+`api.getVisibleTimelines()` for what is showing. It stays current through a
+click-to-create since TASK-71 landed; reading back through a fresh
+`listTimelines` is still the stronger check when a step has just written.
 
 **Every `zoterotimeline-*` class is scoped, and the sidebar repeats them.**
 `.zoterotimeline-sidebar-row-visible` is one checkbox per timeline;
@@ -242,30 +242,31 @@ read the expectations as they are now, not as the source suggests.
    **Expect** the note now holds one event with that title and date; the box
    stays selected and drawn.
    **Probe** read the note directly: `(await Zotero.Items.getAsync(<noteItemID>)).getNote()`
-   contains `"title":"Bastille falls"`. Do **not** read it back through
-   `api.getVisibleTimelines()`: after a click-to-create that reads the
-   pre-create document (TASK-71) and reports zero events while the note has
-   one. The instance from `api.getCurrentTimeline()` is replaced by any
-   rebuild; re-read it after every write rather than holding it across one.
+   contains `"title":"Bastille falls"`. `api.getVisibleTimelines()` lists
+   the event too (it used to report the pre-create document after a
+   click-to-create; TASK-71 fixed that). The instance from
+   `api.getCurrentTimeline()` is replaced by any rebuild; re-read it after
+   every write rather than holding it across one.
 
 3. **Do** Change the date to `1793?`, then `1793/1794`, then `not a date`,
    dispatching `input`, `change` and `blur` each time.
    **Expect** `Uncertain 1/1/1793 – 1/1/1794`, then
    `Interval 1/1/1793 – 1/1/1795`. For `not a date` the feedback element
-   fills with the **entire edtf parser dump** (two hundred lines of grammar
-   starting `Syntax error at line 1 col 1`) and Save stays enabled
-   (TASK-75). Until that lands, treat any feedback longer than one line as
-   the unparseable case. Set the date back to `1789-07-14` before going on.
+   reads `Not a date this can read` (one line; the edtf grammar dump goes
+   to the debug log only), Save stays enabled, the string is stored as
+   typed and the event draws parked with edtf's own message as its hover
+   title. A pair of readable dates in the wrong order, `1590/1580`, reads
+   `The end must begin after the start begins` instead; edtf compares the
+   two bounds' start instants, so `2001-01-01/2001` is refused the same way.
+   Set the date back to `1789-07-14` before going on.
 
 4. **Do** Add a tag `alpha` in `.zoterotimeline-event-tag-input` with an
    Enter `keydown`, then Save.
    **Expect** a `.zoterotimeline-event-tag` chip in the editor, and the note
    now carries `"tags":["alpha"]`. The sidebar's Tags section
-   (`.zoterotimeline-sidebar-tags`) does **not** yet offer `alpha` after a
-   click-created event's save: the chip bank reads the same stale snapshot
-   as TASK-71, and catches up on the next tab open or rebuild from outside.
-   An event opened fresh (not click-created in this editor session) updates
-   the chips on Save, which is what J5 relies on.
+   (`.zoterotimeline-sidebar-tags`) offers `alpha` after the save, for a
+   click-created event as much as for one opened fresh (the chip bank read
+   a stale snapshot before TASK-71).
 
 5. **Not walked.** Drag the box a decade to the right. vis-timeline's drag
    needs real pointer events with movement between them; the rig cannot
@@ -278,11 +279,10 @@ read the expectations as they are now, not as the source suggests.
    `change`), click `.zoterotimeline-event-duplicate-confirm`.
    **Expect** a second item drawn on the _Scientific work_ lane with its own
    id; the **editor stays on the original** and the selection does not move.
-   **Known defect (TASK-74):** the copy carries the title and tags the
-   original had **when the editor opened it**, not as saved since; a
-   click-created event titled and tagged in the same session lands as the
-   untitled fallback with no tags. Until fixed, reopen the original (select
-   away and back) before duplicating, and check the copy's stored title.
+   The copy carries the title, tags and description **as last saved**,
+   including for a click-created event titled and tagged in the same editor
+   session (before TASK-74 it copied the event as it was when the editor
+   opened). Unsaved edits are not copied: Duplicate reads the stored event.
 
 7. **Do** Click Delete (`.zoterotimeline-event-delete`).
    **Expect** it deletes the event the editor holds, which after step 6 is
@@ -517,11 +517,15 @@ one group library is editable). Step 3 found TASK-76.
 
 3. **Do** Restore the note from the trash (`item.deleted = false; saveTx()`,
    or the library UI).
-   **Expect, today:** the open tab does **not** list it again; the observer
-   only rebuilds on a `modify` of a note the tab already holds (TASK-76).
-   Close and reopen the tab: the timeline is back with its events and
-   sources intact, and the Timelines section for a cited item already
-   listed it before the reopen, since the section re-reads on its own.
+   **Expect** the open tab lists it again without a reopen, with its events
+   and sources intact (before TASK-76 the observer only rebuilt on a
+   `modify` of a note the tab already held). Trashing the plugin's
+   container item instead hides every timeline at once, since Zotero's
+   search excludes child notes of a trashed parent: the sidebar empties and
+   the canvas prompt names the container in the trash; restoring the
+   container relists them, and erasing it permanently returns the prompt to
+   the no-timelines text. Trashing the last note with the container live
+   keeps the no-timelines prompt, and the plus control still creates.
 
 4. **Do** Corrupt a storage note by hand (`setNote()` with a character
    removed inside the JSON, `saveTx()`).
