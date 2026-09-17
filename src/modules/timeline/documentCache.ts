@@ -17,6 +17,10 @@
  * mid-rebuild would otherwise be dropped; that belongs with the consumer that
  * has one, which is the combined view, not here unused.
  */
+import {
+  registerNotifierObserver,
+  unregisterNotifierObserver,
+} from "./notifierRegistry";
 import { serializeDocument, type TimelineDocument } from "./schema";
 import { type DateIssue } from "./validate";
 import {
@@ -178,11 +182,11 @@ function notify(
 const OBSERVER_ID = "zoterotimeline-document-cache";
 
 export function registerCacheObserver(): string {
-  return Zotero.Notifier.registerObserver({ notify }, ["item"], OBSERVER_ID);
+  return registerNotifierObserver({ notify }, ["item"], OBSERVER_ID);
 }
 
 export function unregisterCacheObserver(id: string): void {
-  Zotero.Notifier.unregisterObserver(id);
+  unregisterNotifierObserver(id);
   clearCache();
 }
 

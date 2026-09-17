@@ -31,6 +31,10 @@ import {
   type UnreadableTimeline,
 } from "./storage";
 import { warn } from "./containerGuard";
+import {
+  registerNotifierObserver,
+  unregisterNotifierObserver,
+} from "./notifierRegistry";
 import { renderEventEditor, type EventEditorChange } from "./eventEditor";
 import { collectVisibleTags, renderTagFilter } from "./tagFilter";
 import { serializeDocument, type TimelineDocument } from "./schema";
@@ -680,7 +684,7 @@ export async function openTimelineTab(
       timelineTabID = undefined;
       timelineTabWindow = undefined;
       if (refreshObserverID) {
-        Zotero.Notifier.unregisterObserver(refreshObserverID);
+        unregisterNotifierObserver(refreshObserverID);
         refreshObserverID = undefined;
       }
       refreshNotify = undefined;
@@ -781,6 +785,13 @@ export async function openTimelineTab(
   // so Hammer sees the real window. esbuild keeps it lazy rather than hoisting
   // it back to load time.
   const mod = await import("./canvas");
+  // Closing the tab while this import is still pending leaves this closure
+  // with a container that Zotero_Tabs.close has already torn down; bail
+  // before anything below assumes it is still there. Mirrors rebuildCanvas's
+  // own id check against timelineTabID, cleared by onClose.
+  if (id !== timelineTabID) {
+    return;
+  }
   const { renderCanvas, buildTimelineItem, parseVisItemId, visItemId } = mod;
   canvasModule = mod;
   moduleEvalEnv = mod.MODULE_EVAL_ENV;
@@ -793,6 +804,9 @@ export async function openTimelineTab(
   // one exception to every other surface's rule of creating nothing just by
   // being opened - see createDefaultTimelineIfNeeded.
   await createDefaultTimelineIfNeeded(libraryID);
+  if (id !== timelineTabID) {
+    return;
+  }
   const openedLibrary = Zotero.Libraries.get(libraryID);
   const libraryEditable = openedLibrary ? openedLibrary.editable : false;
 
@@ -812,6 +826,9 @@ export async function openTimelineTab(
 
   const { timelines, unreadable: initialUnreadable } =
     await listTimelinesCached(libraryID);
+  if (id !== timelineTabID) {
+    return;
+  }
   readableTimelines = timelines;
   // Reassigned on every rebuildCanvas pass that gets past the tab-closed
   // guards, including both its early returns, so a note that stops parsing
@@ -832,6 +849,9 @@ export async function openTimelineTab(
   // nothing else), since renderSidebar is synchronous and this is not.
   let containerTrashed =
     timelines.length === 0 && (await isContainerTrashed(libraryID));
+  if (id !== timelineTabID) {
+    return;
+  }
 
   // canvas.ts's click-to-create replaces its copy of a document rather than
   // mutating it in place (addEvent returns a new document), so `documents`
@@ -1646,7 +1666,7 @@ export async function openTimelineTab(
   }
 
   refreshNotify = notifyTimelineChanged;
-  refreshObserverID = Zotero.Notifier.registerObserver(
+  refreshObserverID = registerNotifierObserver(
     { notify: notifyTimelineChanged },
     ["item"],
     `zoterotimeline-canvas-refresh-${id}`,

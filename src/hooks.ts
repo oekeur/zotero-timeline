@@ -59,7 +59,9 @@ import {
   createTaggedNote,
   STORAGE_TAG,
   StorageError,
+  whenStorageIdle,
 } from "./modules/timeline/storage";
+import { liveNotifierObservers } from "./modules/timeline/notifierRegistry";
 import type { TimelineDocument } from "./modules/timeline/schema";
 import { ensureStylesheet, removeStylesheet } from "./utils/stylesheet";
 
@@ -102,6 +104,22 @@ async function createDocumentNoteForTests(
     throw new StorageError("invalid-schema", "a timeline needs a name");
   }
   return createTaggedNote(libraryID, STORAGE_TAG, buildNoteHtml(doc));
+}
+
+/**
+ * Resolves true once whenStorageIdle() settles, false if `ms` elapses first,
+ * so a spec can tell a slow-but-alive queue apart from a wedged one. Clears
+ * its own timer on either outcome; left pending it would hold the test
+ * process open past the run that started it.
+ */
+function storageQueueIdleForTests(ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    void whenStorageIdle().then(() => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
 }
 
 async function onStartup() {
@@ -159,6 +177,8 @@ async function onStartup() {
     rebuildPassesSoFar,
     rebuildsSoFar,
     refreshObserverForTesting,
+    liveNotifierObserversForTests: liveNotifierObservers,
+    storageQueueIdleForTests,
     openAddSourcesDialog,
     openCreateEventOnTimeline,
     openBugReport,

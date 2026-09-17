@@ -18,6 +18,10 @@
  * there is none anywhere else in this design.
  */
 import { logFailure, logTrace } from "../../utils/logging";
+import {
+  registerNotifierObserver,
+  unregisterNotifierObserver,
+} from "./notifierRegistry";
 import { StorageError, listTimelines, updateTimelineDocument } from "./storage";
 import type { SourceRef } from "./schema";
 
@@ -147,9 +151,9 @@ function notify(
 export const observerForTesting = { notify };
 
 export function registerSourcePruneObserver(): string {
-  return Zotero.Notifier.registerObserver({ notify }, ["item"], OBSERVER_ID);
+  return registerNotifierObserver({ notify }, ["item"], OBSERVER_ID);
 }
 
 export function unregisterSourcePruneObserver(id: string): void {
-  Zotero.Notifier.unregisterObserver(id);
+  unregisterNotifierObserver(id);
 }

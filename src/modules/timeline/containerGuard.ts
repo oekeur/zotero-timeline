@@ -11,6 +11,10 @@
  */
 import { getString } from "../../utils/locale";
 import { logFailure } from "../../utils/logging";
+import {
+  registerNotifierObserver,
+  unregisterNotifierObserver,
+} from "./notifierRegistry";
 import { CONTAINER_TAG, STORAGE_TAG, readDocumentFromNote } from "./storage";
 
 const OBSERVER_ID = "zoterotimeline-container-guard";
@@ -160,9 +164,9 @@ function notify(
 export const observerForTesting = { notify };
 
 export function registerContainerObserver(): string {
-  return Zotero.Notifier.registerObserver({ notify }, ["item"], OBSERVER_ID);
+  return registerNotifierObserver({ notify }, ["item"], OBSERVER_ID);
 }
 
 export function unregisterContainerObserver(id: string): void {
-  Zotero.Notifier.unregisterObserver(id);
+  unregisterNotifierObserver(id);
 }
