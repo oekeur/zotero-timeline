@@ -810,8 +810,14 @@ export async function openTimelineTab(
     header.appendChild(banner as unknown as Node);
   }
 
-  const { timelines, unreadable } = await listTimelinesCached(libraryID);
+  const { timelines, unreadable: initialUnreadable } =
+    await listTimelinesCached(libraryID);
   readableTimelines = timelines;
+  // Reassigned on every rebuildCanvas pass that gets past the tab-closed
+  // guards, including both its early returns, so a note that stops parsing
+  // or is repaired while the tab stays open gets its sidebar marker updated
+  // without the tab needing to be reopened.
+  let unreadable: UnreadableTimeline[] = initialUnreadable;
   // Keyed by document id, and kept up to date on every save/delete, so a
   // re-selection after an edit shows what was just written rather than what
   // was loaded when the tab opened.
@@ -1321,6 +1327,25 @@ export async function openTimelineTab(
   }
 
   /**
+   * Whether two unreadable-note listings name the same notes for the same
+   * reasons. Compares by noteItemID and reason rather than full equality:
+   * `message` can carry incidental detail (a version number, say) that
+   * changes between reads of the same underlying failure without the
+   * sidebar marker needing to be rebuilt over it.
+   */
+  function unreadableSetsMatch(
+    a: UnreadableTimeline[],
+    b: UnreadableTimeline[],
+  ): boolean {
+    if (a.length !== b.length) {
+      return false;
+    }
+    const key = (u: UnreadableTimeline) => `${u.noteItemID}:${u.reason}`;
+    const bKeys = new Set(b.map(key));
+    return a.every((u) => bKeys.has(key(u)));
+  }
+
+  /**
    * Redraws the canvas from what the notes currently hold.
    *
    * A full teardown and re-render, the same shape mindmap's rebuild has. The
@@ -1391,14 +1416,31 @@ export async function openTimelineTab(
           .map((u) => `${u.noteItemID} ${u.reason}: ${u.message}`)
           .join("; ")}`,
       );
+      // The canvas stands, but the sidebar's marker for the note that just
+      // stopped parsing still needs to appear without reopening the tab.
+      const unreadableChanged = !unreadableSetsMatch(
+        unreadable,
+        fresh.unreadable,
+      );
+      unreadable = fresh.unreadable;
+      if (unreadableChanged) {
+        renderSidebar();
+      }
       return;
     }
 
     if (drawnMatches(fresh.timelines)) {
       // Nothing drawn changes, but the empty-canvas prompt's own message
       // might: it reads containerTrashed rather than the canvas, and this is
-      // the only path an empty-to-empty pass takes.
-      if (containerTrashed !== containerTrashedBefore) {
+      // the only path an empty-to-empty pass takes. The unreadable marker can
+      // also change here: a note repaired back to exactly what is already
+      // drawn clears its row without the canvas needing a redraw.
+      const unreadableChanged = !unreadableSetsMatch(
+        unreadable,
+        fresh.unreadable,
+      );
+      unreadable = fresh.unreadable;
+      if (containerTrashed !== containerTrashedBefore || unreadableChanged) {
         renderSidebar();
       }
       return;
@@ -1413,6 +1455,7 @@ export async function openTimelineTab(
     }
 
     readableTimelines = fresh.timelines;
+    unreadable = fresh.unreadable;
     documents.clear();
     for (const t of fresh.timelines) {
       documents.set(t.doc.id, t.doc);
@@ -1540,6 +1583,12 @@ export async function openTimelineTab(
    * into a single `delete` call, so the container's erase always arrives
    * carrying its notes' ids alongside its own.
    *
+   * Third, whenever a notified id is a noteItemID currently in `unreadable`:
+   * a note that was already unreadable when the tab opened, or went
+   * unreadable afterwards, is in neither containerTrashed's scope nor
+   * readableTimelines, so erasing it outright would otherwise leave its
+   * sidebar row standing with nothing left to notify.
+   *
    * A note this tab is drawing but has not yet finished erasing - only had
    * its content rewritten to something this build cannot parse - takes a
    * different path entirely: no `delete` fires for that, `modify` does, and
@@ -1564,7 +1613,10 @@ export async function openTimelineTab(
       const touchesHeldNote = readableTimelines.some((t) =>
         erasedIds.has(t.noteItemID),
       );
-      if (containerTrashed || touchesHeldNote) {
+      const touchesUnreadableNote = unreadable.some((u) =>
+        erasedIds.has(u.noteItemID),
+      );
+      if (containerTrashed || touchesHeldNote || touchesUnreadableNote) {
         void scheduleRebuild();
       }
       return;
@@ -1648,6 +1700,13 @@ export async function openTimelineTab(
   // Toggled by the sidebar's create button; not module-level, since it must
   // reset to closed every time the tab is opened fresh.
   let creatingTimeline = false;
+
+  // Set for the span between the confirm click and the create settling.
+  // creatingTimeline itself stays true across that span (the form must not
+  // vanish while the write is still pending), so a rebuild mid-flight would
+  // otherwise build a fresh, freely-clickable form: this is what keeps that
+  // form's confirm disabled until the in-flight create actually resolves.
+  let createInFlight = false;
 
   // The id of the row currently showing its inline rename form, or none. Not
   // module-level for the same reason creatingTimeline is not.
@@ -1735,14 +1794,19 @@ export async function openTimelineTab(
    * The confirm button starts disabled and stays that way until the name is
    * non-blank, which is what keeps validate.ts's own empty-name refusal from
    * ever being the error message a user sees.
+   *
+   * `draftName`, when given, seeds the input instead of starting it blank -
+   * renderSidebar() passes the value it read off the form this call is
+   * replacing, so a rebuild pass mid-typing does not clear it.
    */
-  function buildCreateForm(): HTMLElement {
+  function buildCreateForm(draftName?: string): HTMLElement {
     const form = el(doc, "div");
     form.classList.add(SIDEBAR_CREATE_FORM_CLASS);
 
     const nameInput = el(doc, "input");
     nameInput.type = "text";
     nameInput.classList.add(SIDEBAR_CREATE_NAME_INPUT_CLASS);
+    nameInput.value = draftName ?? "";
     nameInput.setAttribute(
       "data-l10n-id",
       getLocaleID("timeline-sidebar-create-name-input"),
@@ -1755,7 +1819,7 @@ export async function openTimelineTab(
     const confirmButton = el(doc, "button");
     confirmButton.type = "button";
     confirmButton.classList.add(SIDEBAR_CREATE_CONFIRM_CLASS);
-    confirmButton.disabled = true;
+    confirmButton.disabled = createInFlight || nameInput.value.trim() === "";
     confirmButton.setAttribute(
       "data-l10n-id",
       getLocaleID("timeline-sidebar-create-confirm-button"),
@@ -1774,7 +1838,7 @@ export async function openTimelineTab(
     form.appendChild(actions as unknown as Node);
 
     nameInput.addEventListener("input", () => {
-      confirmButton.disabled = nameInput.value.trim() === "";
+      confirmButton.disabled = createInFlight || nameInput.value.trim() === "";
     });
 
     cancelButton.addEventListener("click", () => {
@@ -1787,6 +1851,7 @@ export async function openTimelineTab(
       if (name === "") {
         return;
       }
+      createInFlight = true;
       confirmButton.disabled = true;
       void (async () => {
         try {
@@ -1804,6 +1869,7 @@ export async function openTimelineTab(
             err,
           );
         } finally {
+          createInFlight = false;
           renderSidebar();
         }
       })();
@@ -1818,8 +1884,42 @@ export async function openTimelineTab(
    * visible/hidden truth the toggle and reorder controls write straight into.
    * Rows carry `data-timeline-id`, the attachment point a later activation
    * gesture (TASK-16) reads rather than a second lookup of its own.
+   *
+   * A rebuild pass can call this while the create form or a rename form is
+   * mid-edit - a corrupted or an ordinarily edited held note both notify
+   * regardless of what the sidebar is showing. Reading the mounted form's
+   * current input value before clearing it, and seeding the freshly built
+   * form from that value below, is what keeps a half-typed name from being
+   * discarded under the user's fingers.
    */
+  function findMountedRenameForm(id: string): HTMLElement | null {
+    const forms = sidebar.querySelectorAll(
+      `.${SIDEBAR_ROW_RENAME_FORM_CLASS}`,
+    ) as Element[];
+    for (const form of forms) {
+      if (form.getAttribute("data-timeline-id") === id) {
+        return form as HTMLElement;
+      }
+    }
+    return null;
+  }
+
   function renderSidebar(): void {
+    const draftCreateName = creatingTimeline
+      ? (
+          sidebar.querySelector(
+            `.${SIDEBAR_CREATE_NAME_INPUT_CLASS}`,
+          ) as HTMLInputElement | null
+        )?.value
+      : undefined;
+    const draftRenameName = renamingDocumentId
+      ? (
+          findMountedRenameForm(renamingDocumentId)?.querySelector(
+            `.${SIDEBAR_ROW_RENAME_NAME_INPUT_CLASS}`,
+          ) as HTMLInputElement | null
+        )?.value
+      : undefined;
+
     sidebar.textContent = "";
 
     const headingRow = el(doc, "div");
@@ -1836,13 +1936,18 @@ export async function openTimelineTab(
     sidebar.appendChild(headingRow as unknown as Node);
 
     if (creatingTimeline) {
-      sidebar.appendChild(buildCreateForm() as unknown as Node);
+      sidebar.appendChild(buildCreateForm(draftCreateName) as unknown as Node);
     }
 
     const rows = documentGroupRows();
     rows.forEach((group, index) => {
       sidebar.appendChild(
-        buildSidebarRow(group, index, rows.length) as unknown as Node,
+        buildSidebarRow(
+          group,
+          index,
+          rows.length,
+          draftRenameName,
+        ) as unknown as Node,
       );
     });
 
@@ -1936,9 +2041,10 @@ export async function openTimelineTab(
     group: GroupRow,
     index: number,
     total: number,
+    draftRenameName?: string,
   ): HTMLElement {
     if (group.id === renamingDocumentId) {
-      return buildRenameForm(group);
+      return buildRenameForm(group, draftRenameName);
     }
 
     const row = el(doc, "div");
@@ -2088,8 +2194,12 @@ export async function openTimelineTab(
    * already blank, which cannot happen for a timeline that made it into the
    * sidebar; the same live check as create's form keeps it that way for
    * anything typed afterwards.
+   *
+   * `draftName`, when given, seeds the input instead of the timeline's own
+   * name - renderSidebar() passes the value it read off the form this call
+   * is replacing, so a rebuild pass mid-rename does not clear it.
    */
-  function buildRenameForm(group: GroupRow): HTMLElement {
+  function buildRenameForm(group: GroupRow, draftName?: string): HTMLElement {
     const row = el(doc, "div");
     row.classList.add(SIDEBAR_ROW_CLASS, SIDEBAR_ROW_RENAME_FORM_CLASS);
     row.setAttribute("data-timeline-id", group.id);
@@ -2097,7 +2207,7 @@ export async function openTimelineTab(
     const nameInput = el(doc, "input");
     nameInput.type = "text";
     nameInput.classList.add(SIDEBAR_ROW_RENAME_NAME_INPUT_CLASS);
-    nameInput.value = group.content;
+    nameInput.value = draftName ?? group.content;
     nameInput.setAttribute(
       "data-l10n-id",
       getLocaleID("timeline-sidebar-rename-name-input"),

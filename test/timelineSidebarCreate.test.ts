@@ -306,6 +306,69 @@ describe("timeline sidebar: creating a timeline", function () {
     );
   });
 
+  /**
+   * The confirm click disables the button clicked, but creatingTimeline stays
+   * true across the create's own await, so a rebuild racing it - here, the
+   * new note's own "add" notification - can build a fresh form before the
+   * write settles. That fresh form's confirm must stay disabled until the
+   * create resolves; otherwise a second click on it creates a duplicate.
+   */
+  it("keeps a rebuilt create form's confirm disabled while the first create is still in flight", async function () {
+    const { doc: winDoc, sidebar } = await openSidebar();
+
+    const createButton = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-button",
+    ) as HTMLButtonElement;
+    createButton.click();
+    const nameInput = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-name",
+    ) as HTMLInputElement;
+    nameInput.value = "Dup";
+    nameInput.dispatchEvent(new Event("input"));
+    const confirmButton = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-confirm",
+    ) as HTMLButtonElement;
+
+    let clickedFresh = false;
+    const win = winDoc.defaultView as any;
+    const mo = new win.MutationObserver(() => {
+      if (clickedFresh) {
+        return;
+      }
+      const form = sidebar.querySelector(".zoterotimeline-sidebar-create-form");
+      if (!form) {
+        return;
+      }
+      const freshConfirm = form.querySelector(
+        ".zoterotimeline-sidebar-create-confirm",
+      ) as HTMLButtonElement;
+      const freshInput = form.querySelector(
+        ".zoterotimeline-sidebar-create-name",
+      ) as HTMLInputElement;
+      if (
+        freshConfirm !== confirmButton &&
+        !freshConfirm.disabled &&
+        freshInput.value === "Dup"
+      ) {
+        clickedFresh = true;
+        freshConfirm.click();
+      }
+    });
+    mo.observe(sidebar, { childList: true, subtree: true, attributes: true });
+    confirmButton.click();
+
+    await Zotero.Promise.delay(2000);
+    mo.disconnect();
+
+    const { timelines } = await listTimelines(libraryID);
+    const dups = timelines.filter((t) => t.doc.name === "Dup");
+    assert.lengthOf(
+      dups,
+      1,
+      `a click on a rebuilt form's enabled confirm produced ${dups.length} timelines named "Dup" (clickedFresh=${clickedFresh})`,
+    );
+  });
+
   // AC #7. Safe to stub with a bare object rather than the real library
   // spread with fields overridden: the tab-open path reads only `editable`
   // and, since the read-only banner, `name` off this library
@@ -371,10 +434,11 @@ describe("timeline sidebar: creating a timeline", function () {
 
     // The rebuild that empties the sidebar also re-renders the still-open
     // create form (creatingTimeline is untouched by any of this), which
-    // replaces nameInput and the confirm button with fresh, blank, disabled
-    // ones - typing and clicking the pre-rebuild references again would
-    // dispatch nothing and pass vacuously. Re-querying and re-typing is what
-    // actually reaches the confirm click the race is testing.
+    // replaces nameInput and the confirm button with new elements carrying
+    // the already-typed name forward - the pre-rebuild references are now
+    // detached, so clicking through them again would dispatch nothing and
+    // pass vacuously. Re-querying and re-typing is what actually reaches the
+    // confirm click the race is testing.
     const nameInputAfter = sidebar.querySelector(
       ".zoterotimeline-sidebar-create-name",
     ) as HTMLInputElement;
