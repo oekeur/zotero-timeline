@@ -42,7 +42,12 @@
  * two write models on one panel would let a user lose one edit silently with
  * nothing on the surface saying which. A typeId that resolves to no type in
  * the vocabulary is valid data, not corruption, and is never rewritten just
- * for resolving to nothing.
+ * for resolving to nothing. Removing a source is explicit intent, recorded
+ * the moment its Remove button is clicked rather than inferred at Save time
+ * from a row going unmatched: a stored source Save reads that no row and no
+ * recorded removal names - because it was added from outside this panel
+ * after the row list was built, or because a stale re-render mid-Save left a
+ * row's `original` behind what is actually stored - is left untouched.
  *
  * Each row's own button, never a click on the row, selects the source's item
  * in the library pane - a read, so it bypasses the sources array entirely
@@ -72,6 +77,7 @@ import {
   addEvent,
   addSource,
   copyEventInto,
+  isSameClaim,
   removeEvent,
   removeSource,
   updateEvent,
@@ -445,25 +451,6 @@ async function showSourceItemInLibrary(item: Zotero.Item): Promise<void> {
 }
 
 /**
- * Whether two source refs make the same claim. Mirrors mutations.ts's own
- * isSameClaim, which addSource uses at write time but does not export - a
- * SourceRef has no id to key a shared helper on, and this lets a duplicate
- * the picker just produced be refused with a message before the row exists,
- * rather than silently dropped at Save.
- */
-function isSameSourceClaim(
-  a: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
-  b: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
-): boolean {
-  return (
-    a.kind === b.kind &&
-    a.key === b.key &&
-    a.typeId === b.typeId &&
-    a.name === b.name
-  );
-}
-
-/**
  * `selection` null renders a prompt naming both ways to get an event into the
  * editor, rather than blanking - the panel stays in place across a selection
  * change so the canvas next to it never has to reflow. `creatable`, when
@@ -674,15 +661,38 @@ export function renderEventEditor(
   container.appendChild(sourcesLabel);
 
   // Kept as a local array and only turned into a write on Save, the same
-  // rule the tag list above follows. originalIndex addresses the source's
-  // position in event.sources at the moment the panel opened - a SourceRef
-  // has no id, so Save diffs against that index rather than the row's
-  // current position, which shifts as rows are added and removed.
-  const sources: Array<{ ref: SourceRef; originalIndex: number | null }> =
-    event.sources.map((ref, originalIndex) => ({
-      ref: { ...ref },
-      originalIndex,
-    }));
+  // rule the tag list above follows. `original` is the ref the row was
+  // rendered from (null for a row added this session), and Save diffs
+  // against it by identity (isSameClaim) rather than by position - a
+  // position shifts under a second Save in the same session once the first
+  // one has already added or removed a source, but a ref's identity does
+  // not.
+  type SourceRow = { ref: SourceRef; original: SourceRef | null };
+  const sources: SourceRow[] = event.sources.map((ref) => ({
+    ref: { ...ref },
+    original: { ...ref },
+  }));
+
+  // Removal is explicit intent, recorded here rather than inferred from a
+  // row simply going unmatched against whatever Save reads at write time: an
+  // outside write, or a stale re-render mid-Save (see runSave below), must
+  // never delete a source the user never clicked Remove on. Every removed
+  // row is pushed here, including one whose `original` is still null because
+  // its own addition is mid-Save: that addition's post-save reset (see
+  // runSave below) promotes such a row's `original` once the add actually
+  // lands, which is what lets a *later* Save's removal match it. A row whose
+  // addition never gets a Save at all stays null forever and is pruned at
+  // the next snapshot instead (see runSave below), since it never had
+  // anything in storage to remove.
+  //
+  // Holds the row object itself, not a copy of `original` taken at click
+  // time: a Remove click can land while that same row's own Save is still
+  // writing, and `original` only reaches the value that Save is about to
+  // write once its post-save reset runs (see runSave below). Resolving
+  // `original` fresh from the row when the *next* Save takes its snapshot,
+  // rather than freezing it at click time, is what lets that next Save's
+  // removal match what actually landed in storage.
+  const removed: SourceRow[] = [];
 
   const sourceList = doc.createElement("div");
   sourceList.classList.add(SOURCE_LIST_CLASS);
@@ -786,6 +796,7 @@ export function renderEventEditor(
         getLocaleID("event-editor-source-remove-button"),
       );
       removeButton.addEventListener("click", () => {
+        removed.push(row);
         sources.splice(index, 1);
         renderSources();
       });
@@ -832,11 +843,11 @@ export function renderEventEditor(
         key: item.key,
         typeId: vocabularyTypes[0]?.id ?? "",
       };
-      if (sources.some((row) => isSameSourceClaim(row.ref, ref))) {
+      if (sources.some((row) => isSameClaim(row.ref, ref))) {
         sourceFeedback.textContent = `"${labelForItem(item)}" is already a source on this event with the same type and no name.`;
         return;
       }
-      sources.push({ ref, originalIndex: null });
+      sources.push({ ref, original: null });
       renderSources();
     })();
   });
@@ -854,106 +865,245 @@ export function renderEventEditor(
     getLocaleID("event-editor-save-button"),
   );
   actions.appendChild(saveButton);
+  // Chained rather than guarded by disabling the button: a click's snapshot
+  // must be taken only once every earlier click's save (including its
+  // post-save reset below) has settled, or a second click's `original` is
+  // stale against what the first already wrote (see the removal pass below).
+  // `.then(runSave, runSave)` rather than `.finally` so one failing save
+  // still lets the next click's snapshot run instead of wedging the chain.
+  let saveChain: Promise<void> = Promise.resolve();
   saveButton.addEventListener("click", () => {
-    void (async () => {
-      try {
-        const result = await updateTimelineDocument(
-          (current) => {
-            let next =
-              updateEvent(current, event.id, {
-                title: titleInput.value,
-                description: descriptionInput.value.trim()
-                  ? descriptionInput.value
-                  : undefined,
-                date: dateInput.value,
-                endDate: endDateInput.value.trim()
-                  ? endDateInput.value
-                  : undefined,
-                tags: tags.slice(),
-              }) ?? current;
-
-            // Updates first, while every original index is still valid since
-            // the array's length hasn't changed yet; removals next, highest
-            // index first, so removing one never shifts an index still to be
-            // processed; additions last, since they only ever append. This
-            // keeps every untouched source in place and reaches each of
-            // TASK-30's mutations at most once per row, all inside the one
-            // mutate call updateTimelineDocument turns into one note write.
-            for (const row of sources) {
-              if (row.originalIndex === null) {
-                continue;
-              }
-              const original = event.sources[row.originalIndex];
-              const changes: SourceEdits = {};
-              if (row.ref.typeId !== original.typeId) {
-                changes.typeId = row.ref.typeId;
-              }
-              if (row.ref.name !== original.name) {
-                changes.name = row.ref.name;
-              }
-              if (Object.keys(changes).length === 0) {
-                continue;
-              }
-              const updated = updateSource(
-                next,
-                event.id,
-                row.originalIndex,
-                changes,
-              );
-              if (updated) {
-                next = updated;
-              }
-            }
-
-            const keptIndices = new Set(
-              sources
-                .map((row) => row.originalIndex)
-                .filter((index): index is number => index !== null),
-            );
-            const removedIndices = event.sources
-              .map((_, index) => index)
-              .filter((index) => !keptIndices.has(index))
-              .sort((a, b) => b - a);
-            for (const index of removedIndices) {
-              const removed = removeSource(next, event.id, index);
-              if (removed) {
-                next = removed;
-              }
-            }
-
-            for (const row of sources) {
-              if (row.originalIndex !== null) {
-                continue;
-              }
-              const added = addSource(next, event.id, {
-                kind: row.ref.kind,
-                libraryID: row.ref.libraryID,
-                key: row.ref.key,
-                typeId: row.ref.typeId,
-                name: row.ref.name,
-              });
-              if (added) {
-                next = added;
-              }
-            }
-
-            return next === current ? null : next;
-          },
-          documentId,
-          libraryID,
-        );
-        const updated = result?.events.find((e) => e.id === event.id);
-        if (updated) {
-          onChange?.({ kind: "saved", documentId, event: updated });
-        }
-      } catch (err) {
-        logFailure(
-          `[zoteroTimeline] failed to save event ${event.id}: ${(err as Error).message}`,
-          err,
-        );
-      }
-    })();
+    saveChain = saveChain.then(runSave, runSave);
   });
+  async function runSave(): Promise<void> {
+    // Captured now, not read live from `sources` inside the mutate callback
+    // below: that callback runs after an await (storage's own note refresh),
+    // and an edit landing in that window must not change what this Save
+    // writes, nor be lost from the post-save reset (see the reset below).
+    const snapshot = sources.map((row) => ({
+      row,
+      original: row.original,
+      ref: { ...row.ref },
+      // Set once the addition pass below actually appends this entry's ref.
+      // An entry with a null `original` that this Save's addSource call
+      // refuses (a duplicate of a claim the same write already keeps) must
+      // not be promoted to "written" by the post-save reset - it stays null
+      // so the next Save retries the addition instead of silently dropping
+      // it (see the reset below).
+      added: false,
+      // Set by the update pass below for an entry with a non-null `original`:
+      // true once its update actually landed, or once the pass found no
+      // change to make in the first place. An entry whose original names a
+      // claim the update pass never found in storage (a stale re-render's
+      // row, see the module docblock) stays false, which keeps the post-save
+      // reset from promoting `original` to a ref that was never actually
+      // written under that identity.
+      written: false,
+    }));
+    // Same reasoning for removals: a Remove click landing in that window
+    // must not be applied by this Save (it wasn't there when this Save's
+    // snapshot was taken) and must not be lost - it stays in `removed` for
+    // the next Save unless this one already claims it (see the post-save
+    // clearing below). `original` is resolved here, from the row, rather
+    // than carried as a value fixed at click time: a Remove click can land
+    // while that same row's own earlier Save is still writing, and its
+    // `original` only catches up to what that Save wrote once this
+    // snapshot is taken (see the post-save reset below).
+    const removedSnapshot = removed
+      .map((row) => ({ row, original: row.original }))
+      .filter(
+        (entry): entry is { row: SourceRow; original: SourceRef } =>
+          entry.original !== null,
+      );
+    // A row removed while its own addition was never saved (`original` still
+    // null, and no Save is in flight for it right now - this snapshot is
+    // only ever taken once the previous Save's chain has fully settled)
+    // never reaches `removedSnapshot` above and never will: there is nothing
+    // in storage for it to remove. Dropped here rather than left to grow
+    // `removed` forever.
+    for (let i = removed.length - 1; i >= 0; i--) {
+      if (removed[i].original === null) {
+        removed.splice(i, 1);
+      }
+    }
+    try {
+      const result = await updateTimelineDocument(
+        (current) => {
+          let next =
+            updateEvent(current, event.id, {
+              title: titleInput.value,
+              description: descriptionInput.value.trim()
+                ? descriptionInput.value
+                : undefined,
+              date: dateInput.value,
+              endDate: endDateInput.value.trim()
+                ? endDateInput.value
+                : undefined,
+              tags: tags.slice(),
+            }) ?? current;
+
+          // Every source is addressed by identity (isSameClaim), never by
+          // its position in the render-time snapshot or in the as-read
+          // document: a second Save in the same editor session, or a write
+          // from outside the editor entirely, has already shifted both.
+          // Identity is many-to-one though (two rows can carry the same
+          // kind/key/typeId/name), so each stored source is consumed by at
+          // most one edit or removal below - whichever claims the first
+          // not-yet-consumed matching index. A stored source no row edits
+          // and no recorded removal names is left alone: removal is
+          // explicit intent (the Remove button, tracked in `removed`
+          // above), never inferred from a row simply going unmatched, which
+          // is what let a source a stale re-render never carried a row for
+          // get deleted by a later Save (see the module docblock's Sources
+          // paragraph).
+          const sourcesOf = (doc: typeof current) =>
+            doc.events.find((e) => e.id === event.id)?.sources ?? [];
+          const asRead = sourcesOf(next);
+          const consumed = new Array<boolean>(asRead.length).fill(false);
+
+          // Updates: only rows whose live ref actually differs from what
+          // they were rendered from. A row whose original claims nothing in
+          // `asRead` is skipped rather than throwing - harmless even when
+          // the render this row came from was stale, since unlike the old
+          // rule nothing here deletes anything on a mismatch.
+          for (const entry of snapshot) {
+            if (entry.original === null) {
+              continue;
+            }
+            const original = entry.original;
+            const changes: SourceEdits = {};
+            if (entry.ref.typeId !== original.typeId) {
+              changes.typeId = entry.ref.typeId;
+            }
+            if (entry.ref.name !== original.name) {
+              changes.name = entry.ref.name;
+            }
+            if (Object.keys(changes).length === 0) {
+              entry.written = true;
+              continue;
+            }
+            const index = asRead.findIndex(
+              (source, i) => !consumed[i] && isSameClaim(source, original),
+            );
+            if (index === -1) {
+              continue;
+            }
+            consumed[index] = true;
+            const updated = updateSource(next, event.id, index, changes);
+            if (updated) {
+              next = updated;
+              entry.written = true;
+            }
+          }
+
+          // Removals: each ref the user actually clicked Remove on this
+          // session, matched the same way, highest index first so an
+          // earlier removal never shifts a later one out from under it.
+          const removalIndices: number[] = [];
+          for (const entry of removedSnapshot) {
+            const index = asRead.findIndex(
+              (source, i) =>
+                !consumed[i] && isSameClaim(source, entry.original),
+            );
+            if (index === -1) {
+              continue;
+            }
+            consumed[index] = true;
+            removalIndices.push(index);
+          }
+          removalIndices.sort((a, b) => b - a);
+          for (const index of removalIndices) {
+            const removedNext = removeSource(next, event.id, index);
+            if (removedNext) {
+              next = removedNext;
+            }
+          }
+
+          // Additions last, since they only ever append. A refused duplicate
+          // leaves `entry.added` false, which keeps the post-save reset below
+          // from promoting it to "written".
+          for (const entry of snapshot) {
+            if (entry.original !== null) {
+              continue;
+            }
+            const added = addSource(next, event.id, {
+              kind: entry.ref.kind,
+              libraryID: entry.ref.libraryID,
+              key: entry.ref.key,
+              typeId: entry.ref.typeId,
+              name: entry.ref.name,
+            });
+            if (added) {
+              next = added;
+              entry.added = true;
+            }
+          }
+
+          return next === current ? null : next;
+        },
+        documentId,
+        libraryID,
+      );
+      const updated = result?.events.find((e) => e.id === event.id);
+      if (updated) {
+        // Driven from the snapshot, not from `row.ref`: an edit landing
+        // while the save was in flight must keep its own live `ref`
+        // untouched (it is still unsaved) while still getting an
+        // `original` that reflects what this Save actually wrote, which is
+        // the snapshot's ref, not the edited live one. A row's `original`
+        // is updated whether that row is still in `sources` or has since
+        // been moved to `removed`: a removed row's `original` has to keep
+        // tracking what this Save actually wrote, or the next Save's
+        // removal (built from `removed` at its own snapshot time) matches
+        // nothing and the removal is lost. A row that is in neither - gone
+        // from `sources` without ever being recorded as removed - is
+        // skipped rather than resurrected. An entry whose `original` was
+        // null and whose addition this Save's addSource call refused stays
+        // null, so the next Save retries the addition instead of treating
+        // the refusal as a write. An entry whose `original` was not null
+        // stays there too unless `written` is true: an update pass that
+        // never found this identity in storage did not write anything under
+        // it, and promoting `original` anyway would make the next Save
+        // believe a claim that is actually still `original`'s has already
+        // become `ref` - retrying the same update, or the same removal, is
+        // what the next Save needs to be able to do instead.
+        for (const entry of snapshot) {
+          if (!sources.includes(entry.row) && !removed.includes(entry.row)) {
+            continue;
+          }
+          if (entry.original === null) {
+            if (!entry.added) {
+              continue;
+            }
+          } else if (!entry.written) {
+            continue;
+          }
+          entry.row.original = { ...entry.ref };
+        }
+        onChange?.({ kind: "saved", documentId, event: updated });
+      }
+      // Cleared whether the write produced a document or was a no-op
+      // (`result` null: nothing in this snapshot actually differed from
+      // storage, including a removal that matched nothing because the claim
+      // was already gone) - only a removal that never reached storage at all
+      // stays outstanding, and that only happens when the write below
+      // throws. Clearing here regardless of `updated` is what keeps a
+      // completed removal from later matching a claim someone else re-adds
+      // from outside: the intent to remove was already satisfied once, and
+      // holding onto it would delete that unrelated re-add on the next Save.
+      for (const entry of removedSnapshot) {
+        const index = removed.indexOf(entry.row);
+        if (index !== -1) {
+          removed.splice(index, 1);
+        }
+      }
+    } catch (err) {
+      logFailure(
+        `[zoteroTimeline] failed to save event ${event.id}: ${(err as Error).message}`,
+        err,
+      );
+    }
+  }
 
   const deleteButton = doc.createElement("button");
   deleteButton.type = "button";

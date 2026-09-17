@@ -192,7 +192,7 @@ export type SourceInput = {
  * part of what makes an add a duplicate - see the duplicates decision in
  * project/backlog/plans/2026-08-22-m-3-source-links.md.
  */
-function isSameClaim(
+export function isSameClaim(
   a: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
   b: Pick<SourceRef, "kind" | "key" | "typeId" | "name">,
 ): boolean {
