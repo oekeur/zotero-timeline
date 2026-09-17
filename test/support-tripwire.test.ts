@@ -43,9 +43,34 @@
  * no window close): repairing the state would hide exactly the leak this
  * exists to surface, and silently paper over the cascade of unrelated
  * failures a leaked tab or window produces in every later tab-UI spec.
+ *
+ * The root beforeEach itself never awaits anything. Under the stress harness,
+ * an uncaught exception from a previous spec's detached async work can land
+ * at any point mocha happens to be running code; if that point is inside an
+ * `await` in this hook, mocha attributes the exception to the hook and aborts
+ * the run the same way a throwing hook does, which is the same truncation the
+ * try/catch above exists to prevent, just reached through a different door.
+ * Every check this hook needs (windows, tabs, the plugin's own bookkeeping,
+ * the observer count, `getCurrentTimeline()`) is a synchronous read; only the
+ * storage queue check is genuinely async, so it runs detached, fire-and-await
+ * nothing, with its own `.then`/`.catch` reporting back into the same
+ * recording path once it resolves. A root `afterEach`, added below, catalogues
+ * whatever any of this run's specs failed with, including the `undefined`
+ * shaped ones this same truncation used to hide: see support-tripwire.ts's
+ * `CatalogueEntry` for why that catalogue exists independently of this file's
+ * own disagreement check.
  */
 
-import { getTripwireRecord, recordTripwireViolation } from "./support-tripwire";
+import {
+  diffNewPluginErrors,
+  getRawError,
+  getTripwireRecord,
+  installRawErrorCapture,
+  recordCatalogueEntry,
+  recordTripwireViolation,
+} from "./support-tripwire";
+
+installRawErrorCapture();
 
 const TAB_TYPE = "zoterotimeline-timeline";
 
@@ -70,10 +95,20 @@ function collectOpenPluginTabs(windows: any[]): OpenPluginTab[] {
   return openTabs;
 }
 
-async function assertSuiteBaseline(
+function recordQueueViolation(
   fullTitle: string,
   index: number,
-): Promise<void> {
+  message: string,
+): void {
+  if (getTripwireRecord() !== undefined) {
+    return;
+  }
+  recordTripwireViolation({ specTitle: fullTitle, message, index });
+  announcedRecorded = true;
+  Zotero.debug(`[zoteroTimeline] support-tripwire: ${message}`);
+}
+
+function assertSuiteBaseline(fullTitle: string, index: number): void {
   if (getTripwireRecord() !== undefined) {
     if (!announcedRecorded) {
       announcedRecorded = true;
@@ -153,19 +188,42 @@ async function assertSuiteBaseline(
       );
     }
 
-    const idle = await api.storageQueueIdleForTests(2000);
-    if (idle !== true) {
-      problems.push(
-        "the storage write queue did not report idle within 2000ms",
-      );
-    }
-
     if (problems.length > 0) {
       const message = `state leaked by an earlier spec, measured just before "${fullTitle}": ${problems.join("; ")}`;
       recordTripwireViolation({ specTitle: fullTitle, message, index });
       announcedRecorded = true;
       Zotero.debug(`[zoteroTimeline] support-tripwire: ${message}`);
     }
+
+    // Detached deliberately: see the file comment above for why this hook
+    // never awaits. `.then`/`.catch` route the result back into the same
+    // recording path once the queue actually settles, up to 2s later.
+    api
+      .storageQueueIdleForTests(2000)
+      .then((idle: boolean) => {
+        if (idle !== true) {
+          recordQueueViolation(
+            fullTitle,
+            index,
+            `the storage write queue did not report idle within 2000ms, measured just before "${fullTitle}"`,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        const caught =
+          error instanceof Error ? error : new Error(String(error));
+        const stackHead = (caught.stack ?? "")
+          .split("\n")
+          .slice(0, 3)
+          .join("\n");
+        recordQueueViolation(
+          fullTitle,
+          index,
+          `the storage queue check itself threw, measured just before "${fullTitle}": ` +
+            `${caught.name}: ${caught.message}` +
+            (stackHead ? `\n${stackHead}` : ""),
+        );
+      });
   } catch (error) {
     // The check itself must never throw: a throwing root beforeEach makes
     // mocha skip every remaining spec in the run (see the file comment
@@ -188,24 +246,94 @@ async function assertSuiteBaseline(
 // A top-level hook attaches to mocha's root suite and runs before every spec
 // in every file, which is the point (see the file comment above).
 // eslint-disable-next-line mocha/no-top-level-hooks -- deliberate, see above
-beforeEach(async function () {
+beforeEach(function () {
   specIndex += 1;
-  await assertSuiteBaseline(
+  assertSuiteBaseline(
     this.currentTest?.fullTitle() ?? "<unknown spec>",
     specIndex,
   );
 });
 
+const MAX_STACK_LINES = 3;
+
+/**
+ * Catalogues whatever the just-finished spec failed with, text and all,
+ * independently of this file's own disagreement check.
+ *
+ * Runs for every spec, not just failed ones: `diffNewPluginErrors()` has to
+ * advance its snapshot every time so a passing spec's own log entries never
+ * get attributed to whichever later spec happens to fail first (see its
+ * doc comment in support-tripwire.ts).
+ *
+ * Never throws, for the same reason the beforeEach above never does: an
+ * uncaught exception from a root-level hook makes mocha stop the run rather
+ * than fail the one spec in front of it, which would truncate every spec
+ * after whichever one first failed. Measured directly: an earlier version of
+ * this hook let `Object.prototype.propertyIsEnumerable.call` see an
+ * `undefined` err and threw, and the run stopped at 5 specs.
+ */
+// eslint-disable-next-line mocha/no-top-level-hooks -- deliberate, see above
+afterEach(function () {
+  const newPluginErrors = diffNewPluginErrors();
+  if (this.currentTest?.state !== "failed") {
+    return;
+  }
+
+  try {
+    const err = getRawError(this.currentTest) as
+      | (Error & Record<string, unknown>)
+      | undefined;
+    const stackHead = String(err?.stack ?? "")
+      .split("\n")
+      .slice(0, MAX_STACK_LINES)
+      .join("\n");
+
+    recordCatalogueEntry({
+      title: this.currentTest.fullTitle(),
+      name: String(err?.name),
+      message: String(err?.message),
+      stackHead,
+      messageWasEnumerable:
+        err !== undefined &&
+        Object.prototype.propertyIsEnumerable.call(err, "message"),
+      newPluginErrors,
+    });
+  } catch (error) {
+    // Cataloguing itself must never throw, for the same reason the check
+    // above must never throw: a broken cataloguing step is itself a
+    // violation worth reporting, via the same catalogue.
+    const caught = error instanceof Error ? error : new Error(String(error));
+    const stackHead = (caught.stack ?? "")
+      .split("\n")
+      .slice(0, MAX_STACK_LINES)
+      .join("\n");
+    Zotero.debug(
+      `[zoteroTimeline] support-tripwire afterEach: cataloguing itself threw: ${caught.name}: ${caught.message}`,
+    );
+    recordCatalogueEntry({
+      title: `support-tripwire afterEach, while cataloguing "${this.currentTest?.fullTitle() ?? "<unknown spec>"}"`,
+      name: caught.name,
+      message: caught.message,
+      stackHead,
+      messageWasEnumerable: Object.prototype.propertyIsEnumerable.call(
+        caught,
+        "message",
+      ),
+      newPluginErrors,
+    });
+  }
+});
+
 describe("support: suite baseline tripwire", function () {
   this.timeout(10000);
 
-  it("baseline holds at suite start", async function () {
+  it("baseline holds at suite start", function () {
     // The root beforeEach above already ran this exact check for this spec;
     // rerunning it here gives mocha a spec of its own to report pass/fail on,
     // which is what makes the scaffold's file glob pick this file up at all.
     // It never fails this spec directly (assertSuiteBaseline only records),
     // which is why the run's failure signal is zzz-tripwire-report.test.ts,
     // not this one.
-    await assertSuiteBaseline(this.test?.fullTitle() ?? "<unknown spec>", 0);
+    assertSuiteBaseline(this.test?.fullTitle() ?? "<unknown spec>", 0);
   });
 });
