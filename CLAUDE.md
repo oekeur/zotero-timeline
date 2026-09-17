@@ -84,6 +84,14 @@ the one that gets rebuilt.
 - `scripts/run-tests.mjs` (`npm run test:fast`) and
   `scripts/clean-dev-profile.mjs` (`npm run clean:profile`, and automatically
   via `prestart`) — see `docs/contributing/npm-scripts-reference.md`.
+- `scripts/stress-suite.sh [N] [--dry-run]` — the concurrent full-suite
+  stress harness: N throwaway worktrees off main, each provisioned through
+  `worktree-init.sh` with `project/probes/queue-instrumentation.patch`
+  applied, N `test:fast` runs at once, load sampled every 5 s, one verdict
+  line per run, everything torn down on exit or interrupt. Output under
+  `project/probes/stress/<timestamp>/`. Refuses to start while a `verify.sh`
+  or another stress run is in flight. Run it from the main checkout with
+  nothing else on the box; `--dry-run` prints the plan and creates nothing.
 
 Per-worktree setup is not a project script: run
 `~/.claude/scripts/worktree-init.sh` after creating a worktree. Its hook,
