@@ -1,5 +1,10 @@
 import { assert } from "chai";
-import { STORAGE_TAG, listTimelines } from "../src/modules/timeline/storage";
+import { CURRENT_SCHEMA_VERSION } from "../src/modules/timeline/schema";
+import {
+  buildNoteHtml,
+  STORAGE_TAG,
+  listTimelines,
+} from "../src/modules/timeline/storage";
 import {
   canvasFixtureDocuments,
   createDocumentNote,
@@ -256,19 +261,35 @@ describe("timeline drag payload", function () {
     assert.ok(item, "no .vis-item ancestor of the drag handle");
     const before = item.getBoundingClientRect().left;
 
-    // Forces the write to fail without touching Zotero's save machinery:
-    // the note the canvas was rendered from is gone by the time onMove tries
-    // to find it, so updateTimelineDocument throws "not-found" and onMove's
-    // own catch runs. re-reading storage cannot tell an aborted write from a
+    // Forces the write to fail without disturbing the canvas: erasing the
+    // note outright is no longer safe here, since the open tab now rebuilds
+    // on exactly that. Instead the note is rewritten from outside to a
+    // document version above what this build reads, which is unreadable the
+    // same way an erased note is unfindable - findNoteForDocument skips it,
+    // so updateTimelineDocument still throws "not-found" and onMove's own
+    // catch runs - but the tab's own rebuild treats a drawn note that
+    // stopped parsing as one to leave standing rather than one to redraw
+    // without, so the canvas here is never torn down out from under the
+    // drag in flight. Re-reading storage cannot tell an aborted write from a
     // completed one here (Zotero.Item.setNote mutates the in-memory item
     // before save() ever runs), so the assertion below is on the canvas
     // itself: does it end up back where it started, per vis-timeline's own
     // callback(null) revert.
     const { timelines } = await listTimelines(libraryID);
-    const note = await Zotero.Items.getAsync(
+    const note = (await Zotero.Items.getAsync(
       timelines.find((t) => t.doc.id === "doc-sources")!.noteItemID,
-    );
-    await (note as Zotero.Item).eraseTx();
+    )) as Zotero.Item;
+    await Zotero.DB.executeTransaction(async () => {
+      note.setNote(
+        buildNoteHtml({
+          version: CURRENT_SCHEMA_VERSION + 1,
+          id: "doc-sources",
+          name: "Source production",
+          events: [],
+        } as any),
+      );
+      await note.save();
+    });
 
     await drag(win, handle, 10, 14);
 

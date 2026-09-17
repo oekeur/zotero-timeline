@@ -1483,8 +1483,9 @@ export async function openTimelineTab(
   }
 
   /**
-   * Redraws when a note this tab drew changes underneath it, or when a
-   * storage note this tab does not yet hold becomes readable.
+   * Redraws when a note this tab drew changes underneath it, is erased
+   * outright, or when a storage note this tab does not yet hold becomes
+   * readable.
    *
    * Returns void and awaits nothing, and that is load-bearing rather than
    * stylistic. Zotero awaits every observer's return value inside the commit
@@ -1513,23 +1514,38 @@ export async function openTimelineTab(
    * hiding. Recognised the same way storage finds it, by the container tag,
    * not by title or position.
    *
-   * A fifth event, `delete`, gets no branch of its own below because there
-   * is nothing left to read by the time it arrives: the item is gone, so its
-   * tag cannot be checked, and by extension neither can whether it was the
-   * container. It schedules a rebuild whenever containerTrashed is currently
-   * true instead - the only state an erase can actually change, since that
-   * is the sole condition the empty-canvas prompt's "the container is
-   * trashed" message depends on, and the only way that flag gets rechecked
-   * once true is a rebuild running at all. A cached container id was tried
-   * first and dropped: findContainers excludes trashed items, so a container
-   * already trashed when the tab opened, or a second one trashed and erased
-   * after the first, was never in the cache and left the prompt stuck.
-   * Reacting to the flag rather than an id also keeps a `delete` while the
-   * flag is false - a note this tab is actively drawing erased outright,
-   * which timelineDragPayload.test.ts's failed-write spec does deliberately
-   * to force updateTimelineDocument into a not-found refusal without
-   * disturbing the canvas - from redrawing anything, the regression an
-   * unconditional rebuild-on-delete caused before this.
+   * A fifth event, `delete`, cannot check a tag - the item is gone by the
+   * time it arrives, so there is nothing left to read off it. It schedules a
+   * rebuild on either of two conditions instead, neither of which needs an
+   * id lookup against a live item.
+   *
+   * First, whenever containerTrashed is currently true, the only state an
+   * erase can actually change: it is the sole condition the empty-canvas
+   * prompt's "the container is trashed" message depends on, and the only way
+   * that flag gets rechecked once true is a rebuild running at all. A cached
+   * container id was tried first and dropped: findContainers excludes
+   * trashed items, so a container already trashed when the tab opened, or a
+   * second one trashed and erased after the first, was never in the cache
+   * and left the prompt stuck.
+   *
+   * Second, whenever a notified id is a noteItemID currently in
+   * readableTimelines: a storage note this tab is drawing that gets erased
+   * outright, without ever being trashed first, is exactly the path Zotero's
+   * sync takes for a remote deletion (`_downloadDeletions` calls `erase()`
+   * directly), and the tab would otherwise keep the erased row on screen
+   * until closed and reopened. This also covers the container itself being
+   * erased outright with no id of its own to check: `_eraseData` erases a
+   * container's child notes inside the same transaction, each child queues
+   * its own `delete`, and the notifier batches every id from one transaction
+   * into a single `delete` call, so the container's erase always arrives
+   * carrying its notes' ids alongside its own.
+   *
+   * A note this tab is drawing but has not yet finished erasing - only had
+   * its content rewritten to something this build cannot parse - takes a
+   * different path entirely: no `delete` fires for that, `modify` does, and
+   * rebuildCanvas's own stopped-parsing check is what leaves it standing
+   * rather than this branch. timelineDragPayload.test.ts's failed-write spec
+   * forces its refusal that way now precisely to avoid this branch.
    *
    * Filtering otherwise keeps an edit to an item with nothing to do with
    * this plugin from redrawing the canvas: no branch below fires for an id
@@ -1544,7 +1560,11 @@ export async function openTimelineTab(
       return;
     }
     if (event === "delete") {
-      if (containerTrashed) {
+      const erasedIds = new Set(ids.map(Number));
+      const touchesHeldNote = readableTimelines.some((t) =>
+        erasedIds.has(t.noteItemID),
+      );
+      if (containerTrashed || touchesHeldNote) {
         void scheduleRebuild();
       }
       return;
