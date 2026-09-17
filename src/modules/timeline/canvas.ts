@@ -505,6 +505,7 @@ export function renderCanvas(
   getActiveDocument: () => string | null;
   setTagFilter: (tags: ReadonlySet<string>) => void;
   refreshParkedAnchorsAfterEdit: (documentId: string) => void;
+  addDocument: (doc: TimelineDocument) => void;
 } {
   // Keyed by document id and shared with `onMove` below, so a write updates
   // the same object callers of renderCanvas hold onto (timelineTab.ts keeps
@@ -1040,6 +1041,9 @@ export function renderCanvas(
       void (async () => {
         const targetDoc = documents.get(documentId);
         if (!targetDoc) {
+          logFailure(
+            `[zoteroTimeline] click landed on group ${documentId}, which this canvas has no document for`,
+          );
           return;
         }
         try {
@@ -1111,6 +1115,15 @@ export function renderCanvas(
     }
   }
 
+  /**
+   * Registers a document that arrived after this canvas was rendered, so the
+   * click handler above can find it. The tab already adds the vis group
+   * itself; this only extends canvas.ts's own `documents` map.
+   */
+  function addDocument(doc: TimelineDocument): void {
+    documents.set(doc.id, doc);
+  }
+
   return {
     timeline,
     items,
@@ -1119,5 +1132,6 @@ export function renderCanvas(
     getActiveDocument: () => activeDocumentId,
     setTagFilter,
     refreshParkedAnchorsAfterEdit,
+    addDocument,
   };
 }

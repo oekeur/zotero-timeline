@@ -962,6 +962,7 @@ export async function openTimelineTab(
     getActiveDocument,
     setTagFilter,
     refreshParkedAnchorsAfterEdit,
+    addDocument,
   } = renderCanvas(
     canvas as unknown as HTMLElement,
     timelines,
@@ -1425,6 +1426,7 @@ export async function openTimelineTab(
       getActiveDocument,
       setTagFilter,
       refreshParkedAnchorsAfterEdit,
+      addDocument,
     } = renderCanvas(
       canvas as unknown as HTMLElement,
       fresh.timelines,
@@ -1636,23 +1638,48 @@ export async function openTimelineTab(
    * already read from, rather than reloading the library: a reload would
    * rebuild the canvas from scratch and lose the viewport and selection a
    * create action has no reason to disturb.
+   *
+   * A storage note's own `add` notification can schedule a rebuild that
+   * reaches `readableTimelines`, `documents` and the groups DataSet before
+   * this runs, so every write here is idempotent against having already
+   * happened. `readableTimelines` and the groups DataSet are only appended
+   * to when they do not already carry this document. `documents.set` and
+   * `addDocument` must register whichever document object `readableTimelines`
+   * already holds for this item, never `created.doc`: `onEditorChange`
+   * mutates the registered object in place, and `getVisibleTimelines()` and
+   * the tag chip bank read `readableTimelines`, so registering a second,
+   * distinct object here would split writes from reads.
    */
   function addCreatedTimeline(created: {
     item: Zotero.Item;
     doc: TimelineDocument;
   }): void {
-    documents.set(created.doc.id, created.doc);
-    readableTimelines = [
-      ...readableTimelines,
-      { noteItemID: created.item.id, doc: created.doc, dateIssues: [] },
-    ];
-    const order = documentGroupRows().length;
-    groupsDS().add({
-      id: created.doc.id,
-      content: created.doc.name,
-      order,
-      visible: true,
-    });
+    const existing = readableTimelines.find(
+      (t) => t.noteItemID === created.item.id,
+    );
+    const doc = existing ? existing.doc : created.doc;
+    documents.set(doc.id, doc);
+    addDocument(doc);
+
+    if (!existing) {
+      readableTimelines = [
+        ...readableTimelines,
+        { noteItemID: created.item.id, doc: created.doc, dateIssues: [] },
+      ];
+    }
+
+    const alreadyGrouped = groupsDS()
+      .get({ order: "order" })
+      .some((row) => row.id === doc.id);
+    if (!alreadyGrouped) {
+      const order = documentGroupRows().length;
+      groupsDS().add({
+        id: doc.id,
+        content: doc.name,
+        order,
+        visible: true,
+      });
+    }
   }
 
   const emptyPrompt = el(doc, "div");
@@ -1744,10 +1771,13 @@ export async function openTimelineTab(
       void (async () => {
         try {
           const created = await createTimelineOrWarn(name, libraryID);
+          // Reset before registering the result: the write already
+          // succeeded at this point, and registration racing a rebuild must
+          // not be able to leave the form stuck open on a throw.
+          creatingTimeline = false;
           if (created) {
             addCreatedTimeline(created);
           }
-          creatingTimeline = false;
         } catch (err) {
           logFailure(
             `[zoteroTimeline] failed to create a timeline in library ${libraryID}: ${(err as Error).message}`,

@@ -3,8 +3,17 @@ import {
   STORAGE_TAG,
   findContainers,
   findOrCreateContainer,
+  listTimelines,
   searchStorageNotes,
 } from "../src/modules/timeline/storage";
+import {
+  CREATE_BUTTON_CLASS,
+  CREATE_DATE_INPUT_CLASS,
+  CREATE_DOCUMENT_SELECT_CLASS,
+  CREATE_TITLE_INPUT_CLASS,
+  SAVE_BUTTON_CLASS,
+  TAG_INPUT_CLASS,
+} from "../src/modules/timeline/eventEditor";
 import {
   canvasFixtureDocuments,
   createDocumentNote,
@@ -107,6 +116,194 @@ describe("timeline sidebar: creating a timeline", function () {
     assert.include(rowNames, "New Chronology");
 
     assert.lengthOf(await searchStorageNotes(libraryID), 3);
+  });
+
+  /**
+   * A storage note's own `add` notification can schedule a rebuild that
+   * registers the new document before the confirm handler's own continuation
+   * does, or the other way around: either ordering has to leave the form
+   * closed, exactly one sidebar row and one readable entry for the new
+   * document, and no failure logged.
+   */
+  it("closes the form and registers the new timeline exactly once, whichever of the rebuild or the create resolves first", async function () {
+    const { sidebar } = await openSidebar();
+    const errorsBefore = new Set(Zotero.getErrors(true) as string[]);
+
+    const createButton = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-button",
+    ) as HTMLButtonElement;
+    createButton.click();
+
+    const nameInput = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-name",
+    ) as HTMLInputElement;
+    nameInput.value = "Once Only";
+    nameInput.dispatchEvent(new Event("input"));
+
+    const confirmButton = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-confirm",
+    ) as HTMLButtonElement;
+    confirmButton.click();
+
+    const docId = (await waitFor(() => {
+      const created = api
+        .getVisibleTimelines()
+        .find((t: any) => t.doc.name === "Once Only");
+      return created ? created.doc.id : null;
+    }, "the new timeline to appear in the visible set")) as string;
+
+    await waitFor(
+      () =>
+        sidebar.querySelector(".zoterotimeline-sidebar-create-form") === null
+          ? true
+          : null,
+      "the create form to close",
+    );
+
+    // Long enough for a rebuild scheduled by the note write to have run its
+    // course either before or after the assertions above landed.
+    await Zotero.Promise.delay(1500);
+
+    assert.isNull(
+      sidebar.querySelector(".zoterotimeline-sidebar-create-form"),
+      "the create form was open again after the create settled",
+    );
+
+    const rows = sidebar.querySelectorAll(`[data-timeline-id="${docId}"]`);
+    assert.lengthOf(
+      rows,
+      1,
+      "the sidebar listed the new timeline more than once",
+    );
+
+    const visibleMatches = api
+      .getVisibleTimelines()
+      .filter((t: any) => t.doc.id === docId);
+    assert.lengthOf(
+      visibleMatches,
+      1,
+      "the readable set listed the new timeline more than once",
+    );
+
+    const newErrors = (Zotero.getErrors(true) as string[]).filter(
+      (e) => !errorsBefore.has(e),
+    );
+    assert.isFalse(
+      newErrors.some((e) => e.includes("failed to create a timeline")),
+      `unexpected create failure logged: ${newErrors.join(" | ")}`,
+    );
+  });
+
+  /**
+   * A sidebar-created timeline's doc object must be the same object
+   * everywhere it is read, whichever of the note-write's own rebuild or the
+   * create handler's continuation registers it first: an event typed onto it
+   * through the editor, then tagged and saved, has to reach
+   * getVisibleTimelines() and the tag chip bank without the tab reloading.
+   */
+  it("offers a typed event and its tag on a sidebar-created timeline without a further rebuild", async function () {
+    const win = Zotero.getMainWindows()[0] as any;
+    const winDoc = win.document as Document;
+    const { sidebar } = await openSidebar();
+
+    const createButton = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-button",
+    ) as HTMLButtonElement;
+    createButton.click();
+    const nameInput = sidebar.querySelector(
+      ".zoterotimeline-sidebar-create-name",
+    ) as HTMLInputElement;
+    nameInput.value = "Fresh";
+    nameInput.dispatchEvent(new Event("input"));
+    (
+      sidebar.querySelector(
+        ".zoterotimeline-sidebar-create-confirm",
+      ) as HTMLButtonElement
+    ).click();
+
+    const docId = (await waitFor(() => {
+      const created = api
+        .getVisibleTimelines()
+        .find((t: any) => t.doc.name === "Fresh");
+      return created ? created.doc.id : null;
+    }, "the new timeline to appear in the visible set")) as string;
+    // Long enough for the note write's own rebuild to have run its course
+    // either before or after the create handler's continuation, so the
+    // assertions below hold under whichever ordering occurs.
+    await Zotero.Promise.delay(1500);
+
+    const timeline = api.getCurrentTimeline();
+    timeline.setSelection([]);
+    const panel = winDoc.getElementById("zoterotimeline-editor") as HTMLElement;
+    const select = (await waitFor(() => {
+      const s = panel.querySelector(
+        `.${CREATE_DOCUMENT_SELECT_CLASS}`,
+      ) as HTMLSelectElement | null;
+      return s &&
+        (Array.from(s.options) as HTMLOptionElement[]).some(
+          (o) => o.value === docId,
+        )
+        ? s
+        : null;
+    }, "the create picker to list the new document")) as HTMLSelectElement;
+    select.value = docId;
+    (
+      panel.querySelector(`.${CREATE_TITLE_INPUT_CLASS}`) as HTMLInputElement
+    ).value = "Typed";
+    (
+      panel.querySelector(`.${CREATE_DATE_INPUT_CLASS}`) as HTMLInputElement
+    ).value = "1650";
+    (
+      panel.querySelector(`.${CREATE_BUTTON_CLASS}`) as HTMLButtonElement
+    ).click();
+
+    const created = await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const d = timelines.find((t) => t.doc.id === docId)?.doc;
+      return d && d.events.length > 0 ? d.events[0] : null;
+    }, "the typed event to land in storage");
+    await waitFor(
+      () =>
+        timeline.getSelection()[0] === `${docId}:${created.id}` ? true : null,
+      "the new event to be selected",
+    );
+
+    const tagInput = (await waitFor(
+      () => panel.querySelector(`.${TAG_INPUT_CLASS}`),
+      "the tag input for the newly created event",
+    )) as HTMLInputElement;
+    tagInput.value = "freshTag";
+    tagInput.dispatchEvent(
+      new (winDoc.defaultView as any).Event("input", { bubbles: true }),
+    );
+    tagInput.dispatchEvent(
+      new (winDoc.defaultView as any).KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+      }),
+    );
+    (panel.querySelector(`.${SAVE_BUTTON_CLASS}`) as HTMLButtonElement).click();
+
+    await waitFor(async () => {
+      const { timelines } = await listTimelines(libraryID);
+      const d = timelines.find((t) => t.doc.id === docId)?.doc;
+      return d?.events[0]?.tags.includes("freshTag") ? true : null;
+    }, "the tag to land in storage");
+    await Zotero.Promise.delay(1500);
+
+    const visible = api
+      .getVisibleTimelines()
+      .find((t: any) => t.doc.id === docId);
+    assert.equal(
+      visible?.doc.events.length,
+      1,
+      "getVisibleTimelines() did not carry the event created on the sidebar-created timeline",
+    );
+    assert.include(
+      api.getAvailableTags(),
+      "freshTag",
+      "the chip bank did not carry the tag added on the sidebar-created timeline",
+    );
   });
 
   // AC #7. Safe to stub with a bare object rather than the real library
