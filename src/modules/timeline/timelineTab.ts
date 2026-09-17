@@ -2501,3 +2501,26 @@ export function closeTimelineTab(): void {
   timelineTabID = undefined;
   timelineTabWindow = undefined;
 }
+
+/**
+ * The module's own bookkeeping for the open tab, exposed raw rather than
+ * through openTabWindow's stricter "does Zotero still hold this tab" check.
+ * Exists so a live spec can compare what this module believes against what
+ * Zotero_Tabs across every main window actually holds, which is the
+ * agreement a leaked tab breaks. windowIndex is timelineTabWindow's position
+ * in Zotero.getMainWindows(), undefined when no tab is tracked or its window
+ * has closed.
+ */
+export function timelineTabStateForTests(): {
+  tabId: string | undefined;
+  windowIndex: number | undefined;
+} {
+  let windowIndex: number | undefined;
+  if (timelineTabWindow && !timelineTabWindow.closed) {
+    const index = Zotero.getMainWindows().indexOf(
+      timelineTabWindow as unknown as _ZoteroTypes.MainWindow,
+    );
+    windowIndex = index === -1 ? undefined : index;
+  }
+  return { tabId: timelineTabID, windowIndex };
+}

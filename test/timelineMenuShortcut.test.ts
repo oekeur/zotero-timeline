@@ -133,7 +133,10 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
 
     entry.dispatchEvent(new win.Event("command", { bubbles: true }));
 
-    await waitFor(() => timelineTab(), "the timeline tab to open");
+    await waitFor(() => {
+      const tab = timelineTab();
+      return tab && api.getCurrentTimeline() ? tab : undefined;
+    }, "the timeline tab to open");
   });
 
   it("opens the tab from Shift+T and re-selects it on a second press rather than adding a second", async function () {
@@ -163,7 +166,8 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     const opened = await waitFor(
       () => {
         pressShiftT(win.document.documentElement);
-        return timelineTab();
+        const tab = timelineTab();
+        return tab && api.getCurrentTimeline() ? tab : undefined;
       },
       "the timeline tab to open from Shift+T",
       { timeout: 10000, interval: 250 },
@@ -408,7 +412,9 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
       entry.dispatchEvent(new second.Event("command", { bubbles: true }));
 
       await waitFor(
-        () => timelineTabsIn(second).length > 0 || undefined,
+        () =>
+          (timelineTabsIn(second).length > 0 && api.getCurrentTimeline()) ||
+          undefined,
         "the timeline tab to open in the second window",
         { timeout: 20000 },
       );
@@ -442,7 +448,10 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
       first.focus();
       firstEntry.dispatchEvent(new first.Event("command", { bubbles: true }));
       const opened = await waitFor(
-        () => timelineTabsIn(first)[0],
+        () => {
+          const tab = timelineTabsIn(first)[0];
+          return tab && api.getCurrentTimeline() ? tab : undefined;
+        },
         "the timeline tab to open in the first window",
         { timeout: 20000 },
       );
@@ -502,7 +511,9 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
         [itemA],
       );
       await waitFor(
-        () => timelineTabsIn(first).length > 0 || undefined,
+        () =>
+          (timelineTabsIn(first).length > 0 && api.getCurrentTimeline()) ||
+          undefined,
         "the timeline tab to open in the first window",
         { timeout: 20000 },
       );
@@ -534,7 +545,9 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
         [itemB],
       );
       await waitFor(
-        () => timelineTabsIn(second).length > 0 || undefined,
+        () =>
+          (timelineTabsIn(second).length > 0 && api.getCurrentTimeline()) ||
+          undefined,
         "the timeline tab to open in the second window",
         { timeout: 20000 },
       );
@@ -565,7 +578,10 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
         [item],
       );
       const opened = await waitFor(
-        () => timelineTabsIn(first)[0],
+        () => {
+          const tab = timelineTabsIn(first)[0];
+          return tab && api.getCurrentTimeline() ? tab : undefined;
+        },
         "the timeline tab to open in the first window",
         { timeout: 20000 },
       );

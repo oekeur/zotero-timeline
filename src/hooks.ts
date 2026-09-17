@@ -18,6 +18,7 @@ import {
   registerTimelineShortcut,
   setCrossLibrarySwitchConfirmForTests,
   setTimelineDeleteConfirmForTests,
+  timelineTabStateForTests,
 } from "./modules/timeline/timelineTab";
 import {
   registerContainerObserver,
@@ -177,6 +178,7 @@ async function onStartup() {
     rebuildPassesSoFar,
     rebuildsSoFar,
     refreshObserverForTesting,
+    timelineTabStateForTests,
     liveNotifierObserversForTests: liveNotifierObservers,
     storageQueueIdleForTests,
     openAddSourcesDialog,
