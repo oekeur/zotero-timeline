@@ -503,20 +503,43 @@ export function getSelectedTagFilter(): string[] {
 
 /**
  * The pane's own selected library, the way ZoteroPane exposes it.
- * zotero-types still declares `getSelectedLibraryID()`, but current Zotero
- * removed it in favour of `getSelectedLibraryIDs()` (plural, multi-library
- * selection) and the singular now throws unconditionally - confirmed against
- * the running Zotero rather than the stale typings. Falls back to the user
- * library so a tab opened before the pane has a selection still has
- * somewhere to load timelines from.
+ *
+ * Both spellings have to be tried, because which one exists depends on the
+ * Zotero version and the manifest claims 7 upwards. `getSelectedLibraryIDs()`
+ * (plural, multi-library selection) arrived in Zotero 10, where the singular
+ * survives only as a stub that throws; Zotero 7, 8 and 9 have the singular
+ * and no plural at all (checked in chrome/content/zotero/zoteroPane.js at
+ * tags 7.0.32, 8.0.4, 9.0.6 and 10.0.3). Asking for the plural alone fails
+ * silently on 7-9: optional chaining turns the missing method into undefined
+ * and every tab opens on the user library whatever the pane has selected.
+ *
+ * Falls back to the user library last, so a tab opened before the pane has a
+ * selection still has somewhere to load timelines from.
  */
 function resolveLibraryID(win: Window): number {
   const zoteroPane = (win as unknown as _ZoteroTypes.MainWindow).ZoteroPane as
-    | { getSelectedLibraryIDs?: () => number[] }
+    | {
+        getSelectedLibraryIDs?: () => number[];
+        getSelectedLibraryID?: () => number;
+      }
     | undefined;
-  return (
-    zoteroPane?.getSelectedLibraryIDs?.()[0] ?? Zotero.Libraries.userLibraryID
-  );
+
+  const selected = zoteroPane?.getSelectedLibraryIDs?.()[0];
+  if (typeof selected === "number") {
+    return selected;
+  }
+
+  try {
+    const single = zoteroPane?.getSelectedLibraryID?.();
+    if (typeof single === "number") {
+      return single;
+    }
+  } catch {
+    // Zotero 10's singular stub throws; the plural above already answered
+    // there, so there is nothing to recover and nothing to report.
+  }
+
+  return Zotero.Libraries.userLibraryID;
 }
 
 // Stored, synced data rather than UI text, so it stays untranslated - the same
