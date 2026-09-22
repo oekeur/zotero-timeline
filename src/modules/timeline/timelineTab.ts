@@ -1485,27 +1485,28 @@ export async function openTimelineTab(
     // without it would make a timeline vanish on a corrupt or half-synced
     // write, which looks like data loss and is not: the note is still there
     // and the next readable write brings it back.
-    const drawnNotes = new Set(readableTimelines.map((t) => t.noteItemID));
+    const drawnByNoteID = new Map(
+      readableTimelines.map((t) => [t.noteItemID, t]),
+    );
     const stoppedParsing = fresh.unreadable.filter((u) =>
-      drawnNotes.has(u.noteItemID),
+      drawnByNoteID.has(u.noteItemID),
     );
     if (stoppedParsing.length > 0) {
       Zotero.debug(
-        `[zoteroTimeline] rebuild skipped, ${stoppedParsing.length} drawn note(s) stopped parsing: ${stoppedParsing
+        `[zoteroTimeline] rebuild continues past ${stoppedParsing.length} drawn note(s) that stopped parsing, substituting their last-good content: ${stoppedParsing
           .map((u) => `${u.noteItemID} ${u.reason}: ${u.message}`)
           .join("; ")}`,
       );
-      // The canvas stands, but the sidebar's marker for the note that just
-      // stopped parsing still needs to appear without reopening the tab.
-      const unreadableChanged = !unreadableSetsMatch(
-        unreadable,
-        fresh.unreadable,
-      );
-      unreadable = fresh.unreadable;
-      if (unreadableChanged) {
-        renderSidebar();
+      // Each holds its previous render standing rather than being dropped,
+      // by substituting its last-good content into the fresh list. Every
+      // other timeline still goes through the normal rebuild below, so a
+      // sibling write or erasure is not held hostage by one corrupt note.
+      for (const u of stoppedParsing) {
+        const lastGood = drawnByNoteID.get(u.noteItemID);
+        if (lastGood) {
+          fresh.timelines.push(lastGood);
+        }
       }
-      return;
     }
 
     if (drawnMatches(fresh.timelines)) {
