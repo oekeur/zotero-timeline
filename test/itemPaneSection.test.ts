@@ -758,6 +758,22 @@ describe("item-pane section: which events cite this item", function () {
         assert.deepEqual(api.getCurrentTimeline().getSelection(), [
           "tl-jump-a:e-1",
         ]);
+        // getSelection() alone does not prove the jump landed: vis-timeline
+        // echoes back any id passed to setSelection whether or not it is
+        // actually in the loaded data. Confirm the event is genuinely part
+        // of the group set the reopened tab loaded, not just named in the
+        // selection.
+        const jumpedTimeline = api
+          .getVisibleTimelines()
+          .find((t: any) => t.doc.id === "tl-jump-a");
+        assert.isDefined(
+          jumpedTimeline,
+          "tl-jump-a must be part of the loaded group set",
+        );
+        assert.isTrue(
+          jumpedTimeline.doc.events.some((e: any) => e.id === "e-1"),
+          "the jumped-to event must genuinely be loaded data, not merely echoed by getSelection()",
+        );
         assert.include(
           api.getVisibleTimelines().map((t: any) => t.doc.id),
           "tl-jump-a",
@@ -766,6 +782,47 @@ describe("item-pane section: which events cite this item", function () {
           api.getVisibleTimelines().map((t: any) => t.doc.id),
           "tl-jump-b",
           "the reopened tab must be on the group library, not the one it started on",
+        );
+      });
+
+      // AC #2. The masking bug this closes: setSelection() reports no error
+      // for an id absent from the timeline's loaded data, so getSelection()
+      // alone cannot distinguish a landed jump from one that named an event
+      // no open tab ever loaded. No tab is open when this spec starts (the
+      // outer beforeEach already closed one), which is required rather than
+      // incidental: ensureDocumentShowing's cross-library-confirm branch
+      // only fires when a tab is already open and the target is not among
+      // its loaded documents, so starting from a closed tab skips that
+      // branch entirely and reaches jumpToEvent's own presence guard instead.
+      it("does not report success through getSelection() when the jump target is not loaded", async function () {
+        let calls = 0;
+        api.setCrossLibrarySwitchConfirmForTests(() => {
+          calls += 1;
+          return true;
+        });
+        const item = await regularItem();
+        const win = Zotero.getMainWindows()[0] as any;
+
+        await api.jumpToEvent(win, "tl-jump-nonexistent", "e-1", item.id);
+        // Nothing should happen, so there is no positive condition to poll
+        // for: give the jump a chance to have acted, the same idiom
+        // 'leaves the open tab untouched when the switch is declined' uses
+        // for the same reason.
+        await Zotero.Promise.delay(500);
+
+        assert.strictEqual(
+          calls,
+          0,
+          "no tab was open, so the cross-library switch must never have been asked",
+        );
+        assert.isDefined(
+          api.getCurrentTimeline(),
+          "the tab must have opened, proving the jump reached past ensureDocumentShowing",
+        );
+        assert.deepEqual(
+          api.getCurrentTimeline().getSelection(),
+          [],
+          "an unresolvable target must not be echoed back by getSelection()",
         );
       });
 

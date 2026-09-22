@@ -39,6 +39,7 @@ import {
   ensureDocumentShowing,
   admitEventThroughTagFilter,
   getCurrentTimeline,
+  isEventLoaded,
   revealHiddenTimeline,
 } from "./timelineTab";
 import type { Event, SourceRef } from "./schema";
@@ -193,6 +194,12 @@ type JumpableTimeline = {
  * already admitted. Selecting the event through the wrapped setSelection also
  * makes its document the active one (canvas.ts's own handleSelectionChange),
  * so the jump needs no separate activation call.
+ *
+ * setSelection itself reports no error for an id absent from the timeline's
+ * loaded data - it just echoes the id straight back out of getSelection() -
+ * so isEventLoaded runs last, after the reveal and admit steps have had their
+ * chance to make the target admittable, and only a target it actually finds
+ * in the loaded canvas gets selected.
  */
 export async function jumpToEvent(
   win: Window,
@@ -219,6 +226,12 @@ export async function jumpToEvent(
     }
     revealHiddenTimeline(documentId);
     admitEventThroughTagFilter(documentId, eventId);
+    if (!isEventLoaded(documentId, eventId)) {
+      logFailure(
+        `[zoteroTimeline] jump target ${documentId}:${eventId} is not part of the loaded group set; not selecting it`,
+      );
+      return;
+    }
     timeline.setSelection([`${documentId}:${eventId}`]);
   } catch (err) {
     logFailure(

@@ -189,6 +189,14 @@ let revealHiddenTimelineHandler: ((documentId: string) => void) | undefined;
 let admitEventThroughTagFilterHandler:
   | ((documentId: string, eventId: string) => boolean)
   | undefined;
+// The open tab's own "is this event actually on the canvas" entry point, set
+// and reset the same way admitEventThroughTagFilterHandler is and for the
+// same reason: isEventLoaded is called from outside the tab's own closure
+// (the item pane's jump-to-event), so it needs a stable reference into the
+// vis `items` DataSet, which this module does not otherwise expose.
+let isEventLoadedHandler:
+  | ((documentId: string, eventId: string) => boolean)
+  | undefined;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -301,6 +309,18 @@ export function admitEventThroughTagFilter(
   eventId: string,
 ): boolean {
   return admitEventThroughTagFilterHandler?.(documentId, eventId) ?? false;
+}
+
+/**
+ * Whether `eventId` in `documentId` is actually part of the open tab's
+ * currently drawn vis `items` DataSet - the loaded group set a jump is only
+ * allowed to select into. False when no tab is open. Exported for the item
+ * pane's jump-to-event, the same reason revealHiddenTimeline and
+ * admitEventThroughTagFilter are: `setSelection` reports no error for an id
+ * absent from the loaded data, so this is the check that has to run first.
+ */
+export function isEventLoaded(documentId: string, eventId: string): boolean {
+  return isEventLoadedHandler?.(documentId, eventId) ?? false;
 }
 
 /**
@@ -721,6 +741,7 @@ export async function openTimelineTab(
       openCreateEventHandler = undefined;
       revealHiddenTimelineHandler = undefined;
       admitEventThroughTagFilterHandler = undefined;
+      isEventLoadedHandler = undefined;
     },
   });
   timelineTabID = id;
@@ -1149,6 +1170,21 @@ export async function openTimelineTab(
     return true;
   }
   admitEventThroughTagFilterHandler = admitEventThroughTagFilterLocally;
+
+  /**
+   * The item pane jump-to-event's presence check: whether `eventId` is
+   * actually in the vis `items` DataSet `renderCanvas`/`rebuildCanvas` most
+   * recently built, rather than in `documents` - the application cache
+   * `handleDeleteTimeline` can leave stale for the width of an `await` after
+   * `items` has already dropped the row. `items` is reassigned by the same
+   * bare destructuring on every rebuild, so this closure always reads the
+   * current instance. Defined once, referenced through the module-level
+   * isEventLoadedHandler, for the same reason revealHiddenTimelineLocally is.
+   */
+  function isEventLoadedLocally(documentId: string, eventId: string): boolean {
+    return items.get(visItemId(documentId, eventId)) != null;
+  }
+  isEventLoadedHandler = isEventLoadedLocally;
 
   /**
    * Everything that lives on the vis instance and would go with it.

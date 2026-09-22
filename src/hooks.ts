@@ -52,6 +52,7 @@ import {
   setConfirmDeleteForTests,
 } from "./modules/timeline/vocabularySettings";
 import {
+  jumpToEvent,
   registerItemPaneSection,
   unregisterItemPaneSection,
 } from "./modules/timeline/itemPaneSection";
@@ -188,6 +189,7 @@ async function onStartup() {
     createDocumentNoteForTests,
     registerItemPaneSection,
     unregisterItemPaneSection,
+    jumpToEvent,
   };
 
   await Promise.all(
