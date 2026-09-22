@@ -1351,6 +1351,18 @@ describe("item-pane section: which events cite this item", function () {
     }
 
     /**
+     * Note tabs arrived in Zotero 8: `Zotero.Notes.open` does not exist in 7,
+     * and 7's `Zotero_Tabs` has no `note` type to open one into. The manifest's
+     * floor is Zotero 7, so the three tests that need a second item-details
+     * have no scenario to exercise there and skip instead of failing on a
+     * missing API. Feature detection rather than a version number, because the
+     * capability is what matters and it is exactly what goes missing.
+     */
+    function noteTabsSupported(): boolean {
+      return typeof Zotero.Notes?.open === "function";
+    }
+
+    /**
      * Opens an unrelated note in its own tab, which is what actually creates
      * the second item-details (and therefore the second instance of this
      * section) that exposes the per-window keying bug: contextPane.js's
@@ -1550,6 +1562,9 @@ describe("item-pane section: which events cite this item", function () {
     // is not even showing - while the library pane, still holding the
     // pre-write answer, never runs `_forceRenderAll` at all.
     it("refreshes the library pane's own section, not another item-details' copy, when a note tab has also been opened", async function () {
+      if (!noteTabsSupported()) {
+        this.skip();
+      }
       await findOrCreateContainer(libraryID);
       const item = await regularItem();
       const body = await selectAndAwaitBody(item);
@@ -1592,6 +1607,9 @@ describe("item-pane section: which events cite this item", function () {
     // routing and the reselect-to-render arming have to be right together for
     // the library pane, and only the library pane, to end up showing it.
     it("refreshes the library pane's own section, not the note tab's copy, once the library tab is reselected after a write made while the note tab was selected", async function () {
+      if (!noteTabsSupported()) {
+        this.skip();
+      }
       await findOrCreateContainer(libraryID);
       const item = await regularItem();
       const body = await selectAndAwaitBody(item);
@@ -1632,6 +1650,9 @@ describe("item-pane section: which events cite this item", function () {
     });
 
     it("keeps refreshing the library pane after a note tab is opened and closed again", async function () {
+      if (!noteTabsSupported()) {
+        this.skip();
+      }
       await findOrCreateContainer(libraryID);
       const item = await regularItem();
       const body = await selectAndAwaitBody(item);
