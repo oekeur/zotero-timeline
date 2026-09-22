@@ -1,0 +1,21 @@
+name: Zotero release watch
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Report to the job summary instead of filing issues
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    uses: oekeur/zotero-plugin-ci/.github/workflows/zotero-release-watch.yml@main
+    with:
+      dry-run: ${{ inputs.dry-run == true }}
