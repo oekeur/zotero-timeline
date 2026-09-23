@@ -55,9 +55,10 @@ Bring up a dev Zotero for this checkout, seeded and observable.
    duplicating.
 
 4. Note which MCP client answers for this checkout. It is keyed by
-   `ZOTERO_MCP_RDP_PORT` in your `.env`: the bare `zotero-dev` entry is the main
-   checkout on 6100; a worktree is `zotero-dev-<port>`. zoteroMindmap's entries
-   sit on 6106 and up and answer confidently about the wrong Zotero. Confirm
+   `ZOTERO_MCP_RDP_PORT` in your `.env`: `zotero-timeline-0` is the main checkout
+   on 6100; a worktree on 6100+N is `zotero-timeline-N`. zoteroMindmap's
+   `zotero-mindmap-*` entries sit on 6110-6117 and answer confidently about the
+   wrong Zotero. Confirm
    with `zotero_ping` and read the data directory it reports.
 5. `zotero_clear_logs`, so the error reads below start from a clean slate.
 

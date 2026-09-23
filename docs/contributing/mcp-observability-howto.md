@@ -34,8 +34,8 @@ per worktree, so this is once per worktree. Almost all of it is automatic.
 
 2. Nothing to register by hand. The client side is single-valued, so each port
    needs its own entry, and the same hook writes this checkout's entries into
-   `.mcp.json` at its root: `zotero-dev` on 6100 for the main checkout,
-   `zotero-dev-<port>` for 6101-6105. The file is gitignored because the port
+   `.mcp.json` at its root: `zotero-timeline-0` on 6100 for the main checkout,
+   `zotero-timeline-N` on 6100+N for worktrees (6101-6107). The file is gitignored because the port
    differs per worktree, and the names are listed in
    `.claude/settings.local.json` so a background or `--print` session connects
    without an approval prompt.
@@ -51,8 +51,8 @@ per worktree, so this is once per worktree. Almost all of it is automatic.
    starts in the checkout it provisions, which is what makes that constraint
    harmless.
 
-3. Call the entry that matches your port. Port 6100 means the `mcp__zotero-dev__*`
-   tools; port `N` means `mcp__zotero-dev-N__*`. Then run `npm start`, call
+3. Call the entry that matches your port. Port 6100 means the
+   `mcp__zotero-timeline-0__*` tools; port `6100+N` means `mcp__zotero-timeline-N__*`. Then run `npm start`, call
    `zotero_ping`, and **read the data directory it reports back**. See the port
    warning below for why that check is not optional.
 

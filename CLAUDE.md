@@ -189,9 +189,9 @@ to build.
   different Zotero while succeeding, which is the failure mode this whole
   arrangement exists to prevent. Read `ZOTERO_MCP_RDP_PORT` from the `.env` of
   the checkout you are working in: port 6100 is the main checkout and its tools
-  are `mcp__zotero-dev__*`; any other port `N` is a worktree and its tools are
-  `mcp__zotero-dev-N__*`. `worktree-init.sh` prints the name on its last line.
-  Never reach for the bare `zotero-dev` tools from a worktree just because they
+  are `mcp__zotero-timeline-0__*`; port `6100+N` is a worktree and its tools are
+  `mcp__zotero-timeline-N__*`. `worktree-init.sh` prints the name on its last line.
+  Never reach for the `zotero-timeline-0` tools from a worktree just because they
   are the ones you remember.
 - **Look at the running plugin yourself before reporting on it.** The MCP
   observability rig drives the dev Zotero directly, so an agent can read the
