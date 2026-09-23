@@ -1219,10 +1219,34 @@ export async function openTimelineTab(
   function restoreCanvasState(state: ReturnType<typeof captureCanvasState>) {
     // Lanes first: activating or selecting into a lane that is not drawn yet
     // lands nowhere.
-    const present = new Set(documentGroupRows().map((g) => g.id));
-    const known = state.lanes.filter((l) => present.has(l.id));
-    if (known.length > 0) {
-      groupsDS().update(known);
+    const rows = documentGroupRows();
+    const present = new Set(rows.map((g) => g.id));
+    const oldOrder = new Map(state.lanes.map((l) => [l.id, l.order]));
+    const oldVisible = new Map(state.lanes.map((l) => [l.id, l.visible]));
+    // Every present lane is renumbered densely here, not just the ones this
+    // tab already knew about: renderCanvas assigns each lane's order from its
+    // index in the freshly built list, so restoring a known lane to its old
+    // index can land it on the same number a lane new to this rebuild
+    // already holds - two lanes with identical order, resolved by whatever
+    // order vis-data's tie-break happens to prefer. A lane this tab already
+    // knew keeps its old relative rank, with ties going in its favour, so a
+    // standing note or a user's own reorder survives a substituted rebuild; a
+    // lane new to this rebuild sorts by the position renderCanvas gave it.
+    const ranked = rows
+      .map((row, index) => ({
+        id: row.id,
+        visible: oldVisible.get(row.id) ?? row.visible,
+        rank: oldOrder.has(row.id) ? oldOrder.get(row.id)! : index,
+        known: oldOrder.has(row.id) ? 0 : 1,
+        index,
+      }))
+      .sort(
+        (a, b) => a.rank - b.rank || a.known - b.known || a.index - b.index,
+      );
+    if (ranked.length > 0) {
+      groupsDS().update(
+        ranked.map((r, order) => ({ id: r.id, visible: r.visible, order })),
+      );
     }
     if (state.active && present.has(state.active)) {
       activateTimeline(state.active);

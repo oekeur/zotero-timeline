@@ -10,6 +10,7 @@ import {
 } from "../src/modules/timeline/storage";
 import {
   SIDEBAR_ROW_CLASS,
+  SIDEBAR_ROW_MOVE_UP_CLASS,
   SIDEBAR_ROW_NAME_CLASS,
   SIDEBAR_ROW_UNREADABLE_CLASS,
 } from "../src/modules/timeline/timelineTab";
@@ -88,6 +89,33 @@ describe("a standing unreadable note no longer blocks a sibling's rebuild", func
       return 0;
     }
     return sidebar.querySelectorAll(`.${SIDEBAR_ROW_UNREADABLE_CLASS}`).length;
+  }
+
+  // Only a genuine document row carries data-timeline-id; buildUnreadableRow's
+  // marker row does not, so this reads the lane order the sidebar actually
+  // draws rather than being thrown off by the separate warning row a standing
+  // note also gets.
+  function sidebarRowIds(): string[] {
+    const win = Zotero.getMainWindows()[0] as any;
+    const sidebar = win.document.getElementById("zoterotimeline-sidebar");
+    if (!sidebar) {
+      return [];
+    }
+    return Array.from(
+      sidebar.querySelectorAll(`.${SIDEBAR_ROW_CLASS}[data-timeline-id]`),
+    ).map((el) => (el as HTMLElement).getAttribute("data-timeline-id")!);
+  }
+
+  function moveRowUp(documentId: string): void {
+    const win = Zotero.getMainWindows()[0] as any;
+    const sidebar = win.document.getElementById("zoterotimeline-sidebar");
+    const row = sidebar?.querySelector(
+      `[data-timeline-id="${documentId}"]`,
+    ) as HTMLElement | null;
+    const moveUp = row?.querySelector(
+      `.${SIDEBAR_ROW_MOVE_UP_CLASS}`,
+    ) as HTMLButtonElement | null;
+    moveUp?.click();
   }
 
   async function standUnreadable(
@@ -246,6 +274,130 @@ describe("a standing unreadable note no longer blocks a sibling's rebuild", func
       selection,
       ["doc-x:ev-x1"],
       "X's own selection did not survive the rebuild triggered by Y's erasure",
+    );
+  });
+
+  // Substituting a standing note's last-good content into fresh.timelines
+  // used to push it to the end of that list, and renderCanvas ranks every
+  // lane by its index there - so a note arriving after B started standing
+  // took the lane order slot B used to hold, restoreCanvasState re-stamped
+  // that same number onto B, and the two lanes' shared order collapsed B to
+  // the bottom of both the canvas and the sidebar.
+  it("keeps a standing note's lane and row in place when a new timeline arrives, and after repair", async function () {
+    const aDoc = doc("doc-a", "A", [anEvent("ev-a1", "A One", "1600")]);
+    const bDoc = doc("doc-b", "B", [anEvent("ev-b1", "B One", "1650")]);
+    await createDocumentNote(libraryID, STORAGE_TAG, aDoc);
+    const bNote = await createDocumentNote(libraryID, STORAGE_TAG, bDoc);
+
+    await api().openTimelineTab();
+    await waitFor(
+      () => (api().getVisibleTimelines() ?? []).length === 2,
+      "both fixture timelines to render before either is touched",
+    );
+
+    await standUnreadable(bNote, bDoc);
+
+    const cDoc = doc("doc-c", "C", [anEvent("ev-c1", "C One", "1700")]);
+    await createDocumentNote(libraryID, STORAGE_TAG, cDoc);
+
+    await waitFor(
+      () => (api().getVisibleTimelines() ?? []).length === 3,
+      "C's arrival to draw a third lane alongside the standing note",
+    );
+
+    assert.deepEqual(
+      (api().getVisibleTimelines() ?? []).map((t: any) => t.doc.id),
+      ["doc-a", "doc-b", "doc-c"],
+      "B's lane moved out of place when C arrived while B stood unreadable",
+    );
+    assert.deepEqual(
+      sidebarRowIds(),
+      ["doc-a", "doc-b", "doc-c"],
+      "B's sidebar row moved out of place when C arrived while B stood unreadable",
+    );
+
+    await Zotero.DB.executeTransaction(async () => {
+      bNote.setNote(buildNoteHtml(bDoc));
+      await bNote.save();
+    });
+    api().refreshObserverForTesting()?.("modify", "item", [bNote.id]);
+    await waitFor(
+      () => unreadableRowCount() === 0,
+      "B to repair and clear its unreadable marker",
+    );
+
+    assert.deepEqual(
+      (api().getVisibleTimelines() ?? []).map((t: any) => t.doc.id),
+      ["doc-a", "doc-b", "doc-c"],
+      "repairing B did not restore the lane order the collision scrambled",
+    );
+    assert.deepEqual(
+      sidebarRowIds(),
+      ["doc-a", "doc-b", "doc-c"],
+      "repairing B did not restore the sidebar row order the collision scrambled",
+    );
+  });
+
+  // A user's own lane reorder must survive a substituted rebuild exactly the
+  // way a standing note's position does - restoreCanvasState renumbers every
+  // present lane from one shared pass, so both invariants have to hold at
+  // once rather than trading one for the other.
+  it("keeps a user's own lane reorder across a rebuild that substitutes a standing note", async function () {
+    const aDoc = doc("doc-a", "A", [anEvent("ev-a1", "A One", "1600")]);
+    const bDoc = doc("doc-b", "B", [anEvent("ev-b1", "B One", "1650")]);
+    await createDocumentNote(libraryID, STORAGE_TAG, aDoc);
+    const bNote = await createDocumentNote(libraryID, STORAGE_TAG, bDoc);
+
+    await api().openTimelineTab();
+    await waitFor(
+      () => (api().getVisibleTimelines() ?? []).length === 2,
+      "both fixture timelines to render before either is touched",
+    );
+    assert.deepEqual(
+      (api().getVisibleTimelines() ?? []).map((t: any) => t.doc.id),
+      ["doc-a", "doc-b"],
+      "unexpected initial visible order",
+    );
+
+    moveRowUp("doc-b");
+    await waitFor(
+      () =>
+        (api().getVisibleTimelines() ?? [])[0]?.doc.id === "doc-b"
+          ? true
+          : null,
+      "B to move to the front of the visible order",
+    );
+
+    await standUnreadable(bNote, bDoc);
+    assert.deepEqual(
+      (api().getVisibleTimelines() ?? []).map((t: any) => t.doc.id),
+      ["doc-b", "doc-a"],
+      "B standing unreadable moved the user's own reorder",
+    );
+
+    await updateTimelineDocument(
+      (current) => ({
+        ...current,
+        events: [...current.events, anEvent("ev-a2", "A Two", "1750")],
+      }),
+      "doc-a",
+      libraryID,
+    );
+
+    await waitFor(
+      () =>
+        (api().getVisibleTimelines() ?? []).some(
+          (t: any) =>
+            t.doc.id === "doc-a" &&
+            t.doc.events.some((e: any) => e.id === "ev-a2"),
+        ),
+      "A's outside write to reach the canvas while B stands unreadable",
+    );
+
+    assert.deepEqual(
+      (api().getVisibleTimelines() ?? []).map((t: any) => t.doc.id),
+      ["doc-b", "doc-a"],
+      "the substituted rebuild discarded the user's own lane reorder",
     );
   });
 });
