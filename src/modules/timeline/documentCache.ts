@@ -25,8 +25,8 @@ import { serializeDocument, type TimelineDocument } from "./schema";
 import { type DateIssue } from "./validate";
 import {
   listTimelines,
+  readCommittedNote,
   readDocumentFromNote,
-  refreshNote,
   type StoredTimeline,
 } from "./storage";
 
@@ -49,10 +49,11 @@ export function parsesSoFar(): number {
 /**
  * The document a note holds, parsed at most once until the note changes.
  *
- * Refreshes the note from the database on a miss. Zotero reloads a saved
+ * Reads the committed text from the database on a miss. Zotero reloads a saved
  * object asynchronously, so an item's cached note text can lag its own
  * committed write; invalidation alone is not enough, because a cache that
- * re-reads a stale getNote() on a miss is still wrong.
+ * re-reads a stale getNote() on a miss is still wrong. Reloading the item
+ * instead would discard a setNote() another writer has pending on it.
  */
 export async function readCached(item: Zotero.Item): Promise<{
   doc: TimelineDocument;
@@ -62,8 +63,10 @@ export async function readCached(item: Zotero.Item): Promise<{
   if (hit) {
     return { doc: hit.doc, dateIssues: hit.dateIssues };
   }
-  await refreshNote(item);
-  const { doc, dateIssues } = readDocumentFromNote(item);
+  const { doc, dateIssues } = readDocumentFromNote(
+    item,
+    await readCommittedNote(item),
+  );
   parseCount += 1;
   cache.set(item.id, { serialized: serializeDocument(doc), doc, dateIssues });
   return { doc, dateIssues };

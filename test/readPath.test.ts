@@ -7,7 +7,9 @@ import {
   findOrCreateContainer,
   listTimelines,
   readDocumentFromNote,
+  readTimelineDocument,
 } from "../src/modules/timeline/storage";
+import { readCached } from "../src/modules/timeline/documentCache";
 import {
   createDocumentNote,
   createRawNote,
@@ -157,6 +159,67 @@ describe("storage: the read path", function () {
       readDocumentFromNote(note).doc.name,
       'A <b>bold</b> & "quoted" title',
     );
+  });
+
+  // A reader shares the Zotero.Item object with every writer of that note. A
+  // writer between setNote() and the end of save() holds its text only on
+  // that object, so a read that refreshes the object from the database throws
+  // the pending text away and the save writes the old content back.
+  describe("leaves a writer's pending setNote alone", function () {
+    async function committedName(note: Zotero.Item): Promise<string> {
+      const row = (await Zotero.DB.valueQueryAsync(
+        "SELECT note FROM itemNotes WHERE itemID=?",
+        [note.id],
+      )) as string;
+      return /&quot;name&quot;:&quot;([^&]*)&quot;|"name":"([^"]*)"/
+        .exec(row)
+        ?.slice(1)
+        .find((group) => group !== undefined) as string;
+    }
+
+    it("through the document cache", async function () {
+      const note = await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("Before", "doc-pending-cache"),
+      );
+      const pending = buildNoteHtml(
+        documentNamed("After", "doc-pending-cache"),
+      );
+      note.setNote(pending);
+
+      const { doc } = await readCached(note);
+      assert.equal(doc.name, "Before", "the reader saw uncommitted text");
+      assert.equal(
+        note.getNote(),
+        pending,
+        "the read discarded the pending text",
+      );
+
+      await note.saveTx();
+      assert.equal(await committedName(note), "After");
+    });
+
+    it("through readTimelineDocument", async function () {
+      const note = await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("Before", "doc-pending-read"),
+      );
+      const pending = buildNoteHtml(documentNamed("After", "doc-pending-read"));
+      note.setNote(pending);
+
+      const doc = await readTimelineDocument("doc-pending-read", libraryID);
+      assert.equal(doc?.name, "Before", "the reader saw uncommitted text");
+      assert.equal(
+        note.getNote(),
+        pending,
+        "the read discarded the pending text",
+      );
+
+      await note.saveTx();
+      assert.equal(await committedName(note), "After");
+    });
   });
 
   it("wraps a document with a warning a human can read", function () {

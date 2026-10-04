@@ -347,12 +347,17 @@ function extractDataBlock(html: string): string | null {
 }
 
 /**
- * Reloads a note's text from the database.
+ * Reloads a note's text from the database into the item.
  *
  * Zotero reloads a saved object asynchronously, so an item's cached note text
  * can lag its own committed write and hand back the document as it was before.
- * Only paths that may be reading their own recent write pay for this;
- * enumerating a library does not.
+ *
+ * For the queued write path only. Zotero's note loader assigns the database
+ * text over the item's own and clears its change flag, so this discards any
+ * setNote() another writer has pending on the same shared object. A write is
+ * about to overwrite the note anyway, and setNote() diffs against the item's
+ * in-memory text, so a stale copy could make it skip the write. A reader uses
+ * readCommittedNote, which leaves the item alone.
  */
 export async function refreshNote(item: Zotero.Item): Promise<Zotero.Item> {
   await item.reload(["note"], true);
@@ -360,19 +365,39 @@ export async function refreshNote(item: Zotero.Item): Promise<Zotero.Item> {
 }
 
 /**
+ * A note's committed text, read from the database without touching the item.
+ *
+ * What a reader needs instead of refreshNote: the same freshness, without
+ * mutating an object other code writes through. A writer holding the item
+ * between setNote() and the end of save() keeps its pending text, and this
+ * returns what is committed. The row keeps the `<div class="zotero-note">`
+ * wrapper getNote() strips; the data-block pattern finds the block either way.
+ */
+export async function readCommittedNote(item: Zotero.Item): Promise<string> {
+  const note = await Zotero.DB.valueQueryAsync(
+    "SELECT note FROM itemNotes WHERE itemID=?",
+    [item.id],
+  );
+  return typeof note === "string" ? note : "";
+}
+
+/**
  * Reads and validates the document a storage note holds.
  *
  * Throws StorageError rather than returning null, so a corrupt note stays
- * distinguishable from an empty one at every call site. Parses the note as it
- * currently stands; see refreshNote for when that has to be reconciled with
- * the database first.
+ * distinguishable from an empty one at every call site. Parses `html` when
+ * given, otherwise the note as it currently stands in memory; see
+ * readCommittedNote for when that has to be the database's text instead.
  */
-export function readDocumentFromNote(item: Zotero.Item): {
+export function readDocumentFromNote(
+  item: Zotero.Item,
+  html: string = item.getNote(),
+): {
   doc: TimelineDocument;
   dateIssues: DateIssue[];
 } {
   assertNoteKind(item, STORAGE_TAG);
-  const block = extractDataBlock(item.getNote());
+  const block = extractDataBlock(html);
   if (block === null) {
     throw new StorageError(
       "block-missing",
@@ -647,8 +672,7 @@ export async function readTimelineDocument(
     if (note === null) {
       return null;
     }
-    await refreshNote(note);
-    return readDocumentFromNote(note).doc;
+    return readDocumentFromNote(note, await readCommittedNote(note)).doc;
   });
 }
 
