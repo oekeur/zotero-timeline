@@ -1373,7 +1373,19 @@ describe("event editor: Save diffs sources by identity", function () {
       ) as HTMLInputElement | null;
       return el && el.value === "An event" ? el : null;
     }, 'the re-rendered title field to read "An event"');
-    await selectEvent(timeline, panel, "doc-second-save:ev-1", "An event");
+    // Waits on the mid-write render in place rather than selecting the event
+    // again: a second select re-renders from the tab's document, which the
+    // first Save's own continuation may already have updated, and a panel
+    // rendered after that is fresh rather than the stale one this spec needs.
+    await waitFor(() => {
+      const typeSelects = Array.from<HTMLElement>(
+        panel.querySelectorAll(`.${SOURCE_TYPE_SELECT_CLASS}`),
+      ) as HTMLSelectElement[];
+      return typeSelects.every((select) => select.options.length > 0)
+        ? true
+        : null;
+    }, "every source's type select to have its vocabulary loaded");
+    await waitForResolvedLabels(panel);
     assertNoSaveFailure();
     assert.isTrue(rerendered, "the panel was not re-rendered mid-write");
 
@@ -1393,6 +1405,11 @@ describe("event editor: Save diffs sources by identity", function () {
     // Stale panel: row 1 still shows A(cites) with no name.
     rows = Array.from<HTMLElement>(panel.querySelectorAll(`.${SOURCE_CLASS}`));
     assert.lengthOf(rows, 2);
+    assert.equal(
+      (rows[0].querySelector("input[type=text]") as HTMLInputElement).value,
+      "",
+      "the panel is not stale: row 0 already shows the first Save's rename",
+    );
     const typeSelect = rows[0].querySelector(
       `.${SOURCE_TYPE_SELECT_CLASS}`,
     ) as HTMLSelectElement;
