@@ -35,6 +35,8 @@ import {
   eraseAllPluginItems,
 } from "./support-pluginItems";
 import { waitFor } from "./waitFor";
+import { CREATE_SOURCE_ITEM_CLASS } from "../src/modules/timeline/eventEditor";
+import { labelForItem } from "../src/modules/timeline/sourceLabels";
 
 const L10N = {
   sourcesFlat: "zoterotimeline-menu-add-sources-flat",
@@ -381,6 +383,7 @@ describe("libraryContextMenu", function () {
     afterEach(async function () {
       const popup = win.document.getElementById("zotero-itemmenu");
       popup.dispatchEvent(new win.Event("popuphidden"));
+      (Zotero as any).ZoteroTimeline.api.closeTimelineTab();
       for (const item of extras) {
         await item.eraseTx();
       }
@@ -389,7 +392,11 @@ describe("libraryContextMenu", function () {
       clearCache();
     });
 
-    async function openItemMenuOn(title: string): Promise<void> {
+    /** Selects a fresh item, builds the item menu and fires its
+     * popupshowing; returns the item and that event. */
+    async function openItemMenuOn(
+      title: string,
+    ): Promise<{ item: Zotero.Item; showing: Event }> {
       const item = new Zotero.Item("document");
       item.libraryID = libraryID;
       item.setField("title", title);
@@ -398,7 +405,30 @@ describe("libraryContextMenu", function () {
       await win.ZoteroPane.selectItem(item.id);
       await win.ZoteroPane.buildItemContextMenu();
       const popup = win.document.getElementById("zotero-itemmenu");
-      popup.dispatchEvent(new win.Event("popupshowing"));
+      const showing = new win.Event("popupshowing");
+      popup.dispatchEvent(showing);
+      return { item, showing };
+    }
+
+    function closeItemMenu(): void {
+      win.document
+        .getElementById("zotero-itemmenu")
+        .dispatchEvent(new win.Event("popuphidden"));
+    }
+
+    async function oneTimeline(): Promise<void> {
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("Solo", "tl-solo"),
+      );
+    }
+
+    function whenRevealed(l10nID: string): Promise<any> {
+      return waitFor(() => {
+        const entry = only(l10nID);
+        return entry.hidden ? undefined : entry;
+      }, `${l10nID} to show`);
     }
 
     function only(l10nID: string): any {
@@ -450,6 +480,81 @@ describe("libraryContextMenu", function () {
       assert.sameMembers(rows, ["A\u2026", "B\u2026"]);
       assert.isTrue(only(L10N.eventFlat).hidden);
       assert.isTrue(only(L10N.sourcesFlat).hidden);
+    });
+
+    // TASK-96 AC #2: one registration, so Zotero's menuID sort cannot reorder
+    // the actions.
+    it("lists the entries in the order Add as Sources, Add to New Event", async function () {
+      await win.ZoteroPane.buildItemContextMenu();
+      const all = Array.from(
+        win.document.querySelectorAll("#zotero-itemmenu > *"),
+      ) as Element[];
+      const positions = [
+        L10N.sourcesFlat,
+        L10N.sourcesSubmenu,
+        L10N.eventFlat,
+        L10N.eventSubmenu,
+      ].map((l10nID) =>
+        all.findIndex((el) => el.getAttribute("data-l10n-id") === l10nID),
+      );
+      assert.notInclude(positions, -1, "an entry is missing from the menu");
+      assert.deepEqual(
+        [...positions].sort((a, b) => a - b),
+        positions,
+        "the entries are out of order",
+      );
+    });
+
+    // TASK-96 AC #1. buildItemContextMenu skips every hook when an
+    // annotation is selected, so whatever the last opening left visible is
+    // what such an opening shows.
+    it("hides every entry once the popup closes", async function () {
+      await oneTimeline();
+      await openItemMenuOn("A cited work");
+      await whenRevealed(L10N.eventFlat);
+
+      closeItemMenu();
+
+      for (const l10nID of Object.values(L10N)) {
+        assert.isTrue(only(l10nID).hidden, `${l10nID} still shows`);
+      }
+    });
+
+    // TASK-96 AC #1: the listing settles after the popup has closed.
+    it("keeps an entry hidden whose listing settles after the popup closed", async function () {
+      await oneTimeline();
+      const { item, showing } = await openItemMenuOn("A cited work");
+      closeItemMenu();
+
+      // The same event shares the plugin's own pending listing, so this
+      // settles it; the timeout lets the plugin's reveal callbacks run.
+      const shape = await computeMenuShape(showing, [item]);
+      assert.equal(shape.kind, "flat", "positive control: one timeline");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      for (const l10nID of Object.values(L10N)) {
+        assert.isTrue(only(l10nID).hidden, `${l10nID} showed after close`);
+      }
+    });
+
+    // TASK-96 AC #3
+    it("opens the editor with the selection attached from the plain Add to New Event entry", async function () {
+      await oneTimeline();
+      const { item } = await openItemMenuOn("A cited work");
+      const entry = await whenRevealed(L10N.eventFlat);
+
+      entry.dispatchEvent(new win.Event("command"));
+
+      const sources = await waitFor(() => {
+        const rows = win.document.querySelectorAll(
+          `#zoterotimeline-editor .${CREATE_SOURCE_ITEM_CLASS}`,
+        );
+        return rows.length > 0 ? rows : undefined;
+      }, "the editor to open on the new event");
+      assert.deepEqual(
+        Array.from<Element>(sources).map((row) => row.textContent),
+        [labelForItem(item)],
+      );
     });
   });
 });
