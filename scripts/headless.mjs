@@ -148,13 +148,23 @@ function ancestorsOf(pid) {
 // looked up by descent shortly after launch and its pid remembered, and the
 // exit path kills that pid if something answering to Xvfb still holds it.
 let ourXvfb = null;
+// The /tmp/xvfb-run.* directory holding our server's Xauthority. xvfb-run's
+// own EXIT trap removes it, so whenever this script has to kill the server
+// itself, that trap has not run and the directory is ours to remove: nothing
+// later can, because reapStrandedXvfb only finds a directory through a server
+// that is still alive.
+let ourAuthDir = null;
 
 function rememberOurXvfb() {
   if (!wrap || !child.pid || ourXvfb !== null) return;
   const mine = listXvfb().find((proc) =>
     ancestorsOf(proc.pid).includes(child.pid),
   );
-  if (mine) ourXvfb = mine.pid;
+  if (mine) {
+    ourXvfb = mine.pid;
+    const auth = mine.args.match(/-auth\s+(\/tmp\/xvfb-run\.[^/\s]+)\//);
+    if (auth) ourAuthDir = auth[1];
+  }
 }
 
 function killOurXvfb() {
@@ -168,6 +178,32 @@ function killOurXvfb() {
   } catch {
     // already reaped by xvfb-run's own trap, which is the normal path
   }
+  if (ourAuthDir) {
+    rmSync(ourAuthDir, { recursive: true, force: true });
+  }
+}
+
+// Every process descended from `pid`, deepest first, read live from ps.
+function descendantsOf(pid) {
+  const out = spawnSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8" });
+  if (out.status !== 0 || !out.stdout) return [];
+  const children = new Map();
+  for (const line of out.stdout.split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)$/);
+    if (!m) continue;
+    const parent = Number(m[2]);
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(Number(m[1]));
+  }
+  const found = [];
+  const walk = (current) => {
+    for (const next of children.get(current) ?? []) {
+      walk(next);
+      found.push(next);
+    }
+  };
+  walk(pid);
+  return found;
 }
 
 // stdio inherit, and xvfb-run left as the parent of whatever it runs: a runner
@@ -194,15 +230,24 @@ child.on("exit", (code, signal) => {
   process.exit(signal ? 1 : (code ?? 1));
 });
 
-// Ctrl-C and an ordinary `kill` both reach here; relay to the wrapper so its
-// own trap runs, then clean up whatever it left.
+// Ctrl-C and an ordinary `kill` both reach here. xvfb-run is a shell that
+// forwards no signal to what it runs, so a kill aimed at this pid alone used
+// to stop at the shell and orphan the wrapped command, Zotero and all, on a
+// display about to be killed (Ctrl-C reached them only because the terminal
+// signals the whole foreground group). The signal goes to everything under
+// xvfb-run too, deepest first, skipping our own Xvfb, which killOurXvfb
+// handles; then to the wrapper, so its trap runs where it still can.
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
     if (child.pid) {
-      try {
-        process.kill(child.pid, signal);
-      } catch {
-        // already gone
+      rememberOurXvfb();
+      for (const pid of [...descendantsOf(child.pid), child.pid]) {
+        if (pid === ourXvfb) continue;
+        try {
+          process.kill(pid, signal);
+        } catch {
+          // already gone
+        }
       }
     }
     killOurXvfb();
