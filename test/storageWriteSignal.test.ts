@@ -167,7 +167,11 @@ describe("storage: the write signal", function () {
     // message text, so a marker embedded in the rejected error's message is
     // not recoverable from the composed log line. Assert on the fixed prefix
     // logFailure is called with instead, isolated to this test by stubbing
-    // Zotero.logError only for its duration.
+    // Zotero.logError only for its duration. The stub is process-wide, so it
+    // also catches whatever else the write sets off - Zotero.Notifier hands
+    // every throwing observer to Zotero.logError - and only entries carrying
+    // the listener's own prefix are this spec's to count.
+    const listenerPrefix = "[zoteroTimeline] a storage write listener threw";
     const order: string[] = [];
     const loggedErrors: Error[] = [];
     const originalLogError = Zotero.logError;
@@ -188,14 +192,18 @@ describe("storage: the write signal", function () {
 
       assert.deepEqual(order, ["first", "second"]);
 
+      const listenerFailures = () =>
+        loggedErrors.filter((err) =>
+          String(err?.message ?? err).includes(listenerPrefix),
+        );
       await waitFor(
-        () => (loggedErrors.length > 0 ? true : null),
+        () => (listenerFailures().length > 0 ? true : null),
         "logFailure to be called for the rejected listener",
       );
-      assert.lengthOf(loggedErrors, 1);
-      assert.include(
-        loggedErrors[0].message,
-        "[zoteroTimeline] a storage write listener threw",
+      assert.lengthOf(
+        listenerFailures(),
+        1,
+        "the rejected listener was logged more than once",
       );
     } finally {
       Zotero.logError = originalLogError;
