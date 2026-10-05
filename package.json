@@ -2,7 +2,7 @@
   "name": "zotero-timeline",
   "type": "module",
   "version": "0.1.0",
-  "description": "Zotero 7-10 plugin for authoring research timelines and chronologies, where every event cites sources from your own library.",
+  "description": "Zotero 8-10 plugin for authoring research timelines and chronologies, where every event cites sources from your own library.",
   "config": {
     "addonName": "Zotero Timeline",
     "addonID": "zoterotimeline@oekeur.github.io",
@@ -41,7 +41,7 @@
   "dependencies": {
     "edtf": "4.11.1",
     "vis-timeline": "8.5.4",
-    "zotero-plugin-toolkit": "5.1.0-beta.13"
+    "zotero-plugin-toolkit": "5.2.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",

@@ -133,11 +133,13 @@ async function onStartup() {
 
   initLocale();
 
-  // The Tools entry is registered per window from onMainWindowLoad, not here.
-  // The shortcut is not: ztoolkit's KeyboardManager attaches its keydown and
+  // Once each, not per window: Zotero.MenuManager builds the menu entries into
+  // every main window, and ztoolkit's KeyboardManager attaches its keydown and
   // keyup listeners to every main window itself, through a Services.wm
   // listener it installs when the first callback is registered, so one
   // registration covers windows opened later as well.
+  registerTimelineMenu();
+  registerLibraryContextActions();
   registerTimelineShortcut();
   registerItemPaneSection();
 
@@ -229,19 +231,23 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     sourcePruneObserverID = registerSourcePruneObserver();
   }
   registerLibraryFilter();
-  registerTimelineMenu(win);
+}
 
-  registerTimelineContextAction(
-    win,
-    "zotero-timeline-menuitem-add-sources",
-    {
-      flat: getString("context-add-sources-flat"),
-      submenu: getString("context-add-sources-submenu"),
+/**
+ * The item context menu's two actions, each registered once as a plain entry
+ * and a submenu (see registerTimelineContextAction).
+ */
+function registerLibraryContextActions(): void {
+  registerTimelineContextAction({
+    menuID: "add-sources",
+    l10n: {
+      flat: "menu-add-sources-flat",
+      submenu: "menu-add-sources-submenu",
     },
-    "chrome://zotero/skin/16/universal/link.svg",
-    "…",
-    (entry) => {
-      const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
+    icon: "chrome://zotero/skin/16/universal/link.svg",
+    submenuItemSuffix: "…",
+    act: (entry, items) => {
+      const selection = resolveSelection(items);
       if (!selection.ok) {
         return;
       }
@@ -254,19 +260,18 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
         );
       });
     },
-  );
+  });
 
-  registerTimelineContextAction(
-    win,
-    "zotero-timeline-menuitem-add-to-new-event",
-    {
-      flat: getString("context-add-to-new-event-flat"),
-      submenu: getString("context-add-to-new-event-submenu"),
+  registerTimelineContextAction({
+    menuID: "add-to-new-event",
+    l10n: {
+      flat: "menu-add-to-new-event-flat",
+      submenu: "menu-add-to-new-event-submenu",
     },
-    "chrome://zotero/skin/16/universal/plus.svg",
-    "…",
-    (entry) => {
-      const selection = resolveSelection(win.ZoteroPane.getSelectedItems());
+    icon: "chrome://zotero/skin/16/universal/plus.svg",
+    submenuItemSuffix: "…",
+    act: (entry, items, win) => {
+      const selection = resolveSelection(items);
       if (!selection.ok) {
         return;
       }
@@ -284,7 +289,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
         );
       });
     },
-  );
+  });
 }
 
 /**

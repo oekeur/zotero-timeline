@@ -1,5 +1,26 @@
-timeline-menu-open =
-    .label = Open Timeline
+# Tools > Timeline. Zotero.MenuManager labels an entry only through Fluent,
+# so each menu label is a .label attribute in this main-window file.
+menu-tools-timeline =
+    .label = Timeline
+
+# The library context menu entries that attach the selection to an event that
+# already exists. The flat form is generic because the library holds only one
+# timeline when it shows, so nothing else needs naming; the submenu form
+# completes with a timeline's own name, one per row.
+menu-add-sources-flat =
+    .label = Add as Sources to Timeline…
+menu-add-sources-submenu =
+    .label = Add as Sources to…
+
+# The library context menu entries that open the editor panel on a new,
+# unsaved event with the selection already attached as sources. The ellipsis
+# is what says a further surface opens rather than the click itself writing
+# anything - see event-editor-create-sources-skipped in addon.ftl for what
+# happens on Save.
+menu-add-to-new-event-flat =
+    .label = Add to New Event on Timeline…
+menu-add-to-new-event-submenu =
+    .label = Add to New Event on…
 
 timeline-chrome-zoom-in =
     .title = Zoom in

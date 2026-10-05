@@ -2,7 +2,8 @@ import { assert } from "chai";
 import { eraseAllPluginItems } from "./support-pluginItems";
 import { waitFor } from "./waitFor";
 
-const MENU_ID = "zotero-timeline-menuitem-open-timeline";
+// The entry carries no id; its Fluent id is what names it.
+const MENU_L10N_ID = "zoterotimeline-menu-tools-timeline";
 const TAB_TYPE = "zoterotimeline-timeline";
 
 describe("open the timeline tab from Tools and from Shift+T", function () {
@@ -40,6 +41,23 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     return firstWindow;
   }
 
+  /**
+   * Builds the Tools menu the way opening it does: Zotero's own popupshowing
+   * handler on #menu_ToolsPopup is what has Zotero.MenuManager insert the
+   * plugin's entry.
+   */
+  function buildMenu(popupID: string): Element {
+    const win = mainWindow();
+    const popup = win.document.getElementById(popupID);
+    popup.dispatchEvent(new win.Event("popupshowing"));
+    popup.dispatchEvent(new win.Event("popuphidden"));
+    return popup;
+  }
+
+  function entriesIn(popup: Element): NodeListOf<Element> {
+    return popup.querySelectorAll(`:scope > [data-l10n-id="${MENU_L10N_ID}"]`);
+  }
+
   function timelineTab(): any {
     return mainWindow().Zotero_Tabs._tabs.find((t: any) => t.type === TAB_TYPE);
   }
@@ -55,20 +73,25 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
   }
 
   it("registers the menu entry under Tools, not File", function () {
-    const doc = mainWindow().document as Document;
-    assert.ok(
-      doc.querySelector(`#menu_ToolsPopup #${MENU_ID}`),
+    assert.lengthOf(
+      entriesIn(buildMenu("menu_ToolsPopup")),
+      1,
       "no timeline menu item under Tools",
     );
-    assert.isNull(
-      doc.querySelector(`#menu_FilePopup #${MENU_ID}`),
-      "the timeline menu item is still registered under File",
+    assert.lengthOf(
+      entriesIn(buildMenu("menu_FilePopup")),
+      0,
+      "the timeline menu item is registered under File",
     );
   });
 
   it("opens the tab on the current library from the Tools menu entry", async function () {
     const win = mainWindow();
-    const entry = win.document.getElementById(MENU_ID) as any;
+    // Built and left showing: Zotero removes the entry's command listener
+    // once the popup hides.
+    const popup = win.document.getElementById("menu_ToolsPopup");
+    popup.dispatchEvent(new win.Event("popupshowing"));
+    const entry = entriesIn(popup)[0] as any;
     assert.ok(entry, "menu entry missing");
 
     entry.dispatchEvent(new win.Event("command", { bubbles: true }));
@@ -205,45 +228,20 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     );
   });
 
-  // TASK-64. registerTimelineMenu ran once from onStartup and resolved the
-  // Tools popup through Zotero.getMainWindow(), so only the windows that
-  // existed at startup ever got an entry. Zotero's own UI never holds two
-  // main windows at once (every caller of openMainWindow focuses an existing
-  // one first), so the real case is macOS reopening a main window after the
-  // last one closed. The specs below give the existing window what such a
-  // window receives, the plugin's onMainWindowLoad, rather than opening a
-  // second window: closing one leaves the first in modal state often enough
-  // to stop its timers and cascade through every later file.
+  // TASK-64 was a window opened after startup getting no Tools entry. Zotero
+  // builds the entry into whichever main window opens its Tools menu, so the
+  // existing window stands in for a freshly loaded one: closing a window
+  // leaves the first in modal state often enough to stop its timers and
+  // cascade through every later file.
   describe("a main window loaded after the plugin started", function () {
-    const onMainWindowLoad = (win: any) =>
-      (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(win);
-
-    function toolsEntries(): NodeListOf<Element> {
-      return mainWindow().document.querySelectorAll(
-        `#menu_ToolsPopup #${MENU_ID}`,
-      );
-    }
-
-    it("gives a freshly loaded window its Tools entry", async function () {
-      mainWindow().document.getElementById(MENU_ID)?.remove();
-      assert.lengthOf(toolsEntries(), 0, "the entry was not removed");
-
-      await onMainWindowLoad(mainWindow());
+    it("carries exactly one Tools entry, however often the load hook runs", async function () {
+      await (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(mainWindow());
+      await (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(mainWindow());
 
       assert.lengthOf(
-        toolsEntries(),
+        entriesIn(buildMenu("menu_ToolsPopup")),
         1,
-        "a freshly loaded window does not carry exactly one Tools > Timeline entry",
-      );
-    });
-
-    it("does not stack a second Tools entry when the load hook runs again", async function () {
-      await onMainWindowLoad(mainWindow());
-
-      assert.lengthOf(
-        toolsEntries(),
-        1,
-        "a second load stacked a duplicate Tools > Timeline entry",
+        "the window does not carry exactly one Tools > Timeline entry",
       );
     });
   });

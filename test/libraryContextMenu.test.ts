@@ -1,9 +1,11 @@
 /**
  * resolveSelection and computeMenuShape never open a modal or touch the item
- * tree, so this suite drives them directly rather than the registered XUL
- * menu itself, which the toolkit wires through a real popupshowing event a
- * headless run cannot dispatch. See docs/contributing/testing-explanation.md
- * for why the live suite still runs inside Zotero regardless.
+ * tree, so most of this suite drives them directly. The specs that read the
+ * menu itself build it the way Zotero does before opening it,
+ * ZoteroPane.buildItemContextMenu(), which is where Zotero.MenuManager inserts
+ * the plugin's entries, then dispatch the popupshowing event their onShowing
+ * hooks listen for. See docs/contributing/testing-explanation.md for why the
+ * live suite still runs inside Zotero regardless.
  *
  * A cross-library selection is built from an item that is never saved:
  * resolveSelection only ever reads .libraryID, .isAttachment() and .hasTag(),
@@ -13,7 +15,6 @@
 import { assert } from "chai";
 import {
   computeMenuShape,
-  registerTimelineContextAction,
   resolveSelection,
   type MenuShape,
 } from "../src/modules/timeline/libraryContextMenu";
@@ -33,6 +34,23 @@ import {
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
+
+const L10N = {
+  sourcesFlat: "zoterotimeline-menu-add-sources-flat",
+  sourcesSubmenu: "zoterotimeline-menu-add-sources-submenu",
+  eventFlat: "zoterotimeline-menu-add-to-new-event-flat",
+  eventSubmenu: "zoterotimeline-menu-add-to-new-event-submenu",
+};
+
+/** The plugin's entries carry no id; their Fluent id is what names them. */
+function itemMenuEntries(win: any, l10nID: string): Element[] {
+  return Array.from(
+    win.document.querySelectorAll(
+      `#zotero-itemmenu > [data-l10n-id="${l10nID}"]`,
+    ),
+  );
+}
 
 function unsavedItem(
   itemType: string,
@@ -150,20 +168,23 @@ describe("libraryContextMenu", function () {
   describe("the entries' labels", function () {
     let win: any;
 
-    before(function () {
+    before(async function () {
       win = Zotero.getMainWindows()[0];
+      await win.ZoteroPane.buildItemContextMenu();
     });
 
-    for (const [what, id] of [
-      ["the plain entry", "zotero-timeline-menuitem-add-to-new-event"],
-      ["the submenu", "zotero-timeline-menuitem-add-to-new-event-submenu"],
+    for (const [what, l10nID] of [
+      ["the plain entry", "zoterotimeline-menu-add-to-new-event-flat"],
+      ["the submenu", "zoterotimeline-menu-add-to-new-event-submenu"],
     ]) {
       // One spec per form of the action: the flat entry and its submenu.
-      it(`${what} keeps its trailing ellipsis`, function () {
-        const element = win.document.getElementById(id) as Element | null;
-        assert.ok(element, `${id} is not registered`);
-        const label = element!.getAttribute("label") ?? "";
-        assert.notEqual(label, "", `${id} has no resolved label`);
+      it(`${what} keeps its trailing ellipsis`, async function () {
+        const [element] = itemMenuEntries(win, l10nID);
+        assert.ok(element, `${l10nID} is not in the item menu`);
+        const label = await waitFor(
+          () => element.getAttribute("label") || undefined,
+          `Fluent to resolve ${l10nID}`,
+        );
         assert.match(
           label,
           /\u2026$/,
@@ -314,77 +335,121 @@ describe("libraryContextMenu", function () {
     });
   });
 
-  // registerTimelineContextAction used to resolve the item menupopup through
-  // ztoolkit.Menu.register("item", ...), whose string form goes through
-  // Zotero.getMainWindow() - one window rather than every window - guarded on
-  // top of that by a process-wide flag, so a window opened after the plugin
-  // started carried neither entry. Zotero's own UI never holds two main
-  // windows at once (every caller of openMainWindow focuses an existing one
-  // first), so the real case is macOS reopening a main window after the last
-  // one closed. These specs give the existing window what such a window
-  // receives, the plugin's onMainWindowLoad, rather than opening a second
-  // window: closing one leaves the first in modal state often enough to stop
-  // its timers and cascade through every later file.
-  describe("a main window loaded after the plugin started", function () {
-    let firstWindow: any;
+  // Zotero.MenuManager inserts registered entries each time it builds the item
+  // menu, into whichever main window builds it, so neither a window opened
+  // after startup nor a second onMainWindowLoad needs anything from the
+  // plugin. Zotero's own UI never holds two main windows at once, so the
+  // existing window stands in for a freshly loaded one: closing a window
+  // leaves the first in modal state often enough to stop its timers and
+  // cascade through every later file.
+  describe("registration", function () {
+    it("puts each entry into the item menu exactly once, however often a window loads", async function () {
+      const win = Zotero.getMainWindows()[0] as any;
+      await (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(win);
+      await win.ZoteroPane.buildItemContextMenu();
+      await win.ZoteroPane.buildItemContextMenu();
 
-    const flatSourcesID = "zotero-timeline-menuitem-add-sources";
-    const flatEventID = "zotero-timeline-menuitem-add-to-new-event";
-    const allIDs = [
-      flatSourcesID,
-      `${flatSourcesID}-submenu`,
-      flatEventID,
-      `${flatEventID}-submenu`,
-    ];
+      for (const l10nID of Object.values(L10N)) {
+        assert.lengthOf(
+          itemMenuEntries(win, l10nID),
+          1,
+          `the item menu does not carry exactly one ${l10nID}`,
+        );
+      }
+    });
+  });
+
+  // The hooks Zotero.MenuManager calls, through the real build-then-show
+  // sequence: buildItemContextMenu with an item selected, then the
+  // popupshowing event Zotero's openPopup would fire.
+  describe("the entries a real item menu shows", function () {
+    let libraryID: number;
+    let win: any;
+    let extras: Zotero.Item[];
 
     before(function () {
-      firstWindow = Zotero.getMainWindows()[0];
+      libraryID = Zotero.Libraries.userLibraryID;
+      win = Zotero.getMainWindows()[0];
     });
 
-    // AC #1, #3 (registration side)
-    it("gives a freshly loaded window both entries and both submenus, once each", async function () {
-      for (const id of allIDs) {
-        firstWindow.document.getElementById(id)?.remove();
-      }
-
-      await (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(firstWindow);
-
-      for (const id of allIDs) {
-        assert.lengthOf(
-          firstWindow.document.querySelectorAll(`#${id}`),
-          1,
-          `a freshly loaded window does not carry exactly one #${id}`,
-        );
-      }
+    beforeEach(async function () {
+      await eraseAllPluginItems(libraryID);
+      clearCache();
+      extras = [];
     });
 
-    // AC #3 - a second call against a window that already carries the
-    // entries (every window does, from the plugin's own startup or
-    // onMainWindowLoad) must not add a second element per id.
-    it("leaves exactly one element per id when registered twice against the same window", function () {
-      registerTimelineContextAction(
-        firstWindow,
-        flatSourcesID,
-        { flat: "unused", submenu: "unused" },
-        "chrome://zotero/skin/16/universal/link.svg",
-        "…",
-        () => {},
-      );
-      registerTimelineContextAction(
-        firstWindow,
-        flatEventID,
-        { flat: "unused", submenu: "unused" },
-        "chrome://zotero/skin/16/universal/plus.svg",
-        "…",
-        () => {},
-      );
-      for (const id of allIDs) {
-        assert.lengthOf(
-          firstWindow.document.querySelectorAll(`#${id}`),
-          1,
-          `a second registration left more than one #${id}`,
-        );
+    afterEach(async function () {
+      const popup = win.document.getElementById("zotero-itemmenu");
+      popup.dispatchEvent(new win.Event("popuphidden"));
+      for (const item of extras) {
+        await item.eraseTx();
       }
+      await whenStorageIdle();
+      await eraseAllPluginItems(libraryID);
+      clearCache();
+    });
+
+    async function openItemMenuOn(title: string): Promise<void> {
+      const item = new Zotero.Item("document");
+      item.libraryID = libraryID;
+      item.setField("title", title);
+      await item.saveTx();
+      extras.push(item);
+      await win.ZoteroPane.selectItem(item.id);
+      await win.ZoteroPane.buildItemContextMenu();
+      const popup = win.document.getElementById("zotero-itemmenu");
+      popup.dispatchEvent(new win.Event("popupshowing"));
+    }
+
+    function only(l10nID: string): any {
+      const entries = itemMenuEntries(win, l10nID);
+      assert.lengthOf(entries, 1, `expected one ${l10nID}`);
+      return entries[0];
+    }
+
+    it("shows the plain entries and hides the submenus for a library with one timeline", async function () {
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("Solo", "tl-solo"),
+      );
+
+      await openItemMenuOn("A cited work");
+
+      await waitFor(
+        () => (only(L10N.eventFlat).hidden ? undefined : true),
+        "the plain add-to-new-event entry to show",
+      );
+      assert.isFalse(only(L10N.sourcesFlat).hidden);
+      assert.isFalse(only(L10N.eventFlat).disabled);
+      assert.isTrue(only(L10N.eventSubmenu).hidden);
+      assert.isTrue(only(L10N.sourcesSubmenu).hidden);
+    });
+
+    it("shows the submenus, one row per timeline, for a library with two", async function () {
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("A", "tl-a"),
+      );
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("B", "tl-b"),
+      );
+
+      await openItemMenuOn("A cited work");
+
+      const submenu = await waitFor(() => {
+        const menu = only(L10N.eventSubmenu);
+        return menu.hidden ? undefined : menu;
+      }, "the add-to-new-event submenu to show");
+      const rows = Array.from(
+        submenu.querySelectorAll("menupopup > menuitem"),
+      ).map((row: any) => row.getAttribute("label"));
+      assert.sameMembers(rows, ["A\u2026", "B\u2026"]);
+      assert.isTrue(only(L10N.eventFlat).hidden);
+      assert.isTrue(only(L10N.sourcesFlat).hidden);
     });
   });
 });

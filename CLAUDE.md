@@ -287,7 +287,7 @@ to build.
 - **Editor config**: `.editorconfig` — UTF-8, LF, two-space indent, final
   newline, trailing whitespace trimmed except in Markdown.
 - **CI**: `.github/workflows/ci.yml` runs lint, build, and one test job per
-  claimed Zotero major against a pinned download (7.0.32, 8.0.4, 9.0.4, 10.0).
+  claimed Zotero major against a pinned download (8.0.4, 9.0.4, 10.0).
   An un-pinned beta job gives early warning and carries `continue-on-error`, so
   it never gates a merge. `.github/workflows/deploy-docs.yml` publishes the
   site and then fetches the published URL to confirm it actually rendered.

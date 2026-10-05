@@ -67,21 +67,6 @@ vocabulary-error-not-writable = This library can't be edited, so the change was 
 vocabulary-error-empty = A library's link types can't be empty. Add another type before deleting the last one.
 vocabulary-error-generic = Zotero Timeline could not save this change: { $message }
 
-# The library context menu entries that attach the selection to an event that
-# already exists. The flat form is generic because the library holds only one
-# timeline when it shows, so nothing else needs naming; the submenu form
-# completes with a timeline's own name, one per row.
-context-add-sources-flat = Add as Sources to Timeline…
-context-add-sources-submenu = Add as Sources to…
-
-# The library context menu entries that open the editor panel on a new,
-# unsaved event with the selection already attached as sources. The ellipsis
-# is what says a further surface opens rather than the click itself writing
-# anything - see event-editor-create-sources-skipped below for what happens
-# on Save.
-context-add-to-new-event-flat = Add to New Event on Timeline…
-context-add-to-new-event-submenu = Add to New Event on…
-
 # Shown when the timeline tab is already open on a document other than the one
 # a jump or an "add to new event" targets - either a different library, or the
 # same library's document created since the tab opened. Confirming closes
