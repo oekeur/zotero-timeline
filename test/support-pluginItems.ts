@@ -26,21 +26,14 @@ import {
 export async function eraseAllPluginItems(libraryID: number): Promise<void> {
   await whenStorageIdle();
   const containers = await findContainers(libraryID, { includeTrashed: true });
-  for (const container of containers) {
-    // loadDataType, not reload. Zotero's reload() skips any data type where
-    // `_loaded[type]` is false (dataObject.js), so it refreshes data that is
-    // already loaded and does nothing at all for data that is not: the very
-    // next getNotes() then throws UnloadedDataException. Nothing guarantees a
-    // container's childItems are loaded here, and opening and closing a second
-    // main window is enough to leave them unloaded, which made this helper
-    // throw in an afterEach and fail every spec in every file after it.
-    await (container as any).loadDataType("childItems", true);
-    for (const noteID of container.getNotes(true)) {
-      const note = (await Zotero.Items.getAsync(noteID)) as Zotero.Item;
-      await note.eraseTx();
-    }
-    await container.eraseTx();
+  if (containers.length === 0) {
+    return;
   }
+  // One transaction for every container. Erasing a regular item erases its
+  // child notes inside the same transaction (Zotero.Item._eraseData selects
+  // them by parentItemID in SQL, so it needs no loaded childItems), and the
+  // notifier batches every id the transaction erased into one delete.
+  await Zotero.Items.erase(containers.map((container) => container.id));
 }
 
 export function documentNamed(name: string, id = "tl-1"): TimelineDocument {
