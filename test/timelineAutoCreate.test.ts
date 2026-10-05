@@ -22,13 +22,18 @@ describe("timeline tab: giving a library with none its first timeline", function
     api = (Zotero as any).ZoteroTimeline.api;
   });
 
+  // The specs write through the plugin's own storage queue, which the test
+  // bundle's copy of whenStorageIdle (inside eraseAllPluginItems) does not
+  // watch; a write still queued there could land after the erase.
   beforeEach(async function () {
     api.closeTimelineTab();
+    await api.storageQueueIdleForTests(15000);
     await eraseAllPluginItems(libraryID);
   });
 
   afterEach(async function () {
     api.closeTimelineTab();
+    await api.storageQueueIdleForTests(15000);
     await eraseAllPluginItems(libraryID);
   });
 
@@ -53,6 +58,31 @@ describe("timeline tab: giving a library with none its first timeline", function
       ["Timeline"],
     );
   });
+
+  for (const delay of [0, 20]) {
+    // Open, close and reopen before the first open's default write lands:
+    // both opens reach the empty-library check, and only one may act on it.
+    it(`creates exactly one when the tab is closed and reopened ${delay} ms into the first open`, async function () {
+      assert.lengthOf(await searchStorageNotes(libraryID), 0);
+
+      const firstOpen = api.openTimelineTab();
+      await Zotero.Promise.delay(delay);
+      api.closeTimelineTab();
+      const secondOpen = api.openTimelineTab();
+      await Promise.all([firstOpen, secondOpen]);
+      await waitFor(() => api.getCurrentTimeline(), "the timeline to render");
+
+      assert.isTrue(
+        await api.storageQueueIdleForTests(5000),
+        "the storage queue did not settle, so a second create may still be pending",
+      );
+      assert.lengthOf(
+        await searchStorageNotes(libraryID),
+        1,
+        "overlapping opens created more than one default timeline",
+      );
+    });
+  }
 
   // AC #2: opening again must not create a second one.
   it("creates nothing more once the library already has a timeline", async function () {

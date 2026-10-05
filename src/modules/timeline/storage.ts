@@ -880,6 +880,69 @@ export async function createTimeline(
   return { item, doc };
 }
 
+export type EnsureDefaultTimelineResult =
+  | "created"
+  | "exists"
+  | "hidden"
+  | "not-writable";
+
+/**
+ * Creates a library's first timeline unless it already has one, with the
+ * check and the write inside one turn of the write queue.
+ *
+ * Checking outside the queue and creating inside it lets two overlapping
+ * callers (a tab opened, closed and reopened before the first open's write
+ * lands) both see an empty library and both create. In one queued task the
+ * second caller's check runs only after the first caller's write, and finds
+ * it.
+ *
+ * "hidden" covers both ways a library can look empty while its timelines sit
+ * in the trash: the check finding hidden data up front, and the container
+ * landing in the trash between the check and the write, which
+ * findOrCreateContainer reports as `container-trashed`. Either way nothing is
+ * written, and the warning is the caller's, since this module only writes.
+ *
+ * Calls only plain searches and createNoteUnqueued from inside its task: the
+ * queue is not reentrant, and a queued export called from in here would wait
+ * behind this task forever.
+ */
+export async function ensureDefaultTimeline(
+  name: string,
+  libraryID: number,
+): Promise<EnsureDefaultTimelineResult> {
+  const outcome = await enqueue(
+    async (): Promise<EnsureDefaultTimelineResult> => {
+      if ((await searchStorageNotes(libraryID)).length > 0) {
+        return "exists";
+      }
+      if (await hasHiddenTimelineData(libraryID)) {
+        return "hidden";
+      }
+      const library = Zotero.Libraries.get(libraryID);
+      if (!library || !library.editable) {
+        return "not-writable";
+      }
+      try {
+        await createNoteUnqueued(
+          libraryID,
+          STORAGE_TAG,
+          buildNoteHtml(emptyTimelineDocument(name)),
+        );
+      } catch (err) {
+        if (err instanceof StorageError && err.reason === "container-trashed") {
+          return "hidden";
+        }
+        throw err;
+      }
+      return "created";
+    },
+  );
+  if (outcome === "created") {
+    emitStorageWrite(libraryID);
+  }
+  return outcome;
+}
+
 /**
  * Renames a timeline: writes `name` and nothing else, through the same
  * read-modify-write updateTimelineDocument gives every other edit, so id,

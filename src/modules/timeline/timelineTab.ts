@@ -21,10 +21,9 @@ import {
   CONTAINER_TAG,
   createTimeline,
   deleteTimeline,
-  hasHiddenTimelineData,
+  ensureDefaultTimeline,
   isContainerTrashed,
   renameTimeline,
-  searchStorageNotes,
   STORAGE_TAG,
   StorageError,
   type StoredTimeline,
@@ -607,18 +606,10 @@ async function createTimelineOrWarn(
  * request, not a bypass of it.
  */
 async function createDefaultTimelineIfNeeded(libraryID: number): Promise<void> {
-  if ((await searchStorageNotes(libraryID)).length > 0) {
-    return;
-  }
-  if (await hasHiddenTimelineData(libraryID)) {
+  const outcome = await ensureDefaultTimeline(DEFAULT_TIMELINE_NAME, libraryID);
+  if (outcome === "hidden") {
     warn(getString("timeline-data-trashed-open"));
-    return;
   }
-  const library = Zotero.Libraries.get(libraryID);
-  if (!library || !library.editable) {
-    return;
-  }
-  await createTimelineOrWarn(DEFAULT_TIMELINE_NAME, libraryID);
 }
 
 const VIS_STYLESHEET_ID = "zoterotimeline-vis-stylesheet";
