@@ -40,7 +40,6 @@ import { serializeDocument, type TimelineDocument } from "./schema";
 import { toTimelineRange } from "../../utils/edtfRange";
 
 const TAB_TYPE = "zoterotimeline-timeline";
-const MENU_ID = "zotero-timeline-menuitem-open-timeline";
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const TIMELINE_SHORTCUT = "shift,t";
 
@@ -2474,41 +2473,37 @@ export async function openTimelineTab(
 }
 
 /**
- * Adds the Tools > Timeline entry to one main window.
+ * Adds the Tools > Timeline entry.
  *
- * Per window, and called from onMainWindowLoad rather than once from
- * onStartup: a window opened after the plugin started carried no entry at all,
- * because MenuManager.register resolves the string form "menuTools" through
- * Zotero.getMainWindow(), which is one window rather than every window. Passing
- * the popup element directly is what targets a named window.
- *
- * The id guard is what keeps a second call idempotent. onMainWindowLoad also
- * runs for the windows that already exist at startup, so without it the first
- * window would carry two identical entries.
+ * Once, from onStartup: Zotero.MenuManager builds the entry into every main
+ * window's Tools menu itself, each time that menu opens, so a window opened
+ * after startup gets it too. Zotero drops the registration when the plugin
+ * shuts down, keyed on pluginID.
  */
-export function registerTimelineMenu(win: _ZoteroTypes.MainWindow): void {
-  const doc = win.document;
-  if (doc.getElementById(MENU_ID)) {
-    return;
-  }
-  const popup = doc.querySelector("#menu_ToolsPopup");
-  if (!popup) {
-    return;
-  }
-  ztoolkit.Menu.register(popup as XUL.MenuPopup, {
-    tag: "menuitem",
-    id: MENU_ID,
-    label: getString("timeline-tab-label"),
-    commandListener: () => {
-      // Nothing catches for us here, and the tab is added before the body is
-      // built, so an unhandled rejection would leave an empty tab and no clue.
-      void openTimelineTab(win).catch((err) => {
-        logFailure(
-          `[zoteroTimeline] openTimelineTab failed: ${(err as Error)?.message ?? String(err)}`,
-          err,
-        );
-      });
-    },
+export function registerTimelineMenu(): string | false {
+  return Zotero.MenuManager.registerMenu({
+    menuID: "open-timeline",
+    pluginID: addon.data.config.addonID,
+    target: "main/menubar/tools",
+    menus: [
+      {
+        menuType: "menuitem",
+        l10nID: `${addon.data.config.addonRef}-menu-tools-timeline`,
+        onCommand: (_event, context) => {
+          const win = context.menuElem.ownerDocument!
+            .defaultView as unknown as _ZoteroTypes.MainWindow;
+          // Nothing catches for us here, and the tab is added before the body
+          // is built, so an unhandled rejection would leave an empty tab and
+          // no clue.
+          void openTimelineTab(win).catch((err) => {
+            logFailure(
+              `[zoteroTimeline] openTimelineTab failed: ${(err as Error)?.message ?? String(err)}`,
+              err,
+            );
+          });
+        },
+      },
+    ],
   });
 }
 

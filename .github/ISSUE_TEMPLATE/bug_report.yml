@@ -66,7 +66,7 @@ body:
     attributes:
       label: Zotero version
       description: Help -> About Zotero.
-      placeholder: 7.0.32
+      placeholder: 10.0
     validations:
       required: true
 

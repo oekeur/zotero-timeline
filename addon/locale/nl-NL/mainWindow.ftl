@@ -1,5 +1,24 @@
-timeline-menu-open =
-    .label = Tijdlijn openen
+menu-tools-timeline =
+    .label = Tijdlijn
+
+# The library context menu entries that attach the selection to an event that
+# already exists. The flat form is generic because the library holds only one
+# timeline when it shows, so nothing else needs naming; the submenu form
+# completes with a timeline's own name, one per row.
+menu-add-sources-flat =
+    .label = Toevoegen als bronnen aan tijdlijn…
+menu-add-sources-submenu =
+    .label = Toevoegen als bronnen aan…
+
+# The library context menu entries that open the editor panel on a new,
+# unsaved event with the selection already attached as sources. The ellipsis
+# is what says a further surface opens rather than the click itself writing
+# anything - see event-editor-create-sources-skipped in addon.ftl for what
+# happens on Save.
+menu-add-to-new-event-flat =
+    .label = Toevoegen aan nieuwe gebeurtenis op tijdlijn…
+menu-add-to-new-event-submenu =
+    .label = Toevoegen aan nieuwe gebeurtenis op…
 
 timeline-chrome-zoom-in =
     .title = Inzoomen

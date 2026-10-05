@@ -20,8 +20,10 @@ source that contradicts it are stored differently and drawn differently.
 
 ## Requirements
 
-Zotero 7, 8, 9 or 10. The plugin declares `strict_min_version` 6.999 and
-`strict_max_version` 10.0.\*.
+Zotero 8, 9 or 10. The plugin declares `strict_min_version` 7.999 and
+`strict_max_version` 10.0.\*. Zotero 7 is not supported: the plugin's menu
+entries are registered through `Zotero.MenuManager`, which Zotero 8
+introduced.
 
 The ceiling is narrow on purpose. The plugin replaces
 `Zotero.CollectionTreeRow.prototype.getSearchObject` to keep its own storage

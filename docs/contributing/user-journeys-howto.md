@@ -171,8 +171,10 @@ with no timelines `api.getActiveTimeline()` is `null` after the first create,
 and stays `null` after the second; nothing is active until a selection or a
 click-to-create.
 
-1. **Do** Tools → Timeline (menuitem `#zotero-timeline-menuitem-open-timeline`),
-   or press Shift+T with the library focused.
+1. **Do** Tools → Timeline (menuitem
+   `[data-l10n-id="zoterotimeline-menu-tools-timeline"]`, which Zotero only
+   inserts once the Tools menu has been opened), or press Shift+T with the
+   library focused.
    **Expect** a tab titled "Timeline" of type `zoterotimeline-timeline`
    (`Zotero_Tabs.selectedType`), holding `.zoterotimeline-sidebar` with the
    heading "Timelines" and a `+` control
@@ -374,11 +376,12 @@ partial-result message. Walked on 2026-09-14 except step 2 (needs a second
 writable library).
 
 1. **Do** In the library select _Terror_ and _Napoleon_, then open the item
-   context menu. From the rig: dispatch `popupshowing` on `#zotero-itemmenu`,
-   then read the two entries.
+   context menu. From the rig: `await ZoteroPane.buildItemContextMenu()`,
+   which is where Zotero.MenuManager inserts the entries, then dispatch
+   `popupshowing` on `#zotero-itemmenu` and read the two entries.
    **Expect** with two timelines in the library both entries are submenus
-   (`#zotero-timeline-menuitem-add-sources-submenu`,
-   `#zotero-timeline-menuitem-add-to-new-event-submenu`) listing both
+   (`[data-l10n-id="zoterotimeline-menu-add-sources-submenu"]`,
+   `[data-l10n-id="zoterotimeline-menu-add-to-new-event-submenu"]`) listing both
    timelines, each label ending in an ellipsis; the flat forms are hidden.
    With exactly one timeline the flat forms show instead.
 
@@ -388,7 +391,7 @@ writable library).
    split library. Nothing is written.
 
 3. **Do** Pick "Add to New Event on…" → _Scientific work_. From the rig use
-   `zotero_click_element` on `#zotero-timeline-menuitem-add-to-new-event-submenu menupopup > menuitem`
+   `zotero_click_element` on `[data-l10n-id="zoterotimeline-menu-add-to-new-event-submenu"] menupopup > menuitem`
    with the right `index`.
    **Expect** if the editor holds an event, a native confirm "Discard the
    current edit?" opens first, wording "This will replace what the editor is

@@ -67,21 +67,6 @@ vocabulary-error-not-writable = Deze bibliotheek kan niet worden bewerkt, dus de
 vocabulary-error-empty = De linktypes van een bibliotheek mogen niet leeg zijn. Voeg een ander type toe voordat je de laatste verwijdert.
 vocabulary-error-generic = Zotero Timeline kon deze wijziging niet opslaan: { $message }
 
-# The library context menu entries that attach the selection to an event that
-# already exists. The flat form is generic because the library holds only one
-# timeline when it shows, so nothing else needs naming; the submenu form
-# completes with a timeline's own name, one per row.
-context-add-sources-flat = Toevoegen als bronnen aan tijdlijn…
-context-add-sources-submenu = Toevoegen als bronnen aan…
-
-# The library context menu entries that open the editor panel on a new,
-# unsaved event with the selection already attached as sources. The ellipsis
-# is what says a further surface opens rather than the click itself writing
-# anything - see event-editor-create-sources-skipped below for what happens
-# on Save.
-context-add-to-new-event-flat = Toevoegen aan nieuwe gebeurtenis op tijdlijn…
-context-add-to-new-event-submenu = Toevoegen aan nieuwe gebeurtenis op…
-
 # Shown when the timeline tab is already open on a document other than the one
 # a jump or an "add to new event" targets - either a different library, or the
 # same library's document created since the tab opened. Confirming closes

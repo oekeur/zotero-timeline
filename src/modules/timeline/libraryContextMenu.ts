@@ -73,9 +73,9 @@ export type TimelineMenuEntry = {
 /**
  * The library's timelines, read once per opening of the item menu.
  *
- * Keyed on the popupshowing event, which the toolkit passes identically to
- * every isHidden/isDisabled/onShowing hook it fires for that one popup, so the
- * flat and submenu forms of both actions share this promise instead of each
+ * Keyed on the popupshowing event, which Zotero.MenuManager passes
+ * identically to every entry's onShowing for that one popup, so the flat and
+ * submenu forms of both actions share this promise instead of each
  * re-running the tag search that listTimelinesCached still performs on every
  * call. Never populated outside a popup opening, so a timeline created or
  * renamed since the last popup is picked up the next time one opens.
@@ -148,7 +148,9 @@ export async function computeMenuShape(
  *
  * Rebuilt on every open rather than at registration, for the same reason
  * computeMenuShape re-reads the selection every time: a timeline created or
- * renamed while the menu sat registered would otherwise never appear.
+ * renamed while the menu sat registered would otherwise never appear. The
+ * rows carry no zotero-custom-menu-item class, so Zotero.MenuManager, which
+ * clears only its own elements from the child popup, leaves them in place.
  */
 function rebuildTimelineSubmenu(
   menu: Element,
@@ -172,96 +174,109 @@ function rebuildTimelineSubmenu(
   }
 }
 
-export type TimelineContextLabels = {
-  flat: string;
-  submenu: string;
+export type TimelineContextAction = {
+  /** Unique among this plugin's Zotero.MenuManager registrations. */
+  menuID: string;
+  /** Unprefixed Fluent ids of the two forms' `.label` messages in
+   * mainWindow.ftl. */
+  l10n: { flat: string; submenu: string };
+  icon: string;
+  submenuItemSuffix: string;
+  act: (
+    timeline: TimelineMenuEntry,
+    selection: Zotero.Item[],
+    win: _ZoteroTypes.MainWindow,
+  ) => void;
 };
 
+function windowOf(element: Element): _ZoteroTypes.MainWindow {
+  return element.ownerDocument!
+    .defaultView as unknown as _ZoteroTypes.MainWindow;
+}
+
 /**
- * Registers one action twice: a plain entry that acts on the library's one
- * timeline, and a submenu that lists several. Exactly one of the two ever
- * shows, decided fresh on each popup by computeMenuShape; a toolkit menu
- * cannot become a menuitem after registration, so both are registered up
- * front.
+ * Registers one action as two entries of the item context menu: a plain entry
+ * that acts on the library's one timeline, and a submenu that lists several.
+ * Exactly one of the two ever shows, decided fresh on each popup by
+ * computeMenuShape; a registered entry cannot change its menuType, so both
+ * are registered up front.
  *
  * A selection spanning libraries never reaches `act`: the flat entry stays
  * visible so the refusal is where the user was looking, but disabled, with
  * `computeMenuShape`'s message as its tooltip.
  *
- * Per window, and called from onMainWindowLoad rather than once from
- * onStartup: the toolkit's string form "item" resolves the item menupopup
- * through Zotero.getMainWindow(), one window rather than every window, so a
- * window opened after startup got neither entry. Resolving the popup from
- * win.document and guarding on the menuitem id is what registerTimelineMenu
- * in timelineTab.ts already does for the Tools entry.
+ * Once, from onStartup: Zotero.MenuManager builds the entries into every main
+ * window's item menu itself, each time that menu is built, and drops the
+ * registration when the plugin shuts down, keyed on pluginID.
+ *
+ * Both entries start hidden and are revealed once computeMenuShape settles.
+ * Zotero calls onShowing synchronously and does not await it, so the popup is
+ * already open by the time the timelines have been listed.
  */
 export function registerTimelineContextAction(
-  win: _ZoteroTypes.MainWindow,
-  id: string,
-  labels: TimelineContextLabels,
-  icon: string,
-  submenuItemSuffix: string,
-  act: (timeline: TimelineMenuEntry) => void,
-): void {
-  const doc = win.document;
-  if (doc.getElementById(id)) {
-    return;
-  }
-  const popup = doc.querySelector("#zotero-itemmenu");
-  if (!popup) {
-    return;
-  }
-
-  function shape(event: Event): Promise<MenuShape> {
-    return computeMenuShape(event, win.ZoteroPane.getSelectedItems());
-  }
-
-  ztoolkit.Menu.register(popup as XUL.MenuPopup, {
-    tag: "menuitem",
-    id,
-    label: labels.flat,
-    icon,
-    commandListener: (event) => {
-      void shape(event).then((result) => {
-        if (result.kind === "flat") {
-          act(result.entry);
-        }
-      });
-    },
-    isHidden: async (_elem, event) => {
-      const result = await shape(event);
-      return result.kind !== "flat" && result.kind !== "disabled";
-    },
-    isDisabled: async (_elem, event) =>
-      (await shape(event)).kind === "disabled",
-    onShowing: async (elem, event) => {
-      const result = await shape(event);
-      if (result.kind === "disabled") {
-        elem.setAttribute("tooltiptext", result.message);
-      } else {
-        elem.removeAttribute("tooltiptext");
-      }
-    },
-  });
-
-  ztoolkit.Menu.register(popup as XUL.MenuPopup, {
-    tag: "menu",
-    id: `${id}-submenu`,
-    popupId: `${id}-popup`,
-    label: labels.submenu,
-    icon,
-    isHidden: async (elem, event) => {
-      const result = await shape(event);
-      if (result.kind !== "submenu") {
-        return true;
-      }
-      rebuildTimelineSubmenu(
-        elem as unknown as Element,
-        result.entries,
-        act,
-        submenuItemSuffix,
-      );
-      return false;
-    },
+  action: TimelineContextAction,
+): string | false {
+  const { menuID, l10n, icon, submenuItemSuffix, act } = action;
+  const prefix = addon.data.config.addonRef;
+  return Zotero.MenuManager.registerMenu({
+    menuID,
+    pluginID: addon.data.config.addonID,
+    target: "main/library/item",
+    menus: [
+      {
+        menuType: "menuitem",
+        l10nID: `${prefix}-${l10n.flat}`,
+        icon,
+        onShowing: (event, context) => {
+          context.setVisible(false);
+          void computeMenuShape(event, context.items ?? []).then((result) => {
+            context.setVisible(
+              result.kind === "flat" || result.kind === "disabled",
+            );
+            context.setEnabled(result.kind !== "disabled");
+            if (result.kind === "disabled") {
+              context.menuElem?.setAttribute("tooltiptext", result.message);
+            } else {
+              context.menuElem?.removeAttribute("tooltiptext");
+            }
+          });
+        },
+        onCommand: (event, context) => {
+          const selection = context.items ?? [];
+          const win = windowOf(context.menuElem);
+          void computeMenuShape(event, selection).then((result) => {
+            if (result.kind === "flat") {
+              act(result.entry, selection, win);
+            }
+          });
+        },
+      },
+      {
+        menuType: "submenu",
+        l10nID: `${prefix}-${l10n.submenu}`,
+        icon,
+        // Required for a submenu, and left empty: the rows are this plugin's
+        // own, rebuilt by onShowing from the library's timelines.
+        menus: [],
+        onShowing: (event, context) => {
+          context.setVisible(false);
+          const selection = context.items ?? [];
+          void computeMenuShape(event, selection).then((result) => {
+            const menu = context.menuElem;
+            if (result.kind !== "submenu" || !menu) {
+              return;
+            }
+            const win = windowOf(menu);
+            rebuildTimelineSubmenu(
+              menu,
+              result.entries,
+              (entry) => act(entry, selection, win),
+              submenuItemSuffix,
+            );
+            context.setVisible(true);
+          });
+        },
+      },
+    ],
   });
 }
