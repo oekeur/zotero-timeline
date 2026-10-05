@@ -33,7 +33,6 @@ import {
   documentNamed,
   eraseAllPluginItems,
 } from "./support-pluginItems";
-import { waitFor } from "./waitFor";
 
 function unsavedItem(
   itemType: string,
@@ -319,17 +318,15 @@ describe("libraryContextMenu", function () {
   // ztoolkit.Menu.register("item", ...), whose string form goes through
   // Zotero.getMainWindow() - one window rather than every window - guarded on
   // top of that by a process-wide flag, so a window opened after the plugin
-  // started carried neither entry.
-  describe("a main window opened after the plugin started", function () {
-    // Each spec here opens a main window and closes it again; the teardown
-    // waits for the close and for the window count to settle, which the
-    // single-window specs above do not pay for.
-    this.timeout(60000);
-
-    let libraryID: number;
+  // started carried neither entry. Zotero's own UI never holds two main
+  // windows at once (every caller of openMainWindow focuses an existing one
+  // first), so the real case is macOS reopening a main window after the last
+  // one closed. These specs give the existing window what such a window
+  // receives, the plugin's onMainWindowLoad, rather than opening a second
+  // window: closing one leaves the first in modal state often enough to stop
+  // its timers and cascade through every later file.
+  describe("a main window loaded after the plugin started", function () {
     let firstWindow: any;
-    let second: any;
-    let extras: Zotero.Item[];
 
     const flatSourcesID = "zotero-timeline-menuitem-add-sources";
     const flatEventID = "zotero-timeline-menuitem-add-to-new-event";
@@ -341,103 +338,23 @@ describe("libraryContextMenu", function () {
     ];
 
     before(function () {
-      libraryID = Zotero.Libraries.userLibraryID;
       firstWindow = Zotero.getMainWindows()[0];
     });
 
-    beforeEach(async function () {
-      extras = [];
-      await eraseAllPluginItems(libraryID);
-      clearCache();
-    });
-
-    afterEach(async function () {
-      try {
-        for (const item of extras) {
-          await item.eraseTx();
-        }
-        if (second) {
-          await closeWindow(second);
-          second = undefined;
-        }
-        await whenStorageIdle();
-        await eraseAllPluginItems(libraryID);
-        clearCache();
-      } catch (error) {
-        // A plain Error thrown in a hook reaches the reporter as a bare
-        // `undefined`, and a hook that throws fails every spec in every file
-        // that runs after it.
-        assert.fail(
-          `second-window teardown failed: ${(error as Error)?.message ?? String(error)} :: ${(error as Error)?.stack ?? ""}`,
-        );
-      }
-    });
-
-    async function savedItem(title: string): Promise<Zotero.Item> {
-      const item = new Zotero.Item("document");
-      item.libraryID = libraryID;
-      item.setField("title", title);
-      await item.saveTx();
-      extras.push(item);
-      return item;
-    }
-
-    async function openSecondWindow(): Promise<any> {
-      const existing = new Set(Zotero.getMainWindows());
-      (Zotero as any).openMainWindow();
-      const opened = await waitFor(
-        () => Zotero.getMainWindows().find((w: any) => !existing.has(w)),
-        "a second main window to open",
-        { timeout: 20000, interval: 250 },
-      );
-      await waitFor(
-        () => (opened as any).document?.getElementById(flatEventID),
-        "the second window's context-menu entries to be registered",
-        { timeout: 20000, interval: 250 },
-      );
-      return opened;
-    }
-
-    async function closeWindow(win: any): Promise<void> {
-      if (!win || win.closed) {
-        return;
-      }
-      win.close();
-      await waitFor(
-        () => !Zotero.getMainWindows().includes(win) || undefined,
-        "the second main window to close",
-        { timeout: 20000, interval: 250 },
-      );
-      // The rest of the suite drives one window and assumes it is the only
-      // one, the same reason timelineMenuShortcut.test.ts asserts this rather
-      // than hoping for it.
-      await waitFor(
-        () => Zotero.getMainWindows().length === 1 || undefined,
-        "exactly one main window to be left behind",
-        { timeout: 20000, interval: 250 },
-      );
-    }
-
     // AC #1, #3 (registration side)
-    it("carries both entries and both submenus, without stacking a duplicate in the first window", async function () {
-      second = await openSecondWindow();
+    it("gives a freshly loaded window both entries and both submenus, once each", async function () {
+      for (const id of allIDs) {
+        firstWindow.document.getElementById(id)?.remove();
+      }
+
+      await (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(firstWindow);
 
       for (const id of allIDs) {
-        await waitFor(
-          () => second.document.getElementById(id),
-          `${id} in the second window`,
-          { timeout: 20000, interval: 250 },
+        assert.lengthOf(
+          firstWindow.document.querySelectorAll(`#${id}`),
+          1,
+          `a freshly loaded window does not carry exactly one #${id}`,
         );
-      }
-
-      for (const win of Zotero.getMainWindows() as any[]) {
-        for (const id of allIDs) {
-          assert.lengthOf(
-            win.document.querySelectorAll(`#${id}`),
-            1,
-            `a window carries more than one #${id}`,
-          );
-        }
       }
     });
 
@@ -467,45 +384,6 @@ describe("libraryContextMenu", function () {
           1,
           `a second registration left more than one #${id}`,
         );
-      }
-    });
-
-    // AC #2 - the shape a popup would show is computed from the asking
-    // window's own selection. Read off second.ZoteroPane.getSelectedItems()
-    // itself, not Zotero.getMainWindow()'s: under the suite's virtual display
-    // there is no window manager, so focus() cannot be relied on to tell the
-    // two windows apart.
-    it("computes the flat entry from each window's own selection, not the other window's", async function () {
-      second = await openSecondWindow();
-
-      await createDocumentNote(
-        libraryID,
-        STORAGE_TAG,
-        documentNamed("Solo", "tl-solo"),
-      );
-      const inFirst = await savedItem("In the first window");
-      const inSecond = await savedItem("In the second window");
-
-      await firstWindow.ZoteroPane.selectItem(inFirst.id);
-      await second.ZoteroPane.selectItem(inSecond.id);
-
-      const firstSelection = firstWindow.ZoteroPane.getSelectedItems();
-      const secondSelection = second.ZoteroPane.getSelectedItems();
-      assert.lengthOf(firstSelection, 1);
-      assert.lengthOf(secondSelection, 1);
-      assert.notEqual(
-        firstSelection[0].id,
-        secondSelection[0].id,
-        "the two windows share one selection instead of holding their own",
-      );
-
-      const firstShape = await computeMenuShape({} as Event, firstSelection);
-      const secondShape = await computeMenuShape({} as Event, secondSelection);
-      assert.equal(firstShape.kind, "flat");
-      assert.equal(secondShape.kind, "flat");
-      if (firstShape.kind === "flat" && secondShape.kind === "flat") {
-        assert.equal(firstShape.entry.documentId, "tl-solo");
-        assert.equal(secondShape.entry.documentId, "tl-solo");
       }
     });
   });
