@@ -9,6 +9,7 @@ import {
 } from "../src/modules/timeline/schema";
 import {
   buildNoteHtml,
+  CONTAINER_TAG,
   findContainers,
   findOrCreateContainer,
   whenStorageIdle,
@@ -106,6 +107,36 @@ export function canvasFixtureDocuments(): TimelineDocument[] {
   ];
 }
 
+// The container each library's fixture notes last went under, by item id.
+// findOrCreateContainer searches the library on every call, about 100 ms, and
+// fixture notes are created hundreds of times a run.
+const knownContainers = new Map<number, number>();
+
+/**
+ * The library's container, reusing the one found last time while it is still
+ * a live container. Anything else (erased, trashed, retagged, moved) falls
+ * back to findOrCreateContainer, so its refusal to create a replacement next
+ * to a trashed container still holds.
+ */
+async function containerFor(libraryID: number): Promise<Zotero.Item> {
+  const knownID = knownContainers.get(libraryID);
+  const known =
+    knownID === undefined
+      ? undefined
+      : (Zotero.Items.get(knownID) as Zotero.Item | false);
+  if (
+    known &&
+    !known.deleted &&
+    known.libraryID === libraryID &&
+    known.hasTag(CONTAINER_TAG)
+  ) {
+    return known;
+  }
+  const container = await findOrCreateContainer(libraryID);
+  knownContainers.set(libraryID, container.id);
+  return container;
+}
+
 /**
  * Creates a note under the container whose FIRST EVER save carries `html`.
  *
@@ -118,7 +149,7 @@ export async function createRawNote(
   tag: string,
   html: string,
 ): Promise<Zotero.Item> {
-  const container = await findOrCreateContainer(libraryID);
+  const container = await containerFor(libraryID);
   const item = new Zotero.Item("note");
   item.libraryID = libraryID;
   item.parentItemID = container.id;
