@@ -229,27 +229,19 @@ if ! ( cd "$work" && ./scripts/verify.sh --no-test >"$static_log" 2>&1 ); then
   block "build or lint failed on the result of merging '$ref' into main: ${failed_stages:-see log}. Full log: $keep"
 fi
 
-# On its own virtual display where one is available, for the same reason
-# verify.sh does it: two gates running in different worktrees otherwise drive
-# two Zotero GUIs onto the one desktop and compete for focus, which produced a
-# run of layout-dependent spec failures that were read as flakiness and then as
-# three successive wrong mechanisms. The kill machinery below is unaffected: it
-# matches Zotero by the $work path in its arguments, which xvfb-run does not
-# change. Absent xvfb-run the suite runs on the real display, as before.
-#
-# WAYLAND_DISPLAY is removed because xvfb-run alone does not reach a Wayland
-# session: the Zotero launcher exports MOZ_ENABLE_WAYLAND=1, so Gecko connects
-# to the compositor and paints on the real screen while DISPLAY points at an
-# Xvfb nothing draws on. That is what the "run of layout-dependent spec
-# failures" above actually was, and it never went away, because this wrapper
-# never took effect. Measured 2026-09-04: 24 failures here, 20 and then 18
-# through verify.sh, and 372 passed with zero failures once WAYLAND_DISPLAY was
-# unset.
-if command -v xvfb-run >/dev/null 2>&1; then
-  ( cd "$work" && env -u WAYLAND_DISPLAY xvfb-run -a npm test >"$log" 2>&1 ) &
-else
-  ( cd "$work" && npm test >"$log" 2>&1 ) &
-fi
+# On its own virtual display, for the same reason verify.sh runs that way: two
+# gates in different worktrees otherwise drive two Zotero GUIs onto the one
+# desktop and compete for focus (measured 2026-09-04: 24 failures on the real
+# display, 372 passed with zero failures on a virtual one). `npm test` already
+# routes through scripts/headless.mjs, which removes WAYLAND_DISPLAY and wraps
+# in xvfb-run itself, so this hook does not wrap it a second time. It used to
+# (`env -u WAYLAND_DISPLAY xvfb-run -a npm test`), but that outer xvfb-run does
+# not set the HEADLESS_WRAPPED sentinel headless.mjs checks, so the inner one
+# wrapped again: two Xvfb servers per run, and the inner wrapper's auth
+# directory leaked because the kill below only reaches the outer one. The kill
+# machinery matches Zotero by the $work path in its arguments, which xvfb-run
+# does not change.
+( cd "$work" && npm test >"$log" 2>&1 ) &
 test_pid=$!
 
 # Wait up to 12 minutes for the summary line to appear, polling every 2s.
