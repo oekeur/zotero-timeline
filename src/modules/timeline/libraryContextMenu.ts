@@ -203,26 +203,51 @@ function windowOf(element: Element): _ZoteroTypes.MainWindow {
  */
 const openingOf = new WeakMap<Element, Event>();
 
+/** Each entry's pending hide-on-close listener, so a reopening replaces it. */
+const hideOnClose = new WeakMap<Element, (ev: Event) => void>();
+
 type MenuContext = _ZoteroTypes.MenuManager.BaseMenuContext;
 
+/**
+ * Starts an opening: the entry is hidden until its reveal, and hidden again
+ * once its popup closes. buildItemContextMenu returns before
+ * Zotero.MenuManager runs any hook when an annotation is selected, so an
+ * entry left visible by the previous opening would show again, with the
+ * command listener Zotero removed on that popup's close: a dead entry.
+ *
+ * The close is this plugin's own listener rather than MenuManager's onHidden.
+ * Zotero adds onHidden as a `once` listener on the item menu that ignores
+ * events targeting anything else, so a submenu's own popuphidden, which
+ * bubbles up first, uses it up and the item menu's close never reaches it
+ * (measured on Zotero 10.0-beta.25: both submenus stayed visible).
+ */
 function opened(event: Event, context: MenuContext): void {
-  openingOf.set(context.menuElem, event);
+  const menu = context.menuElem;
+  openingOf.set(menu, event);
   context.setVisible(false);
+  const popup = menu.parentElement;
+  if (!popup) {
+    return;
+  }
+  const previous = hideOnClose.get(menu);
+  if (previous) {
+    popup.removeEventListener("popuphidden", previous);
+  }
+  const onClose = (ev: Event) => {
+    if (ev.target !== popup) {
+      return;
+    }
+    popup.removeEventListener("popuphidden", onClose);
+    hideOnClose.delete(menu);
+    openingOf.delete(menu);
+    context.setVisible(false);
+  };
+  hideOnClose.set(menu, onClose);
+  popup.addEventListener("popuphidden", onClose);
 }
 
 function stillOpen(menu: Element | undefined, event: Event): menu is Element {
   return !!menu && openingOf.get(menu) === event;
-}
-
-/**
- * Hides the entry once its popup closes. buildItemContextMenu returns before
- * Zotero.MenuManager runs any hook when an annotation is selected, so an
- * entry left visible by the previous opening would show again, with the
- * command listener Zotero removed on that popup's close: a dead entry.
- */
-function closed(_event: Event, context: MenuContext): void {
-  openingOf.delete(context.menuElem);
-  context.setVisible(false);
 }
 
 /**
@@ -265,7 +290,6 @@ function entriesFor(action: TimelineContextAction): ItemMenuEntry[] {
           }
         });
       },
-      onHidden: closed,
       onCommand: (event, context) => {
         const selection = context.items ?? [];
         const win = windowOf(context.menuElem);
@@ -301,7 +325,6 @@ function entriesFor(action: TimelineContextAction): ItemMenuEntry[] {
           context.setVisible(true);
         });
       },
-      onHidden: closed,
     },
   ];
 }

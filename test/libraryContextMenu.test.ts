@@ -520,6 +520,36 @@ describe("libraryContextMenu", function () {
       }
     });
 
+    // TASK-96 AC #1, the order a real close fires in once a submenu was
+    // opened: the submenu's own popuphidden bubbles through the item menu
+    // first. Zotero's onHidden is a `once` listener that this event used up,
+    // so the submenus stayed visible on the rig.
+    it("hides every entry once the popup closes after a submenu was opened", async function () {
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("A", "tl-a"),
+      );
+      await createDocumentNote(
+        libraryID,
+        STORAGE_TAG,
+        documentNamed("B", "tl-b"),
+      );
+      await openItemMenuOn("A cited work");
+      const submenu = await whenRevealed(L10N.sourcesSubmenu);
+
+      submenu
+        .querySelector("menupopup")
+        .dispatchEvent(new win.Event("popuphidden", { bubbles: true }));
+      win.document
+        .getElementById("zotero-itemmenu")
+        .dispatchEvent(new win.Event("popuphidden", { bubbles: true }));
+
+      for (const l10nID of Object.values(L10N)) {
+        assert.isTrue(only(l10nID).hidden, `${l10nID} still shows`);
+      }
+    });
+
     // TASK-96 AC #1: the listing settles after the popup has closed.
     it("keeps an entry hidden whose listing settles after the popup closed", async function () {
       await oneTimeline();
