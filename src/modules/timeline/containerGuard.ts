@@ -104,8 +104,7 @@ export async function trashWarningFor(
   const trashedTimelines: string[] = [];
   for (const id of ids) {
     const item = (await Zotero.Items.getAsync(Number(id))) as
-      | Zotero.Item
-      | false;
+      Zotero.Item | false;
     // The same event fires on restore, so the deleted flag is what separates
     // "moved to trash" from "taken back out of it".
     if (!item || !item.deleted) {

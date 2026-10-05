@@ -84,8 +84,7 @@ function withoutPluginItems(
 function refreshItemTrees(): void {
   for (const win of Zotero.getMainWindows()) {
     const view = (win as _ZoteroTypes.MainWindow).ZoteroPane?.itemsView as
-      | { refreshAndMaintainSelection?: () => Promise<void> }
-      | undefined;
+      { refreshAndMaintainSelection?: () => Promise<void> } | undefined;
     void view?.refreshAndMaintainSelection?.();
   }
 }

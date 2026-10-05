@@ -187,6 +187,7 @@ describe("readableTimelines follows a click-to-create", function () {
     } catch (err) {
       throw new Error(
         `${(err as Error).message}; errors:\n${Zotero.getErrors(true).join("\n")}`,
+        { cause: err },
       );
     }
     await waitFor(
@@ -273,6 +274,7 @@ describe("readableTimelines follows a click-to-create", function () {
     } catch (err) {
       throw new Error(
         `${(err as Error).message}; errors:\n${Zotero.getErrors(true).join("\n")}`,
+        { cause: err },
       );
     }
     await waitFor(

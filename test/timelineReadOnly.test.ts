@@ -218,10 +218,7 @@ describe("read-only when the library cannot be written", function () {
         SOURCE_REMOVE_BUTTON_CLASS,
       ]) {
         const control = panel.querySelector(`.${cls}`) as
-          | HTMLButtonElement
-          | HTMLInputElement
-          | HTMLSelectElement
-          | null;
+          HTMLButtonElement | HTMLInputElement | HTMLSelectElement | null;
         assert.ok(control, `${cls} was not rendered at all`);
         assert.isTrue(control!.disabled, `${cls} stayed enabled`);
       }
@@ -250,9 +247,7 @@ describe("read-only when the library cannot be written", function () {
       SOURCE_REMOVE_BUTTON_CLASS,
     ]) {
       const control = panel.querySelector(`.${cls}`) as
-        | HTMLButtonElement
-        | HTMLInputElement
-        | HTMLSelectElement;
+        HTMLButtonElement | HTMLInputElement | HTMLSelectElement;
       assert.isFalse(
         control.disabled,
         `${cls} was disabled in a library the user can write`,
