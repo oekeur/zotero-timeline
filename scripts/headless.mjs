@@ -20,12 +20,19 @@
 // silently otherwise: /opt/zotero-beta/zotero exports MOZ_ENABLE_WAYLAND=1, so
 // Gecko connects to the compositor named by the inherited WAYLAND_DISPLAY and
 // paints on the real screen while DISPLAY points at an Xvfb nothing draws on.
-// The launcher's own export cannot be overridden from out here.
+// The launcher's own export cannot be overridden from out here, so this is
+// applied whenever we wrap, not only on a session that happens to have
+// WAYLAND_DISPLAY set: an Xorg session, `ssh -X`, or a display-less one puts
+// Zotero on whatever DISPLAY names just as much as Wayland does, and a
+// display-less one has no DISPLAY at all to put it on.
 //
-// A WAYLAND_DISPLAY that is already absent means something above us has
-// already done this, which is also the guard against nesting a second Xvfb.
-// Absent xvfb-run (CI images, macOS) the command runs unwrapped, because a
-// headless CI runner has no real display to be pushed onto in the first place.
+// Nesting is guarded by a sentinel this script sets on its own child's env
+// (HEADLESS_WRAPPED), not by inferring "already wrapped" from WAYLAND_DISPLAY
+// being absent: that reads equally true of a plain Xorg session that was never
+// wrapped at all. Absent xvfb-run (CI images, macOS) the command runs
+// unwrapped and this warns once, because a headless CI runner has no real
+// display to be pushed onto in the first place, but a missing xvfb-run on a
+// desktop is worth hearing about.
 import { spawn, spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 
@@ -35,10 +42,14 @@ if (command.length === 0) {
   process.exit(2);
 }
 
-const wrap =
-  process.platform === "linux" &&
-  !!process.env.WAYLAND_DISPLAY &&
+const alreadyWrapped = process.env.HEADLESS_WRAPPED === "1";
+const hasXvfbRun =
   spawnSync("sh", ["-c", "command -v xvfb-run >/dev/null 2>&1"]).status === 0;
+const wrap = !alreadyWrapped && hasXvfbRun;
+
+if (!alreadyWrapped && !hasXvfbRun) {
+  console.warn("headless: xvfb-run not found; running on the real display");
+}
 
 // Every Xvfb this user can see, with the parent that is supposed to reap it.
 function listXvfb() {
@@ -92,7 +103,9 @@ function parentArgs(ppid) {
   return out.status === 0 && out.stdout ? out.stdout.trim() : "";
 }
 
-const env = { ...process.env };
+// Set unconditionally, wrapped or not: a nested headless.mjs must see it once
+// the command has passed through here, whether or not this level wrapped.
+const env = { ...process.env, HEADLESS_WRAPPED: "1" };
 let argv = command;
 if (wrap) {
   delete env.WAYLAND_DISPLAY;

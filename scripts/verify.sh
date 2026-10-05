@@ -115,8 +115,8 @@ fi
 # profile by absolute path, so another worktree's in-flight run survives it.
 #
 # The suite runs off-screen: `npm run test:fast` goes through
-# scripts/headless.mjs, which puts it on a virtual display on a Wayland session
-# and explains there why that matters. It used to be wrapped here instead,
+# scripts/headless.mjs, which puts it on a virtual display whenever xvfb-run is
+# available and explains there why that matters. It used to be wrapped here instead,
 # which left a bare `npm test` on the real display and flaky while the gate was
 # clean.
 if [ "$RUN_TEST" = 1 ]; then
