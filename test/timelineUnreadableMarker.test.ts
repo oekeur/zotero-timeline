@@ -315,8 +315,7 @@ describe("the sidebar's unreadable list follows every rebuild pass", function ()
     const quotedRow = Array.from(
       sidebarEl()!.querySelectorAll(`.${SIDEBAR_ROW_CLASS}`) as Element[],
     ).find((row) => row.getAttribute("data-timeline-id") === quotedId) as
-      | HTMLElement
-      | undefined;
+      HTMLElement | undefined;
     assert.ok(quotedRow, "the quoted-id row did not render");
     (
       quotedRow!.querySelector(

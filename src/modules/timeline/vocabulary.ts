@@ -48,11 +48,7 @@ export const UNKNOWN_TYPE_LABEL = "(unknown type)";
  * be the same observation.
  */
 export type VocabularyState =
-  | "ok"
-  | "recovered"
-  | "absent"
-  | "unreadable"
-  | "version-unsupported";
+  "ok" | "recovered" | "absent" | "unreadable" | "version-unsupported";
 
 export type VocabularyResult = {
   types: LinkType[];

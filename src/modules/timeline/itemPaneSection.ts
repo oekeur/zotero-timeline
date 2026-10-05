@@ -75,8 +75,7 @@ export function paneItemFor(body: HTMLElement): Zotero.Item | undefined {
     return undefined;
   }
   const details = body.closest("item-details") as
-    | (Element & { item?: Zotero.Item })
-    | null;
+    (Element & { item?: Zotero.Item }) | null;
   return details?.item ?? undefined;
 }
 

@@ -881,10 +881,7 @@ export async function createTimeline(
 }
 
 export type EnsureDefaultTimelineResult =
-  | "created"
-  | "exists"
-  | "hidden"
-  | "not-writable";
+  "created" | "exists" | "hidden" | "not-writable";
 
 /**
  * Creates a library's first timeline unless it already has one, with the

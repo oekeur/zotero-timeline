@@ -169,8 +169,7 @@ let selectedTagFilter = new Set<string>();
 // own closure (the library context menu), so it needs a stable reference to
 // call into.
 let openCreateEventHandler:
-  | ((documentId: string, items: Zotero.Item[]) => void)
-  | undefined;
+  ((documentId: string, items: Zotero.Item[]) => void) | undefined;
 // The open tab's own "make this loaded document visible again" entry point,
 // set and reset the same way openCreateEventHandler is and for the same
 // reason: revealHiddenTimeline is called from outside the tab's own closure
@@ -186,16 +185,14 @@ let revealHiddenTimelineHandler: ((documentId: string) => void) | undefined;
 // a stable reference into selectedTagFilter and renderSidebar, neither of
 // which this module exposes directly.
 let admitEventThroughTagFilterHandler:
-  | ((documentId: string, eventId: string) => boolean)
-  | undefined;
+  ((documentId: string, eventId: string) => boolean) | undefined;
 // The open tab's own "is this event actually on the canvas" entry point, set
 // and reset the same way admitEventThroughTagFilterHandler is and for the
 // same reason: isEventLoaded is called from outside the tab's own closure
 // (the item pane's jump-to-event), so it needs a stable reference into the
 // vis `items` DataSet, which this module does not otherwise expose.
 let isEventLoadedHandler:
-  | ((documentId: string, eventId: string) => boolean)
-  | undefined;
+  ((documentId: string, eventId: string) => boolean) | undefined;
 
 export function getModuleEvalEnv(): any {
   return moduleEvalEnv;
@@ -391,8 +388,7 @@ function currentTabLibraryName(): string | null {
     return null;
   }
   const noteItem = Zotero.Items.get(visible[0].noteItemID) as
-    | Zotero.Item
-    | false;
+    Zotero.Item | false;
   if (!noteItem) {
     return null;
   }
@@ -664,8 +660,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
  * id, and acting on a stale id selects nothing while reporting success.
  */
 function openTabWindow():
-  | { win: _ZoteroTypes.MainWindow & Window }
-  | undefined {
+  { win: _ZoteroTypes.MainWindow & Window } | undefined {
   if (!timelineTabID || !timelineTabWindow || timelineTabWindow.closed) {
     return undefined;
   }
@@ -2554,8 +2549,7 @@ export function registerTimelineShortcut(): void {
     // window (KeyboardManager attaches its listeners per window), so the
     // event is the only thing that says which one asked.
     const win = (ev.target as Node | null)?.ownerDocument?.defaultView as
-      | _ZoteroTypes.MainWindow
-      | undefined;
+      _ZoteroTypes.MainWindow | undefined;
     void openTimelineTab(win).catch((err) => {
       logFailure(
         `[zoteroTimeline] openTimelineTab failed: ${(err as Error)?.message ?? String(err)}`,

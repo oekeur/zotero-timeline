@@ -387,8 +387,7 @@ afterEach(function () {
 
   try {
     const err = getRawError(this.currentTest) as
-      | (Error & Record<string, unknown>)
-      | undefined;
+      (Error & Record<string, unknown>) | undefined;
     const stackHead = String(err?.stack ?? "")
       .split("\n")
       .slice(0, MAX_STACK_LINES)

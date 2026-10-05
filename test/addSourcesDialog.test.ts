@@ -274,6 +274,7 @@ describe("addSourcesDialog", function () {
       } catch (err) {
         throw new Error(
           `${(err as Error).message}; errors:\n${Zotero.getErrors(true).join("\n")}`,
+          { cause: err },
         );
       }
       return {

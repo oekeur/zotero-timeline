@@ -1650,6 +1650,7 @@ describe("item-pane section: which events cite this item", function () {
         } catch (err) {
           throw new Error(
             `${(err as Error).message} Refresh ran on ${JSON.stringify(calls)}. Body: ${body.textContent}`,
+            { cause: err },
           );
         }
         assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
@@ -1697,6 +1698,7 @@ describe("item-pane section: which events cite this item", function () {
         } catch (err) {
           throw new Error(
             `${(err as Error).message} Refresh ran on ${JSON.stringify(calls)}. Body: ${body.textContent}`,
+            { cause: err },
           );
         }
         assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));
@@ -1740,6 +1742,7 @@ describe("item-pane section: which events cite this item", function () {
         } catch (err) {
           throw new Error(
             `${(err as Error).message} Refresh ran on ${JSON.stringify(calls)}. Body: ${body.textContent}`,
+            { cause: err },
           );
         }
         assert.isNull(body.querySelector(`.${EMPTY_CLASS}`));

@@ -126,8 +126,7 @@ export async function renderAddSourcesDialog(
   container.appendChild(context);
 
   const note = (await Zotero.Items.getAsync(entry.noteItemID)) as
-    | Zotero.Item
-    | undefined;
+    Zotero.Item | undefined;
   if (!note) {
     const missing = doc.createElement("p");
     missing.classList.add(EMPTY_CLASS);

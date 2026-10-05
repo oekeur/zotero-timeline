@@ -447,7 +447,8 @@ function renderCreateForm(
  * synchronous - awaited here to match the real behavior.
  */
 async function showSourceItemInLibrary(item: Zotero.Item): Promise<void> {
-  await Zotero.getActiveZoteroPane().selectItem(item.id);
+  // Null only with no main window open; this button lives in the main window.
+  await Zotero.getActiveZoteroPane()?.selectItem(item.id);
 }
 
 /**
