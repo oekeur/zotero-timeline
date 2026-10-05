@@ -73,6 +73,7 @@ import {
 installRawErrorCapture();
 
 const TAB_TYPE = "zoterotimeline-timeline";
+const SIDEBAR_ID = "zoterotimeline-sidebar";
 
 let specIndex = 0;
 let announcedRecorded = false;
@@ -94,6 +95,37 @@ function collectOpenPluginTabs(windows: any[]): OpenPluginTab[] {
   });
   return openTabs;
 }
+
+/**
+ * Plugin tab containers still in a window's tab deck that Zotero_Tabs no
+ * longer lists. Zotero_Tabs.close() drops a tab from `_tabs` at once but
+ * removes its container in a window setTimeout, so a container can
+ * legitimately outlive its tab by a tick; the caller only records one still
+ * there at the next spec boundary too. One that survives is a whole second
+ * timeline UI in the document, and every lookup by element id finds whichever
+ * copy comes first. It survives when the window's timers are suspended, which
+ * closing a second main window has been measured to cause.
+ */
+function collectOrphanedPluginTabContainers(windows: any[]): string[] {
+  const orphans: string[] = [];
+  windows.forEach((win, windowIndex) => {
+    const tabs = win.Zotero_Tabs;
+    const listed = new Set((tabs?._tabs ?? []).map((tab: any) => tab.id));
+    for (const child of Array.from<any>(tabs?.deck?.children ?? [])) {
+      if (
+        !listed.has(child.id) &&
+        child.querySelector?.(`[id="${SIDEBAR_ID}"]`)
+      ) {
+        orphans.push(`${windowIndex}:${child.id}`);
+      }
+    }
+  });
+  return orphans;
+}
+
+// Orphans seen at the previous spec boundary, each with the spec it was first
+// seen before.
+let orphansSeenLastBoundary = new Map<string, string>();
 
 function recordQueueViolation(
   fullTitle: string,
@@ -176,6 +208,20 @@ function assertSuiteBaseline(fullTitle: string, index: number): void {
             : " (observer ids not exposed on api)"),
       );
     }
+
+    const orphansNow = new Map<string, string>();
+    for (const orphan of collectOrphanedPluginTabContainers(windows)) {
+      const firstSeen = orphansSeenLastBoundary.get(orphan) ?? fullTitle;
+      orphansNow.set(orphan, firstSeen);
+      if (orphansSeenLastBoundary.has(orphan)) {
+        const [windowIndex, id] = orphan.split(":");
+        problems.push(
+          `plugin tab container ${id} is still in window #${windowIndex}'s tab ` +
+            `deck though Zotero_Tabs no longer lists it; first seen just before "${firstSeen}"`,
+        );
+      }
+    }
+    orphansSeenLastBoundary = orphansNow;
 
     const currentTimeline = api.getCurrentTimeline();
     const timelineDefined =
