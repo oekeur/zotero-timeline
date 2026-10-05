@@ -5,6 +5,12 @@
 // but the GUI sometimes hangs and never actually exits — see CLAUDE.md's
 // manual verification protocol).
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+
+// Written by test/support-tripwire.test.ts when Zotero is asked to quit before
+// the suite has finished. The scaffold empties the test data directory at the
+// start of every run, so a file here always belongs to this run.
+const EARLY_QUIT_REPORT = ".scaffold/test/data/early-quit.txt";
 
 const DONE_PATTERN = /Test run completed - (\d+) passed(?:, (\d+) failed)?/;
 // Counts from launch, not from the last line of output, so it has to clear the
@@ -87,6 +93,15 @@ child.on("exit", (code) => {
     console.error(
       `run-tests: Zotero exited (code ${code}) before printing a completion line; no test summary was seen, so the run is not a pass`,
     );
+    if (existsSync(EARLY_QUIT_REPORT)) {
+      console.error(
+        `run-tests: Zotero was asked to quit mid-suite:\n${readFileSync(EARLY_QUIT_REPORT, "utf8")}`,
+      );
+    } else {
+      console.error(
+        "run-tests: nothing inside Zotero asked it to quit, so look for something outside that ended the process",
+      );
+    }
     finish(1);
     return;
   }

@@ -294,10 +294,70 @@ function assertSuiteBaseline(fullTitle: string, index: number): void {
 // eslint-disable-next-line mocha/no-top-level-hooks -- deliberate, see above
 beforeEach(function () {
   specIndex += 1;
-  assertSuiteBaseline(
-    this.currentTest?.fullTitle() ?? "<unknown spec>",
-    specIndex,
-  );
+  currentSpecTitle = this.currentTest?.fullTitle() ?? "<unknown spec>";
+  assertSuiteBaseline(currentSpecTitle, specIndex);
+});
+
+/**
+ * Records who asked Zotero to quit when that happens before the suite ends.
+ *
+ * A run that stops mid-suite shows only run-tests' "Zotero exited (code 0)
+ * before printing a completion line", which cannot tell Zotero quitting on
+ * request from the process being killed from outside. Gecko announces a quit
+ * through quit-application-requested and quit-application; an observer on
+ * both writes the requesting stack, the running spec and Zotero's last errors
+ * to early-quit.txt in the test data directory, synchronously, since the
+ * process is on its way out. run-tests.mjs prints that file when it reports
+ * the missing completion line. No file means nothing inside Zotero asked to
+ * quit, which points at an outside kill. The root after() hook below marks
+ * the suite's own ending, so the scaffold's quit after a finished run writes
+ * nothing.
+ */
+let currentSpecTitle = "<before the first spec>";
+let suiteFinished = false;
+let earlyQuitRecorded = false;
+
+const earlyQuitObserver = {
+  observe(_subject: unknown, topic: string, data: string) {
+    if (suiteFinished || earlyQuitRecorded) {
+      return;
+    }
+    earlyQuitRecorded = true;
+    try {
+      const errors = (Zotero.getErrors(true) as unknown[])
+        .slice(-10)
+        .map((entry) => String(entry).slice(0, 400));
+      const report = [
+        `topic: ${topic}`,
+        `data: ${data}`,
+        `spec: ${currentSpecTitle} (#${specIndex})`,
+        `at: ${new Date().toISOString()}`,
+        "stack:",
+        new Error("quit requested").stack ?? "(no stack)",
+        "last errors:",
+        ...errors,
+      ].join("\n");
+      Zotero.File.putContents(
+        Zotero.File.pathToFile(
+          PathUtils.join(Zotero.DataDirectory.dir, "early-quit.txt"),
+        ),
+        report,
+      );
+    } catch (error) {
+      Zotero.debug(
+        `[zoteroTimeline] support-tripwire: recording an early quit failed: ${String(error)}`,
+      );
+    }
+  },
+};
+
+for (const topic of ["quit-application-requested", "quit-application"]) {
+  Services.obs.addObserver(earlyQuitObserver, topic);
+}
+
+// eslint-disable-next-line mocha/no-top-level-hooks -- deliberate, see above
+after(function () {
+  suiteFinished = true;
 });
 
 const MAX_STACK_LINES = 3;
