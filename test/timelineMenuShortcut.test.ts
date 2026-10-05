@@ -1,10 +1,5 @@
 import { assert } from "chai";
-import {
-  createDocumentNote,
-  documentNamed,
-  eraseAllPluginItems,
-} from "./support-pluginItems";
-import { STORAGE_TAG } from "../src/modules/timeline/storage";
+import { eraseAllPluginItems } from "./support-pluginItems";
 import { waitFor } from "./waitFor";
 
 const MENU_ID = "zotero-timeline-menuitem-open-timeline";
@@ -15,10 +10,6 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
 
   let libraryID: number;
   let api: any;
-  // Captured once, not read as getMainWindows()[0] on every call. The specs
-  // below open a second main window, and nothing promises that array keeps
-  // the original first: resolving it dynamically let later specs drive a
-  // window that had already been closed.
   let firstWindow: any;
 
   before(function () {
@@ -61,57 +52,6 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
     const options = { key: "T", shiftKey: true, bubbles: true };
     target.dispatchEvent(new win.KeyboardEvent("keydown", options));
     target.dispatchEvent(new win.KeyboardEvent("keyup", options));
-  }
-
-  /**
-   * Opens a second main window and waits for its pane to be usable.
-   *
-   * Zotero.openMainWindow returns before the window has a document worth
-   * asking about, and the plugin's own onMainWindowLoad runs somewhere in
-   * there too, so the wait is on the Tools popup existing rather than on the
-   * window appearing.
-   */
-  async function openSecondWindow(): Promise<any> {
-    const existing = new Set(Zotero.getMainWindows());
-    (Zotero as any).openMainWindow();
-    const opened = await waitFor(
-      () => Zotero.getMainWindows().find((w: any) => !existing.has(w)),
-      "a second main window to open",
-      { timeout: 20000, interval: 250 },
-    );
-    await waitFor(
-      () => (opened as any).document?.getElementById("menu_ToolsPopup"),
-      "the second window's Tools menu to exist",
-      { timeout: 20000, interval: 250 },
-    );
-    return opened;
-  }
-
-  function timelineTabsIn(win: any): any[] {
-    return (win.Zotero_Tabs?._tabs ?? []).filter(
-      (t: any) => t.type === TAB_TYPE,
-    );
-  }
-
-  async function closeWindow(win: any): Promise<void> {
-    if (!win || win.closed) {
-      return;
-    }
-    win.close();
-    await waitFor(
-      () => !Zotero.getMainWindows().includes(win) || undefined,
-      "the second main window to close",
-      { timeout: 20000, interval: 250 },
-    );
-    // The rest of the suite drives one window and assumes it is the only one.
-    // A second window surviving a spec makes every later canvas and sidebar
-    // spec drive whichever window Zotero calls frontmost, which fails far from
-    // here and says nothing about why. Asserted rather than hoped for.
-    await waitFor(
-      () => Zotero.getMainWindows().length === 1 || undefined,
-      "exactly one main window to be left behind",
-      { timeout: 20000, interval: 250 },
-    );
   }
 
   it("registers the menu entry under Tools, not File", function () {
@@ -267,386 +207,43 @@ describe("open the timeline tab from Tools and from Shift+T", function () {
 
   // TASK-64. registerTimelineMenu ran once from onStartup and resolved the
   // Tools popup through Zotero.getMainWindow(), so only the windows that
-  // existed at startup ever got an entry.
-  describe("a main window opened after the plugin started", function () {
-    // Longer than the file's own 30s. Each spec here opens a main window and
-    // closes it again, and the teardown waits for the close, for the window
-    // count to settle and for the erase, none of which the single-window
-    // specs above pay for. A hook that runs past the ceiling reports as a
-    // bare `undefined` and fails every file that runs after it.
-    this.timeout(120000);
+  // existed at startup ever got an entry. Zotero's own UI never holds two
+  // main windows at once (every caller of openMainWindow focuses an existing
+  // one first), so the real case is macOS reopening a main window after the
+  // last one closed. The specs below give the existing window what such a
+  // window receives, the plugin's onMainWindowLoad, rather than opening a
+  // second window: closing one leaves the first in modal state often enough
+  // to stop its timers and cascade through every later file.
+  describe("a main window loaded after the plugin started", function () {
+    const onMainWindowLoad = (win: any) =>
+      (Zotero as any).ZoteroTimeline.hooks.onMainWindowLoad(win);
 
-    let second: any;
-    // Real source items the add-to-new-event specs below save, tracked so
-    // tearDownWindows erases them: eraseAllPluginItems only reaches the
-    // plugin's own notes and containers, not a plain library item used as a
-    // source.
-    let extras: Zotero.Item[];
-
-    // The add-to-new-event specs below go through ensureDocumentShowing,
-    // whose cross-library-switch confirmation is a real Services.prompt.confirm
-    // that blocks Zotero's main thread with no timeout: one unstubbed call
-    // hangs the whole run. Stubbed for this block's lifetime and never handed
-    // back, matching itemPaneSection.test.ts's "jump to event" block.
-    const allowSwitch = () => true;
-
-    before(function () {
-      api.setCrossLibrarySwitchConfirmForTests(allowSwitch);
-    });
-
-    after(function () {
-      api.setCrossLibrarySwitchConfirmForTests(allowSwitch);
-    });
-
-    beforeEach(function () {
-      extras = [];
-    });
-
-    afterEach(async function () {
-      try {
-        await tearDownWindows();
-      } catch (error) {
-        // The scaffold's reporter drops a plain Error's message and prints a
-        // bare `undefined`, so a throw in here says nothing about what broke
-        // while failing every spec in every file that runs after it.
-        assert.fail(
-          `second-window teardown failed: ${(error as Error)?.message ?? String(error)} :: ${(error as Error)?.stack ?? ""}`,
-        );
-      }
-    });
-
-    async function tearDownWindows(): Promise<void> {
-      (Zotero as any).ZoteroTimeline.api.closeTimelineTab();
-      // Waited for, not fired and forgotten. Zotero_Tabs.close() runs the
-      // tab's onClose asynchronously, and that is what releases the canvas
-      // refresh observer; erasing the notes while it is still registered
-      // makes the observer rebuild against items that are going away.
-      await waitFor(
-        () =>
-          (Zotero.getMainWindows() as any[]).every(
-            (w) =>
-              !(w.Zotero_Tabs?._tabs ?? []).some(
-                (t: any) => t.type === TAB_TYPE,
-              ),
-          ) || undefined,
-        "the timeline tab to be gone from every window",
-        { timeout: 20000 },
-      );
-      // Every window that is not the first, rather than whatever `second`
-      // holds: a spec that throws between opening a window and assigning it
-      // would otherwise leak that window into the rest of the suite.
-      for (const win of Zotero.getMainWindows() as any[]) {
-        if (win !== firstWindow) {
-          await closeWindow(win);
-        }
-      }
-      second = undefined;
-      for (const item of extras) {
-        await item.eraseTx();
-      }
-      extras = [];
-      // Erased here rather than left to the outer afterEach, which is not
-      // wrapped: this is where it was actually throwing, and an unnamed throw
-      // in a hook fails every spec in every file that runs after it while
-      // saying nothing about why.
-      await eraseAllPluginItems(libraryID);
-    }
-
-    /**
-     * A stored document plus one real library item to pass as its source,
-     * through the same route the library context menu's "add to new event"
-     * action calls: api.openCreateEventOnTimeline. The menuitem route needs a
-     * selection resolved to one timeline in a real right-click popup, which
-     * addToNewEvent.test.ts and libraryContextMenu.test.ts already drive one
-     * layer below the popup for the same reason this does.
-     */
-    async function createTargetAndSource(
-      documentId: string,
-    ): Promise<Zotero.Item> {
-      await createDocumentNote(
-        libraryID,
-        STORAGE_TAG,
-        documentNamed("Second window target", documentId),
-      );
-      const item = new Zotero.Item("document");
-      item.libraryID = libraryID;
-      item.setField("title", "Second window source");
-      await item.saveTx();
-      extras.push(item);
-      return item;
-    }
-
-    // AC #1 and AC #4
-    it("carries exactly one Tools entry, and does not add a second to the first window", async function () {
-      second = await openSecondWindow();
-
-      const entry = await waitFor(
-        () =>
-          second.document.querySelector(
-            `#menu_ToolsPopup #${MENU_ID}`,
-          ) as HTMLElement | null,
-        "the Tools entry in the second window",
-        { timeout: 20000, interval: 250 },
-      );
-      assert.ok(entry, "the second window carries no Tools > Timeline entry");
-
-      for (const win of Zotero.getMainWindows() as any[]) {
-        assert.lengthOf(
-          win.document.querySelectorAll(`#menu_ToolsPopup #${MENU_ID}`),
-          1,
-          "a window carries more than one Tools > Timeline entry",
-        );
-      }
-    });
-
-    // AC #2
-    it("opens the tab in that window, on that window's library", async function () {
-      second = await openSecondWindow();
-      const entry = (await waitFor(
-        () => second.document.getElementById(MENU_ID),
-        "the Tools entry in the second window",
-        { timeout: 20000, interval: 250 },
-      )) as any;
-
-      second.focus();
-      entry.dispatchEvent(new second.Event("command", { bubbles: true }));
-
-      await waitFor(
-        () =>
-          (timelineTabsIn(second).length > 0 && api.getCurrentTimeline()) ||
-          undefined,
-        "the timeline tab to open in the second window",
-        { timeout: 20000 },
-      );
-      assert.lengthOf(
-        timelineTabsIn(mainWindow()),
-        0,
-        "the tab opened in the first window instead of the one that asked for it",
-      );
-    });
-
-    // AC #5. One tab for the process, not one per window: every piece of the
-    // tab's state is module-level while Zotero_Tabs is per window, so a second
-    // tab would overwrite the first one's canvas, observer and tag filter and
-    // closing either would tear down the survivor. Asked from another window,
-    // the tab is selected where it already is.
-    it("selects the existing tab where it already is rather than opening a second", async function () {
-      try {
-        await selectsExistingTabElsewhere();
-      } catch (error) {
-        assert.fail(
-          `second-window open failed: ${(error as Error)?.message ?? String(error)} :: ${(error as Error)?.stack ?? ""}`,
-        );
-      }
-    });
-
-    async function selectsExistingTabElsewhere(): Promise<void> {
-      second = await openSecondWindow();
-      const first = mainWindow();
-
-      const firstEntry = first.document.getElementById(MENU_ID) as any;
-      first.focus();
-      firstEntry.dispatchEvent(new first.Event("command", { bubbles: true }));
-      const opened = await waitFor(
-        () => {
-          const tab = timelineTabsIn(first)[0];
-          return tab && api.getCurrentTimeline() ? tab : undefined;
-        },
-        "the timeline tab to open in the first window",
-        { timeout: 20000 },
-      );
-
-      first.Zotero_Tabs.select("zotero-pane");
-      await waitFor(
-        () => first.Zotero_Tabs.selectedID === "zotero-pane" || undefined,
-        "the first window to move off the timeline tab",
-        { timeout: 20000 },
-      );
-
-      // Waited for rather than queried: the window's Tools popup exists
-      // before the plugin's onMainWindowLoad has put the entry into it, so a
-      // direct lookup here is null on roughly a third of runs.
-      const secondEntry = (await waitFor(
-        () => second.document.getElementById(MENU_ID),
-        "the Tools entry in the second window",
-        { timeout: 20000, interval: 250 },
-      )) as any;
-      second.focus();
-      secondEntry.dispatchEvent(new second.Event("command", { bubbles: true }));
-
-      await waitFor(
-        () => first.Zotero_Tabs.selectedID === opened.id || undefined,
-        "the first window's timeline tab to be re-selected",
-        { timeout: 20000 },
-      );
-      assert.lengthOf(
-        timelineTabsIn(second),
-        0,
-        "opening from a second window built a second timeline tab over the first one's state",
-      );
-      assert.lengthOf(
-        timelineTabsIn(first),
-        1,
-        "a second timeline tab appeared in the first window",
+    function toolsEntries(): NodeListOf<Element> {
+      return mainWindow().document.querySelectorAll(
+        `#menu_ToolsPopup #${MENU_ID}`,
       );
     }
 
-    // ensureDocumentShowing held `win` but called openTimelineTab() without
-    // it, so this route (the item-pane section and the library context
-    // menu's "add to new event" both end in it) landed the tab in
-    // Zotero.getMainWindow() rather than the window that asked, wherever no
-    // tab was open yet - the same defect TASK-64 fixed for the menu entry and
-    // the shortcut themselves.
-    it("opens the tab in the asking window from add-to-new-event, not the frontmost one", async function () {
-      second = await openSecondWindow();
-      const first = mainWindow();
+    it("gives a freshly loaded window its Tools entry", async function () {
+      mainWindow().document.getElementById(MENU_ID)?.remove();
+      assert.lengthOf(toolsEntries(), 0, "the entry was not removed");
 
-      // Asked from the first window first: asking from the second window
-      // alone does not exercise the direction this fix changes.
-      const itemA = await createTargetAndSource("tl-second-window-open-a");
-      await api.openCreateEventOnTimeline(
-        first,
-        "tl-second-window-open-a",
-        libraryID,
-        [itemA],
-      );
-      await waitFor(
-        () =>
-          (timelineTabsIn(first).length > 0 && api.getCurrentTimeline()) ||
-          undefined,
-        "the timeline tab to open in the first window",
-        { timeout: 20000 },
-      );
+      await onMainWindowLoad(mainWindow());
+
       assert.lengthOf(
-        timelineTabsIn(second),
-        0,
-        "add-to-new-event asked from the first window opened the tab in the second window instead",
-      );
-
-      api.closeTimelineTab();
-      await waitFor(
-        () =>
-          (Zotero.getMainWindows() as any[]).every(
-            (w) =>
-              !(w.Zotero_Tabs?._tabs ?? []).some(
-                (t: any) => t.type === TAB_TYPE,
-              ),
-          ) || undefined,
-        "the timeline tab to close before asking from the second window",
-        { timeout: 20000 },
-      );
-
-      // Mirrored: asked from the second window, with no tab open anywhere.
-      const itemB = await createTargetAndSource("tl-second-window-open-b");
-      await api.openCreateEventOnTimeline(
-        second,
-        "tl-second-window-open-b",
-        libraryID,
-        [itemB],
-      );
-      await waitFor(
-        () =>
-          (timelineTabsIn(second).length > 0 && api.getCurrentTimeline()) ||
-          undefined,
-        "the timeline tab to open in the second window",
-        { timeout: 20000 },
-      );
-      assert.lengthOf(
-        timelineTabsIn(first),
-        0,
-        "add-to-new-event asked from the second window opened the tab in the first window instead",
+        toolsEntries(),
+        1,
+        "a freshly loaded window does not carry exactly one Tools > Timeline entry",
       );
     });
 
-    // The one-tab rule (AC #5 above) carried through this deeper route: with
-    // the tab already open in the first window and holding the same
-    // document, the same call from the second window must select it there
-    // rather than open a second.
-    it("selects the existing tab where it already is from add-to-new-event, rather than opening a second", async function () {
-      // The second window is opened before any tab exists, matching
-      // selectsExistingTabElsewhere above: opening it after a tab is already
-      // showing in the first window left that window's teardown unable to
-      // close cleanly (measured 2026-09-15).
-      second = await openSecondWindow();
-      const first = mainWindow();
-      const item = await createTargetAndSource("tl-second-window-select");
+    it("does not stack a second Tools entry when the load hook runs again", async function () {
+      await onMainWindowLoad(mainWindow());
 
-      await api.openCreateEventOnTimeline(
-        first,
-        "tl-second-window-select",
-        libraryID,
-        [item],
-      );
-      const opened = await waitFor(
-        () => {
-          const tab = timelineTabsIn(first)[0];
-          return tab && api.getCurrentTimeline() ? tab : undefined;
-        },
-        "the timeline tab to open in the first window",
-        { timeout: 20000 },
-      );
-
-      first.Zotero_Tabs.select("zotero-pane");
-      await waitFor(
-        () => first.Zotero_Tabs.selectedID === "zotero-pane" || undefined,
-        "the first window to move off the timeline tab",
-        { timeout: 20000 },
-      );
-
-      await api.openCreateEventOnTimeline(
-        second,
-        "tl-second-window-select",
-        libraryID,
-        [item],
-      );
-
-      await waitFor(
-        () => first.Zotero_Tabs.selectedID === opened.id || undefined,
-        "the first window's timeline tab to be re-selected",
-        { timeout: 20000 },
-      );
       assert.lengthOf(
-        timelineTabsIn(second),
-        0,
-        "add-to-new-event from the second window opened a second timeline tab there",
-      );
-      assert.lengthOf(
-        timelineTabsIn(first),
+        toolsEntries(),
         1,
-        "a second timeline tab appeared in the first window",
-      );
-    });
-
-    // The teardown defect this block exposed - onMainWindowUnload released
-    // the three database observers and the library-filter prototype patch,
-    // all process-wide, so closing a second window left the surviving
-    // window's canvas reading a cache nothing evicted - is guarded by
-    // test/timelineRefresh.test.ts rather than by a spec here. Measured
-    // 2026-09-07: with the teardown put back, four of that file's specs fail,
-    // because the specs above put the plugin through a main-window open and
-    // close before it runs. A spec here that opened the tab, wrote to a note
-    // and then erased it left state the rest of the suite could not recover
-    // from, which is a worse trade than borrowing the coverage.
-
-    // AC #4's other half. onMainWindowUnload used to call
-    // ztoolkit.unregisterAll(), which removes every element the toolkit made
-    // in every window, so closing one window stripped the entry out of the
-    // ones still open.
-    it("leaves the first window's entry standing when it closes", async function () {
-      second = await openSecondWindow();
-      await waitFor(
-        () => second.document.getElementById(MENU_ID),
-        "the Tools entry in the second window",
-        { timeout: 20000, interval: 250 },
-      );
-
-      await closeWindow(second);
-      second = undefined;
-
-      assert.lengthOf(
-        mainWindow().document.querySelectorAll(`#menu_ToolsPopup #${MENU_ID}`),
-        1,
-        "closing the second window removed the first window's Tools entry",
+        "a second load stacked a duplicate Tools > Timeline entry",
       );
     });
   });
