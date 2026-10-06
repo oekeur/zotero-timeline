@@ -9,6 +9,12 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    ignore:
+      # Until typescript-eslint admits TypeScript 7 (the Go port, without the
+      # compiler API it lints through). .github/upstream-watch.sh opens an
+      # issue when it does; remove this rule then.
+      - dependency-name: "typescript"
+        versions: [">= 7"]
     groups:
       all-non-major:
         update-types:
