@@ -184,6 +184,9 @@ async function onStartup() {
     timelineTabStateForTests,
     liveNotifierObserversForTests: liveNotifierObservers,
     storageQueueIdleForTests,
+    // onShutdown's per-window FTL removal, which a spec cannot reach without
+    // shutting the plugin down under itself.
+    removeMainWindowFTLForTests: removeMainWindowFTL,
     openAddSourcesDialog,
     openCreateEventOnTimeline,
     openBugReport,
@@ -203,10 +206,50 @@ async function onStartup() {
   addon.data.initialized = true;
 }
 
+function mainWindowFTLLinks(doc: Document): Element[] {
+  const href = `${addon.data.config.addonRef}-mainWindow.ftl`;
+  const links = Array.from(
+    doc.querySelectorAll('link[rel="localization"]'),
+  ) as Element[];
+  return links.filter((link) => link.getAttribute("href") === href);
+}
+
+/**
+ * Links mainWindow.ftl into the window once, into its <linkset>.
+ *
+ * Not MozXULElement.insertFTLIfNeeded: that appends to document.head when
+ * there is one, and the timeline tab shims a head at open. A link inside that
+ * head is one DOMLocalization never reads (see the stylesheet note in
+ * onMainWindowLoad), and insertFTLIfNeeded only checks its own container for
+ * an existing link, so a load after the tab opened, as when the plugin is
+ * re-enabled, added a second, inert copy (measured 2026-10-06).
+ */
+function ensureMainWindowFTL(doc: Document): void {
+  if (mainWindowFTLLinks(doc).length > 0) {
+    return;
+  }
+  const link = doc.createElementNS("http://www.w3.org/1999/xhtml", "link");
+  link.setAttribute("rel", "localization");
+  link.setAttribute("href", `${addon.data.config.addonRef}-mainWindow.ftl`);
+  (doc.querySelector("linkset") ?? doc.documentElement)?.appendChild(link);
+}
+
+/**
+ * Takes mainWindow.ftl back out. Left linked after the plugin shuts down, its
+ * file can no longer be loaded, every document.l10n.translateFragment in the
+ * window rejects, and Zotero's item context menu, whose build awaits one,
+ * stops opening until Zotero restarts (TASK-97, measured 2026-10-06).
+ * Removing the link is what drops the resource from the window's
+ * localization.
+ */
+function removeMainWindowFTL(doc: Document): void {
+  for (const link of mainWindowFTLLinks(doc)) {
+    link.remove();
+  }
+}
+
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
-  win.MozXULElement.insertFTLIfNeeded(
-    `${addon.data.config.addonRef}-mainWindow.ftl`,
-  );
+  ensureMainWindowFTL(win.document);
 
   // Straight onto documentElement, and deliberately WITHOUT shimming a <head>
   // first. Calling ensureDocumentHead here breaks Fluent: it defines an XHTML
@@ -330,6 +373,7 @@ function onShutdown(): void {
   // outlives the plugin that owns the file it points at.
   for (const win of Zotero.getMainWindows()) {
     removeStylesheet(win.document, PANE_STYLESHEET_ID);
+    removeMainWindowFTL(win.document);
   }
   ztoolkit.unregisterAll();
   // Remove addon object
