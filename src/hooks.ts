@@ -25,7 +25,7 @@ import {
   unregisterContainerObserver,
 } from "./modules/timeline/containerGuard";
 import {
-  registerTimelineContextAction,
+  registerTimelineContextActions,
   resolveSelection,
 } from "./modules/timeline/libraryContextMenu";
 import { openAddSourcesDialog } from "./modules/timeline/addSourcesDialog";
@@ -234,62 +234,61 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 }
 
 /**
- * The item context menu's two actions, each registered once as a plain entry
- * and a submenu (see registerTimelineContextAction).
+ * The item context menu's two actions, each a plain entry and a submenu (see
+ * registerTimelineContextActions), in the order the menu shows them.
  */
 function registerLibraryContextActions(): void {
-  registerTimelineContextAction({
-    menuID: "add-sources",
-    l10n: {
-      flat: "menu-add-sources-flat",
-      submenu: "menu-add-sources-submenu",
+  registerTimelineContextActions([
+    {
+      l10n: {
+        flat: "menu-add-sources-flat",
+        submenu: "menu-add-sources-submenu",
+      },
+      icon: "chrome://zotero/skin/16/universal/link.svg",
+      submenuItemSuffix: "…",
+      act: (entry, items) => {
+        const selection = resolveSelection(items);
+        if (!selection.ok) {
+          return;
+        }
+        void openAddSourcesDialog(entry, selection.items).catch((err) => {
+          logFailure(
+            `[zoteroTimeline] failed to open the add-as-sources dialog: ${
+              (err as Error).message
+            }`,
+            err,
+          );
+        });
+      },
     },
-    icon: "chrome://zotero/skin/16/universal/link.svg",
-    submenuItemSuffix: "…",
-    act: (entry, items) => {
-      const selection = resolveSelection(items);
-      if (!selection.ok) {
-        return;
-      }
-      void openAddSourcesDialog(entry, selection.items).catch((err) => {
-        logFailure(
-          `[zoteroTimeline] failed to open the add-as-sources dialog: ${
-            (err as Error).message
-          }`,
-          err,
-        );
-      });
+    {
+      l10n: {
+        flat: "menu-add-to-new-event-flat",
+        submenu: "menu-add-to-new-event-submenu",
+      },
+      icon: "chrome://zotero/skin/16/universal/plus.svg",
+      submenuItemSuffix: "…",
+      act: (entry, items, win) => {
+        const selection = resolveSelection(items);
+        if (!selection.ok) {
+          return;
+        }
+        void openCreateEventOnTimeline(
+          win,
+          entry.documentId,
+          entry.libraryID,
+          selection.items,
+        ).catch((err) => {
+          logFailure(
+            `[zoteroTimeline] failed to open the add-to-new-event form: ${
+              (err as Error).message
+            }`,
+            err,
+          );
+        });
+      },
     },
-  });
-
-  registerTimelineContextAction({
-    menuID: "add-to-new-event",
-    l10n: {
-      flat: "menu-add-to-new-event-flat",
-      submenu: "menu-add-to-new-event-submenu",
-    },
-    icon: "chrome://zotero/skin/16/universal/plus.svg",
-    submenuItemSuffix: "…",
-    act: (entry, items, win) => {
-      const selection = resolveSelection(items);
-      if (!selection.ok) {
-        return;
-      }
-      void openCreateEventOnTimeline(
-        win,
-        entry.documentId,
-        entry.libraryID,
-        selection.items,
-      ).catch((err) => {
-        logFailure(
-          `[zoteroTimeline] failed to open the add-to-new-event form: ${
-            (err as Error).message
-          }`,
-          err,
-        );
-      });
-    },
-  });
+  ]);
 }
 
 /**
