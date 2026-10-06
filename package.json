@@ -41,7 +41,7 @@
   "dependencies": {
     "edtf": "4.11.1",
     "vis-timeline": "8.5.4",
-    "zotero-plugin-toolkit": "5.2.0"
+    "zotero-plugin-toolkit": "6.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
