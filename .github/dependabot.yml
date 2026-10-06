@@ -20,3 +20,15 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # The actions the workflows pin by version (actions/checkout@v4 and the
+  # like). One grouped PR rather than one per action. Workflows referenced
+  # by branch (@main) are not version pins and Dependabot leaves them alone.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
