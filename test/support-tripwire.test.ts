@@ -197,12 +197,12 @@ function assertSuiteBaseline(fullTitle: string, index: number): void {
     }
 
     const observerCount = api.liveNotifierObserversForTests();
-    const expectedObservers = 3 + openTabs.length;
+    const expectedObservers = 4 + openTabs.length;
     if (observerCount !== expectedObservers) {
       const ids = api.liveNotifierObserverIds?.();
       problems.push(
         `expected ${expectedObservers} live notifier observers (container guard, ` +
-          `document cache, source prune, plus 1 per open plugin tab), found ${observerCount}` +
+          `document cache, source prune, library filter, plus 1 per open plugin tab), found ${observerCount}` +
           (ids
             ? ` (ids: ${ids.join(", ")})`
             : " (observer ids not exposed on api)"),
