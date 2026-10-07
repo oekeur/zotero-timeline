@@ -27,7 +27,8 @@ step 5 (a read-only library; the profile's one group library is editable).
 The first walk corrected eleven expectations and filed four defects
 (TASK-73 to TASK-76, all landed since, with TASK-71 and TASK-74 from the
 same pass); expect the same rate again after any change to the files the
-last section names.
+last section names. The second full walk, on 2026-10-07 against 10.0-beta.25
+before the 0.9.0 release, corrected seven more; the steps it changed say so.
 
 ## Before you start
 
@@ -59,7 +60,11 @@ Bring up a dev Zotero for this checkout, seeded and observable.
    on 6100; a worktree on 6100+N is `zotero-timeline-N`. zoteroMindmap's
    `zotero-mindmap-*` entries sit on 6110-6117 and answer confidently about the
    wrong Zotero. Confirm
-   with `zotero_ping` and read the data directory it reports.
+   with `zotero_ping` and read the data directory it reports **before step 3
+   writes anything**. A Zotero installed with the MCP bridge for everyday use
+   also listens on 6100; while it runs, the main checkout's dev Zotero cannot
+   bind the port and `zotero-timeline-0` reaches the everyday library instead
+   (2026-10-07: the seed landed there). Walk from a worktree.
 5. `zotero_clear_logs`, so the error reads below start from a clean slate.
 
 The fixture gives you five journal articles, one book and a standalone note in
@@ -129,8 +134,16 @@ click-to-create since TASK-71 landed; reading back through a fresh
 `.zoterotimeline-sidebar-row-name` text and click the checkbox inside it
 through `execute_js`.
 
+**A long eval loses its return value.** A `zotero_execute_js` call that runs
+for more than a few seconds can come back as `undefined` although every
+statement ran (seen six times on 2026-10-07, also on scripts with a thrown
+error). Assign results to `globalThis.__zt` and read them in a second call, and
+check state before re-running anything that writes.
+
 **The plugin's pane loads on demand.** `zotero_open_preferences` with
-`zoterotimeline@oekeur.github.io-pane` lands on the pane; the Settings window
+`zoterotimeline-pane` lands on the pane (2026-10-07; the addon-id form
+`zoterotimeline@oekeur.github.io-pane` reported success and left General
+showing). The Settings window
 is a separate window (`zotero:pref`), so find it through
 `Services.wm.getEnumerator(null)` by `location.href` containing
 `preferences.xhtml`. Its computed `min-width` is 800 CSS px; forcing it
@@ -166,10 +179,10 @@ Covers the Tools entry, the empty canvas prompt, the sidebar's create form,
 and the container and storage notes everything else hangs off. Run this first
 after any storage change.
 
-Walked in full on 2026-09-14. Measured detail worth knowing: on a library
-with no timelines `api.getActiveTimeline()` is `null` after the first create,
-and stays `null` after the second; nothing is active until a selection or a
-click-to-create.
+Walked in full on 2026-09-14 and 2026-10-07. Since TASK-83, opening the tab
+on a writable library with no timelines creates one named "Timeline" and
+makes it active, so the steps below end with three timelines, not two.
+Creating a timeline from the sidebar never changes the active one.
 
 1. **Do** Tools → Timeline (menuitem
    `[data-l10n-id="zoterotimeline-menu-tools-timeline"]`, which Zotero only
@@ -180,10 +193,10 @@ click-to-create.
    heading "Timelines" and a `+` control
    (`.zoterotimeline-sidebar-create-button`), `.zoterotimeline-canvas`, and
    `#zoterotimeline-editor` on the right reading "Select an event to edit it,
-   or click an empty spot on the canvas to create one there." On a library
-   with no timelines the canvas shows `.zoterotimeline-canvas-empty-prompt`:
-   "This library has no timelines yet. Use the plus control in the sidebar to
-   make one." Unlike zoteroMindmap, nothing is created for you.
+   or click an empty spot on the canvas to create one there." On the fresh
+   fixture the sidebar already lists "Timeline" with one lane, and no
+   `.zoterotimeline-canvas-empty-prompt` shows (corrected 2026-10-07; J6
+   steps 3 and 5 cover where that prompt still appears).
    **Probe** `zotero_get_dom_tree` rooted at `.zoterotimeline-tab-body`. Then
    `Zotero_Tabs.select("zotero-pane")` and Tools → Timeline again: the
    existing tab is selected, no second tab. One timeline tab per process.
@@ -193,27 +206,26 @@ click-to-create.
    **Expect** the form closes; a `.zoterotimeline-sidebar-row` appears with
    that name, its `.zoterotimeline-sidebar-row-visible` checkbox ticked, and
    the row carries reorder (`↑` `↓`), rename (`✎`) and delete (`×`) controls.
-   The canvas gains one empty lane labelled "Revolutions"; the empty prompt is
-   gone.
+   The canvas gains one empty lane labelled "Revolutions" below "Timeline".
    **Probe** `zotero_db_query`:
    `SELECT COUNT(*) FROM itemTags JOIN tags USING (tagID) WHERE tags.name = '_zoterotimeline-storage-v1'`
-   returns 1, and the same query for `_zoterotimeline-container-v1` returns 1.
+   returns 2 (the default and this one), and the same query for
+   `_zoterotimeline-container-v1` returns 1.
 
 3. **Do** Make a second timeline, `Scientific work`.
-   **Expect** a second lane below the first; the storage-note count is 2, the
+   **Expect** a lane below _Revolutions_; the storage-note count is 3, the
    container count still 1. `api.getActiveTimeline()` does **not** move to
-   the new timeline: creating one never activates anything (`null` on a fresh
-   library, unchanged on a populated one). Activation follows selection and
-   the click-to-create gesture (J5 step 3), not creation.
+   the new timeline: it stays on the default "Timeline". Activation follows
+   selection and the click-to-create gesture (J5 step 3), not creation.
 
-4. **Do** Look at the library root for an item titled "Zotero Timeline data".
+4. **Do** Look at the library root for an item titled "Zotero Timeline (plugin data)".
    **Expect** with the default preference it is hidden from the item tree.
    J7 turns the preference off and checks it appears, with the storage notes
    as its children.
 
 5. **Do** Close the tab (`Zotero_Tabs.close(...)` or the tab's ×), then Tools
    → Timeline again.
-   **Expect** both timelines back, in the same order, both visible; the
+   **Expect** all three timelines back, in the same order, all visible; the
    editor panel back at its empty prompt.
 
 **Then** `zotero_read_errors`.
@@ -223,23 +235,29 @@ click-to-create.
 ## J2 · Author events: click, type, tags, duplicate, delete
 
 Covers the click-to-create gesture, the editor's fields and EDTF feedback,
-tags, the duplicate form and deletion. Walked on 2026-09-14 except step 5
-(drag). This journey found three of the four defects the first walk filed;
+tags, the duplicate form and deletion. Walked on 2026-09-14 and 2026-10-07
+except step 5 (drag). This journey found three of the four defects the first walk filed;
 read the expectations as they are now, not as the source suggests.
 
 1. **Do** With _Revolutions_ visible, click an empty spot on its lane. From the
    rig: `api.getCurrentTimeline().emit("click", { item: null, group: "<documentId>", time: new Date("1789-07-14T12:00:00Z"), event: {} })`
    drives the same handler; a real click also works through
    `zotero_click_element` with `mouseEvents: true` on the lane's background.
+   A click on a lane that is not active only activates it and creates
+   nothing; click a second time to create (canvas.ts's "click" handler). On
+   the fresh fixture "Timeline" is active, so _Revolutions_ needs two clicks.
    **Expect** the **standard editor**, not a separate create form: the
    `-create-*` classes belong to the context-menu path (J4). The draft shows
    `.zoterotimeline-event-title`, `.zoterotimeline-event-date` prefilled
    `1789-07-14`, `.zoterotimeline-event-date-feedback` reading
-   `Plain 7/14/1789 – 7/15/1789`, and Save / Delete / Duplicate. The draft is
-   already drawn on the lane (`itemsData.length` goes up by one) and the lane
-   becomes active, but nothing is written: the storage note's `getNote()` is
-   byte-for-byte unchanged until Save.
-   The draft's title field reads `Untitled event` until it is edited.
+   `Plain 7/14/1789 – 7/15/1789`, and Add source / Save / Delete / Duplicate.
+   The event is drawn on the lane, selected, and **already written**: the
+   storage note holds an event titled `Untitled event` before any Save
+   (corrected 2026-10-07; the create path calls `updateTimelineDocument`
+   directly). Save writes the edits on top of it. Once on 2026-10-07, the
+   first event created on a freshly opened canvas came back with
+   `getSelection()` empty while the editor held it; 3 later creates did not
+   repeat it.
 
 2. **Do** Type `Bastille falls`, press Save.
    **Expect** the note now holds one event with that title and date; the box
@@ -278,7 +296,9 @@ read the expectations as they are now, not as the source suggests.
    `timelineDrag.test.ts` covers it through Hammer.
 
 6. **Do** Click Duplicate (`.zoterotimeline-event-duplicate`), pick
-   _Scientific work_ in `.zoterotimeline-event-duplicate-target` (dispatch
+   _Scientific work_ in `.zoterotimeline-event-duplicate-target` (option
+   values are `<libraryID>:<documentId>`, so `1:<id>` in the user library;
+   a bare id selects nothing and the confirm silently does nothing; dispatch
    `change`), click `.zoterotimeline-event-duplicate-confirm`.
    **Expect** a second item drawn on the _Scientific work_ lane with its own
    id; the **editor stays on the original** and the selection does not move.
@@ -286,6 +306,10 @@ read the expectations as they are now, not as the source suggests.
    including for a click-created event titled and tagged in the same editor
    session (before TASK-74 it copied the event as it was when the editor
    opened). Unsaved edits are not copied: Duplicate reads the stored event.
+   They are also **dropped from the editor**: confirming re-renders the panel
+   from the stored event, with no prompt (2 of 2 on 2026-10-07). The
+   context-menu create path asks "Discard the current edit?" first; this one
+   does not. Open question, not filed.
 
 7. **Do** Click Delete (`.zoterotimeline-event-delete`).
    **Expect** it deletes the event the editor holds, which after step 6 is
@@ -476,7 +500,9 @@ and 5 also on 2026-09-11; walked in full on 2026-09-14.
    already admits leaves the filter untouched and shows no notice.
 
 6. **Do** Type `1800` in `.zoterotimeline-jump-date`, press Go.
-   **Expect** `timeline.getWindow()` now spans roughly 1796 to 1803; the
+   **Expect** `timeline.getWindow()` is centred on 1800 at the current zoom
+   (1792 to 1807 on 2026-10-07 from a 14-year window; the 2026-09-14 walk saw
+   1796 to 1803 from a narrower one), and the
    error element is empty. Then `not a date`: `.zoterotimeline-jump-error`
    reads "Not a date this can read" and the window is unchanged.
 
@@ -494,8 +520,9 @@ and 5 also on 2026-09-11; walked in full on 2026-09-14.
 
 Covers the sidebar's rename and delete controls, the delete confirm, what the
 item-pane section shows for a deleted timeline, the unreadable-note banner,
-and a read-only library. Walked on 2026-09-14 except step 5 (this profile's
-one group library is editable). Step 3 found TASK-76.
+and a read-only library. Walked on 2026-09-14 and 2026-10-07 except step 5
+(this profile's one group library is editable; on 2026-10-07 step 3's
+permanent erase and last-note cases were also skipped). Step 3 found TASK-76.
 
 1. **Do** Click `✎` on _Scientific work_. The row swaps its name for
    `.zoterotimeline-sidebar-row-rename-name` with Rename
@@ -530,20 +557,30 @@ one group library is editable). Step 3 found TASK-76.
    container relists them, and erasing it permanently returns the prompt to
    the no-timelines text. Trashing the last note with the container live
    keeps the no-timelines prompt, and the plus control still creates.
+   Restoring the container with My Library on screen shows "Zotero Timeline
+   (plugin data)" in the item tree although the hide preference is on, until
+   the view is reselected or refreshed (2 of 2 on 2026-10-07, both through
+   `deleted = false` from the rig; the Trash view's own Restore leaves My
+   Library, and returning to it refilters). Open question, not filed.
 
 4. **Do** Corrupt a storage note by hand (`setNote()` with a character
    removed inside the JSON, `saveTx()`).
    **Expect** with the tab open, the previous render **stays**: the lane and
-   its events remain drawn and no row turns unreadable, which is the
-   "leaves the previous render standing when a note stops parsing" rule the
-   suite asserts. The Timelines section for a cited item shows
+   its events remain drawn, which is the "leaves the previous render standing
+   when a note stops parsing" rule the suite asserts. The sidebar marks the
+   note `.zoterotimeline-sidebar-row-unreadable` straight away (corrected
+   2026-10-07; it used to wait for a reopen). The Timelines section for a cited item shows
    `.zoterotimeline-citing-unreadable-note` ("A timeline in this library
-   could not be read; this list may be incomplete.") on its next render, and
+   could not be read; this list may be incomplete.") on its next render
+   (select another item and back: re-selecting the item already shown is a
+   no-op and renders nothing), and
    `zotero_read_errors` gains `[zoteroTimeline] skipping unreadable timeline
 note <id> …` entries: **those two are the expected outcome of this step,
    not a failed step**. Reopening the tab shows
    `.zoterotimeline-sidebar-row-unreadable` for it. Nothing writes to the
-   corrupt note. Put the character back and it comes back.
+   corrupt note. Put the character back and it comes back, at the end of
+   the sidebar rather than in its old place (2026-10-07; lane order is
+   session state, see the last section).
 
 5. **Not walked** (needs a read-only library). If you have one, open the
    tab with it selected.
@@ -563,7 +600,7 @@ on the item pane, the two feedback buttons, and the nl-NL bundle. Steps 2 to
 
 1. **Do** Open Settings → Zotero Timeline. Untick "Hide Zotero Timeline's own
    items from my library".
-   **Expect** "Zotero Timeline data" appears in the library root (the
+   **Expect** "Zotero Timeline (plugin data)" appears in the library root (the
    storage and vocabulary notes are its collapsed children); tick it back and
    it disappears. Both without a restart, measured: the pref is
    `extensions.zotero.zoterotimeline.hideTimelineNotes`.
