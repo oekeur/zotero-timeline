@@ -37,28 +37,28 @@ describe("notifier registry: an observable leak signal", function () {
     await eraseAllPluginItems(libraryID);
   });
 
-  it("counts exactly the three startup observers with no tab open", function () {
+  it("counts exactly the four startup observers with no tab open", function () {
     assert.equal(
       api().liveNotifierObserversForTests(),
-      3,
-      "expected the container guard, document cache and source prune observers, and nothing else",
+      4,
+      "expected the container guard, document cache, source prune and library filter observers, and nothing else",
     );
   });
 
-  it("rises to four while the timeline tab is open, and drops back to three once it closes", async function () {
-    assert.equal(api().liveNotifierObserversForTests(), 3);
+  it("rises to five while the timeline tab is open, and drops back to four once it closes", async function () {
+    assert.equal(api().liveNotifierObserversForTests(), 4);
 
     await api().openTimelineTab();
     await waitFor(() => api().getCurrentTimeline(), "the canvas to render");
     assert.equal(
       api().liveNotifierObserversForTests(),
-      4,
+      5,
       "opening the tab did not register its canvas-refresh observer through the wrapper",
     );
 
     api().closeTimelineTab();
     await waitFor(
-      () => (api().liveNotifierObserversForTests() === 3 ? true : null),
+      () => (api().liveNotifierObserversForTests() === 4 ? true : null),
       "the tab's observer to release when the tab closes",
     );
   });
@@ -86,17 +86,17 @@ describe("notifier registry: an observable leak signal", function () {
     );
     assert.equal(
       api().liveNotifierObserversForTests(),
-      3,
+      4,
       "a tab closed mid-open left its canvas-refresh observer registered",
     );
 
     await api().openTimelineTab();
     await waitFor(() => api().getCurrentTimeline(), "the canvas to render");
-    assert.equal(api().liveNotifierObserversForTests(), 4);
+    assert.equal(api().liveNotifierObserversForTests(), 5);
 
     api().closeTimelineTab();
     await waitFor(
-      () => (api().liveNotifierObserversForTests() === 3 ? true : null),
+      () => (api().liveNotifierObserversForTests() === 4 ? true : null),
       "the tab's observer to release when the tab closes",
     );
   });

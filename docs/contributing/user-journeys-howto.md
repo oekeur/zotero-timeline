@@ -557,11 +557,10 @@ permanent erase and last-note cases were also skipped). Step 3 found TASK-76.
    container relists them, and erasing it permanently returns the prompt to
    the no-timelines text. Trashing the last note with the container live
    keeps the no-timelines prompt, and the plus control still creates.
-   Restoring the container with My Library on screen shows "Zotero Timeline
-   (plugin data)" in the item tree although the hide preference is on, until
-   the view is reselected or refreshed (2 of 2 on 2026-10-07, both through
-   `deleted = false` from the rig; the Trash view's own Restore leaves My
-   Library, and returning to it refilters). Open question, not filed.
+   With the hide preference on, the restored container stays out of the item
+   tree (2026-10-07: it used to appear there until the view refreshed;
+   `libraryFilter.ts` now refreshes the trees when a plugin item is
+   restored).
 
 4. **Do** Corrupt a storage note by hand (`setNote()` with a character
    removed inside the JSON, `saveTx()`).

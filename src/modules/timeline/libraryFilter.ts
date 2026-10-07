@@ -18,6 +18,10 @@
 import { getPref } from "../../utils/prefs";
 import { logFailure } from "../../utils/logging";
 import { config } from "../../../package.json";
+import {
+  registerNotifierObserver,
+  unregisterNotifierObserver,
+} from "./notifierRegistry";
 import { CONTAINER_TAG, STORAGE_TAG, VOCABULARY_TAG } from "./storage";
 
 type SearchOptions = { unfiltered?: boolean };
@@ -27,9 +31,12 @@ type GetSearchObject = (
 ) => Promise<Zotero.Search>;
 
 const PREF_KEY = `${config.prefsPrefix}.hideTimelineNotes`;
+const OBSERVER_ID = "zoterotimeline-library-filter";
+const PLUGIN_TAGS = [CONTAINER_TAG, STORAGE_TAG, VOCABULARY_TAG];
 
 let original: GetSearchObject | undefined;
 let prefObserver: symbol | undefined;
+let restoreObserver: string | undefined;
 
 /**
  * Rows whose results the wrap would change the meaning of rather than narrow.
@@ -89,6 +96,43 @@ function refreshItemTrees(): void {
   }
 }
 
+/**
+ * Refreshes the item trees when one of the plugin's items comes back out of
+ * the trash.
+ *
+ * Zotero's item tree answers that "modify" by adding the row itself, without
+ * running the row's search again, so the patched search never gets a say:
+ * restoring the container with My Library on screen showed it there with the
+ * preference on until something else refreshed the view (3 of 3 on
+ * 2026-10-07, 0 of 3 with this refresh). Trashing needs nothing; the row
+ * leaves on its own.
+ *
+ * Returns nothing and defers a turn, for the reason sourcePrune.ts's notify
+ * gives: Zotero awaits observers inside the commit that fired them.
+ */
+function notifyRestore(
+  event: _ZoteroTypes.Notifier.Event,
+  type: _ZoteroTypes.Notifier.Type,
+  ids: string[] | number[],
+  extraData: { [key: string]: any },
+): void {
+  if (event !== "modify" || type !== "item" || !getPref("hideTimelineNotes")) {
+    return;
+  }
+  const restored = (ids as number[]).some((id) => {
+    if (!extraData?.[id]?.changed || !("deleted" in extraData[id].changed)) {
+      return false;
+    }
+    const item = Zotero.Items.get(id) as Zotero.Item | false;
+    return (
+      !!item && !item.deleted && PLUGIN_TAGS.some((tag) => item.hasTag(tag))
+    );
+  });
+  if (restored) {
+    void Zotero.Promise.delay(0).then(refreshItemTrees);
+  }
+}
+
 export function registerLibraryFilter(): void {
   if (original) {
     return;
@@ -130,6 +174,11 @@ export function registerLibraryFilter(): void {
     refreshItemTrees,
     true,
   );
+  restoreObserver = registerNotifierObserver(
+    { notify: notifyRestore },
+    ["item"],
+    OBSERVER_ID,
+  );
 }
 
 /**
@@ -143,6 +192,10 @@ export function unregisterLibraryFilter(): void {
   if (prefObserver) {
     Zotero.Prefs.unregisterObserver(prefObserver);
     prefObserver = undefined;
+  }
+  if (restoreObserver) {
+    unregisterNotifierObserver(restoreObserver);
+    restoreObserver = undefined;
   }
   if (!original) {
     return;

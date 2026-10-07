@@ -12,6 +12,7 @@ import {
   unregisterLibraryFilter,
 } from "../src/modules/timeline/libraryFilter";
 import { eraseAllPluginItems } from "./support-pluginItems";
+import { waitFor } from "./waitFor";
 
 type Proto = { getSearchObject: unknown };
 
@@ -102,6 +103,59 @@ describe("storage: hiding the plugin's items from the item tree", function () {
     ]);
 
     assert.notInclude(ids, vocabulary.id);
+  });
+
+  // Zotero's item tree adds a restored item's row straight from the modify
+  // notification, without running the patched search, so this drives the
+  // live plugin's observer through the real tree rather than a search object.
+  // The plain item is the positive control: it proves the tree in this window
+  // does react to a restore, so the container's absence is not a dead view.
+  it("keeps a container restored from the trash out of the item tree", async function () {
+    const win = Zotero.getMainWindow() as any;
+    win.Zotero_Tabs.select("zotero-pane");
+    await win.ZoteroPane.collectionsView.selectLibrary(libraryID);
+    await win.ZoteroPane.itemsView.refreshAndMaintainSelection();
+
+    const control = new Zotero.Item("document");
+    control.libraryID = libraryID;
+    control.setField("title", "library filter restore control");
+    await control.saveTx();
+    const container = (await Zotero.Items.getAsync(containerID)) as Zotero.Item;
+    try {
+      const inTree = (id: number) =>
+        win.ZoteroPane.itemsView.getRowIndexByID(id) !== false;
+      await waitFor(
+        () => inTree(control.id) || undefined,
+        "the control item to show in My Library",
+      );
+
+      for (const item of [control, container]) {
+        item.deleted = true;
+        await item.saveTx();
+      }
+      await waitFor(
+        () => !inTree(control.id) || undefined,
+        "the trashed control item to leave My Library",
+      );
+      for (const item of [control, container]) {
+        item.deleted = false;
+        await item.saveTx();
+      }
+
+      await waitFor(
+        () => inTree(control.id) || undefined,
+        "the restored control item to come back to My Library",
+      );
+      // An absence has no condition to poll; give the refresh the same
+      // second the unfixed tree needed to show the container.
+      await Zotero.Promise.delay(1000);
+      assert.isFalse(
+        inTree(containerID),
+        "the restored container is in My Library with hideTimelineNotes on",
+      );
+    } finally {
+      await control.eraseTx();
+    }
   });
 
   // AC #5
