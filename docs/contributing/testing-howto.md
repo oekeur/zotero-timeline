@@ -10,7 +10,8 @@ A real Zotero starts, the plugin is installed into it as a temporary add-on,
 Mocha runs inside that privileged window, and the wrapper kills the run once
 the summary line appears.
 
-Expect it to take a couple of minutes, most of which is Zotero starting.
+Expect the full suite to take several minutes: CI's test jobs took between
+3m50s and 5m30s on 2026-10-07, Zotero download included.
 
 ## Through the verification gate
 
@@ -37,8 +38,8 @@ Runs only `test/itemPaneSection.test.ts`. Comma-separate for several files, and
 write each one with or without the `.test.ts` suffix. Unset, the whole `test`
 directory runs.
 
-Use it when you are diagnosing rather than verifying. A full run is around ten
-minutes; a narrowed one is under a minute, which is the difference between a
+Use it when you are diagnosing rather than verifying. A full run takes
+several minutes; a narrowed one is under a minute, which is the difference between a
 question you can ask five times and one you can afford to ask twice. Two
 attempts at one guard predicate were each paid for at full-run price and came
 back contradicting each other.
@@ -71,8 +72,9 @@ describe("startup", function () {
 ```
 
 `test/tsconfig.json` covers this directory. The root `tsc --noEmit` that
-`npm run build` runs does not, so a test file broken by a changed export
-signature is caught only when the suite runs.
+`npm run build` runs does not, and CI runs only the build, so a test file
+broken by a changed export signature passes CI's build job. Run
+`npm run typecheck`, which checks both, or the suite, which fails on it.
 
 ## The startup gate
 

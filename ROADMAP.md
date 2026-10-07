@@ -7,9 +7,11 @@ the data model live in the project's own tracker, which is not published; the
 milestone and task ids below are labels from it. Written 2026-08-20, revised
 2026-08-23.
 
-The charter and the milestone descriptions say "v1". That is this release,
-**0.1.0**. The package has been at 0.1.0 since the scaffold and no release has
-been cut, so the first published version is the one the v1 scope describes.
+The charter and the milestone descriptions say "v1". The first release is
+**0.9.0** (decided 2026-10-07), and it carries every milestone in the map
+below, TASK-15 included. The 0.1.0, 0.2.0 and 0.3.0 grouping further down was
+the plan before that; it stays for the reasoning behind each grouping, not as a
+forecast. 1.0.0 keeps the meaning its own section gives it.
 
 ## What has been built, and where to read it
 
@@ -29,7 +31,7 @@ for m-4, and in doing so it shipped a real part of m-4: the tab, the canvas with
 one lane per timeline, drag write-back through the namespaced id, and
 click-empty-canvas to create. So m-4 is half built and out of order.
 
-What is left of m-4 is therefore smaller and differently shaped than its
+As of 2026-08-23, what was left of m-4 was therefore smaller and differently shaped than its
 milestone description implies: telling the EDTF forms apart on the canvas,
 parking an unreadable date, the visibility and ordering sidebar, the active
 timeline that makes an edit's target legible, permission-based read-only,
@@ -42,7 +44,7 @@ by number rather than by the order the work happens in.
 
 ## Milestone map
 
-|         | Milestone                   | Expected in      |
+|         | Milestone                   | Planned for      |
 | ------- | --------------------------- | ---------------- |
 | m-0     | Scaffolding                 | n/a, pre-release |
 | TASK-17 | Observability rig spike     | n/a, dev tooling |
@@ -56,8 +58,8 @@ by number rather than by the order the work happens in.
 | m-7     | Tags and filtering          | 0.3.0            |
 | TASK-15 | Sub-lanes within a timeline | unscheduled      |
 
-Versions past 0.1.0 are an ordering and a rough grouping, not a commitment.
-Which of these are done is a tracker question, not a roadmap one.
+All of these shipped together in 0.9.0; the column records the plan. Which
+tasks are done is a tracker question, not a roadmap one.
 
 ## 0.1.0: m-1 through m-5
 
@@ -91,9 +93,9 @@ has to solve it deliberately, by drawing the label outside the bar or letting it
 overflow.
 
 The original plan was that m-4 landed before m-2, so titles would be readable as
-soon as anything was drawn at all. The build order went the other way, so the
-canvas draws today with the clipping unaddressed. R13 is an open defect on a
-live surface rather than a property guaranteed by ordering.
+soon as anything was drawn at all. The build order went the other way, so for a
+while the canvas drew with the clipping unaddressed; TASK-44 has since closed
+R13.
 
 ## 0.2.0: the item pane section
 
@@ -133,9 +135,8 @@ on a feature count.
 
 ## Unscheduled
 
-TASK-15 adds sub-lanes within one timeline via `nestedGroups`. A timeline is
-exactly one lane by decision, and the merge does not change when sub-lanes
-arrive, so nothing forecloses it and nothing forces it either.
+TASK-15, sub-lanes within one timeline via `nestedGroups`, sat here and
+shipped in 0.9.0 after all.
 
 Three drafts claim no slot: export as an image and as a note outline (draft-2),
 search across events (draft-3), and a list view of a timeline's events
@@ -143,5 +144,5 @@ search across events (draft-3), and a list view of a timeline's events
 in, since the storage model makes events invisible to Zotero's own search and
 tag filtering only covers part of that.
 
-No dates anywhere here. Nothing has shipped yet, so there is no velocity to
-project from, and a schedule invented now would be a guess dressed as a plan.
+No dates anywhere here. One release is not a velocity to project from, and a
+schedule invented now would be a guess dressed as a plan.

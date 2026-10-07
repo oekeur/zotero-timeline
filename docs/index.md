@@ -29,8 +29,5 @@ features:
 
 ## Status
 
-Pre-release. Nothing is installable yet.
-
-The repository holds the plugin skeleton, the build and test tooling, and the
-design documents. No feature is implemented, so the user guide below describes
-what is being built rather than what you can use today.
+Pre-release, 0.9.0: everything planned for the first release is in. Install
+the `.xpi` from [GitHub releases](https://github.com/oekeur/zotero-timeline/releases).

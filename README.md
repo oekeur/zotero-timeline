@@ -9,9 +9,11 @@ vocabulary you control, so "this source supports the event" and "this source
 contradicts it" stay distinguishable. Several timelines can be drawn together on
 one chronological axis.
 
-**Status: pre-release. Nothing is installable yet.** The repository currently
-holds the plugin skeleton, the build and test tooling, and the design documents.
-No feature is implemented.
+**Status: pre-release, 0.9.0.** Everything planned for the first release is in:
+the timeline tab with several timelines on one axis, events with EDTF dates and
+typed source links, the item pane section, the library context menu, and tag
+filtering. Install the `.xpi` from
+[GitHub releases](https://github.com/oekeur/zotero-timeline/releases).
 
 ## Who this is for
 

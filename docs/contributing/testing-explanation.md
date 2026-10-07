@@ -16,7 +16,7 @@ behaves that way.
 The failures that actually happen here are exactly the ones a mock cannot
 reproduce:
 
-- An API that exists on Zotero 10 but not on 7.
+- An API that exists on Zotero 10 but not on 8.
 - A manifest field whose wrong value blocks loading with no output at all.
 - A library that assumes a browser `document` or `window` and finds neither.
 - A tab type restored from `session.json` before the plugin registered it.
@@ -49,10 +49,13 @@ like that: it comes from `.env`, so each worktree gets its own repointed at
 
 ## What is not covered
 
-Anything requiring a person to look at it. Rendering, drag behaviour, whether
-a menu entry appears in the right place, whether a tab survives a restart. The
-suite proves the plugin loads and its logic holds; it cannot prove the UI is
-right.
+Anything requiring a person to look at it, and sequences that cross surfaces.
+The suite does drive the canvas, including drag through Hammer
+(`timelineDrag.test.ts`), and checks that menu entries exist
+(`libraryContextMenu.test.ts`). It cannot judge how a render looks, a drag made
+with a real pointer, or whether a tab survives a restart, and its specs each
+start from a clean fixture rather than from what the last action left behind.
+[Walking the user journeys](./user-journeys-howto) covers that half.
 
 That gap is why the pull request template asks separately for a manual pass
 through `npm start`, and why acceptance criteria in the tracker are marked

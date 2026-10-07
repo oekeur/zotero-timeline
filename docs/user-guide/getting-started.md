@@ -1,9 +1,9 @@
 # Getting started
 
 ::: warning Pre-release
-There is no installable release yet. This page describes the intended first
-run so the shape of the plugin is on record; it will become a real walkthrough
-when the first feature lands. To try the current state, build it yourself from
+The plugin is below 1.0, so expect rough edges. Install the `.xpi` from
+[GitHub releases](https://github.com/oekeur/zotero-timeline/releases), or
+build the current state yourself from
 [Development setup](/contributing/development-setup).
 :::
 
