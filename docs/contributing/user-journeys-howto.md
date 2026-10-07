@@ -246,8 +246,12 @@ read the expectations as they are now, not as the source suggests.
    A click on a lane that is not active only activates it and creates
    nothing; click a second time to create (canvas.ts's "click" handler). On
    the fresh fixture "Timeline" is active, so _Revolutions_ needs two clicks.
-   **Expect** the **standard editor**, not a separate create form: the
-   `-create-*` classes belong to the context-menu path (J4). The draft shows
+   **Expect** the **standard editor** on the new event. (With nothing
+   selected, the panel also carries a create form under its empty prompt,
+   the `-create-*` classes: Title, Date, a Timeline select when there is more
+   than one, and Create event. That is a second way to create, and the form
+   J4 fills; corrected 2026-10-07, it does not belong to the context menu
+   alone.) The draft shows
    `.zoterotimeline-event-title`, `.zoterotimeline-event-date` prefilled
    `1789-07-14`, `.zoterotimeline-event-date-feedback` reading
    `Plain 7/14/1789 – 7/15/1789`, and Add source / Save / Delete / Duplicate.
@@ -411,8 +415,12 @@ writable library).
 
 2. **Not walked.** Add an item from a second writable library to the
    selection, if you have one; otherwise skip.
-   **Expect** the entries stay visible but disabled, with a tooltip naming the
-   split library. Nothing is written.
+   **Expect** only the flat entries show, disabled, with the tooltip "The
+   selection spans more than one library; choose items from a single
+   library." (read from `libraryContextMenu.ts`, not walked; it names no
+   library, and the string is hard-coded rather than in the `.ftl`). Items the
+   menu ignores anyway, attachments and the plugin's own, are dropped before
+   the split is judged. Nothing is written.
 
 3. **Do** Pick "Add to New Event on…" → _Scientific work_. From the rig use
    `zotero_click_element` on `[data-l10n-id="zoterotimeline-menu-add-to-new-event-submenu"] menupopup > menuitem`
@@ -481,8 +489,8 @@ and 5 also on 2026-09-11; walked in full on 2026-09-14.
 3. **Do** Click a box on _Scientific work_ while _Revolutions_ is active.
    **Expect** the active timeline follows the selection: the lane label gets
    the active styling and the editor edits that event. A click on an empty
-   spot of a non-active lane both activates it and opens the create form
-   there.
+   spot of a non-active lane only activates it; a second click creates there
+   (corrected 2026-10-07, see J2 step 1).
 
 4. **Do** Give _Bastille falls_ the tag `alpha` and the _Scientific work_
    event the tag `beta`, if J2 did not. Click the `beta` chip.
