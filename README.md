@@ -1,7 +1,8 @@
 # Zotero Timeline
 
-Author research timelines and chronologies inside Zotero, where every event
-cites sources from your own library.
+A Zotero 8-10 timeline plugin. Author research timelines and chronologies
+inside Zotero, where every event cites the sources from your own library that
+support or contradict it.
 
 An event is an authored object with its own title, date, description, tags, and
 a list of links to items in your library. Each link carries a named type from a

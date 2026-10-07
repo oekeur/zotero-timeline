@@ -1,10 +1,11 @@
 ---
 layout: home
+title: Research timeline plugin for Zotero
 
 hero:
   name: Zotero Timeline
   text: Event timelines that cite your library
-  tagline: Author chronologies inside Zotero, where every event links to the sources that support or contradict it.
+  tagline: A Zotero timeline plugin. Author research chronologies inside Zotero, where every event links to the sources that support or contradict it.
   actions:
     - theme: brand
       text: Getting started
@@ -26,6 +27,17 @@ features:
   - title: Rides Zotero sync
     details: Data lives in note items, a native field, so it syncs with everything else. No WebDAV and no file-sync setup.
 ---
+
+## Who this is for
+
+Researchers building a chronology where the sources matter as much as the
+dates: a literature review tracing how sources answered each other over time,
+a historical timeline for a thesis chapter, or a research timeline you want to
+defend with citations rather than just assert.
+
+This is not a restoration of Zotero's removed Create Timeline, which plotted
+items by publication date. Zotero Timeline places events: authored objects with
+their own dates and citations.
 
 ## Status
 
