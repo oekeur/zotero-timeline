@@ -1,7 +1,7 @@
 {
   "name": "zotero-timeline",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "description": "Zotero 8-10 plugin for authoring research timelines and chronologies, where every event cites sources from your own library.",
   "config": {
     "addonName": "Zotero Timeline",
