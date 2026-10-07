@@ -100,3 +100,11 @@ The practical consequences are worth knowing before you start:
   plugin until you restore it. See
   [Recovering trashed plugin data](/user-guide/plugin-data-howto).
 - Events do not show up in Zotero's search, tag selector, or saved searches.
+
+## Where to go next
+
+[Your first timeline](/user-guide/first-timeline) walks from an empty library
+to a timeline with a cited event. After that, the
+[Timeline tab reference](/user-guide/timeline-tab-reference) lists every
+control on the tab, and the sidebar groups the how-tos by where you work: the
+tab, your library, and Settings.
