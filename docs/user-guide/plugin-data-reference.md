@@ -1,10 +1,8 @@
 # What the plugin stores
 
 ::: warning Pre-release
-The storage layer is built and writes these shapes. Nothing is released yet, and
-the surfaces that author source links and edit the link vocabulary land in a
-later milestone, so those two fields exist in the document before anything can
-fill them.
+These are the shapes 0.9.0 writes. The plugin is below 1.0; the `version`
+fields below are what keeps a later change from silently misreading them.
 :::
 
 Everything this plugin owns lives in your Zotero library as ordinary items.
@@ -35,21 +33,24 @@ they carry distinct tags, so listing timelines never picks up the vocabulary.
 A timeline document is JSON. It carries a `version`, the timeline's own
 metadata, and its events. Each event has:
 
-| Field         | Meaning                                            |
-| ------------- | -------------------------------------------------- |
-| `id`          | Unique within this document, not across documents  |
-| `title`       | What is drawn on the axis                          |
-| `description` | Optional free text                                 |
-| `date`        | EDTF string                                        |
-| `endDate`     | Optional EDTF string, for an event that spans time |
-| `sources`     | Links to library items, each with a link-type id   |
-| `tags`        | Free-text strings                                  |
+| Field         | Meaning                                                             |
+| ------------- | ------------------------------------------------------------------- |
+| `id`          | Unique within this document, not across documents                   |
+| `title`       | What is drawn on the axis                                           |
+| `description` | Optional free text                                                  |
+| `date`        | EDTF string                                                         |
+| `endDate`     | Optional EDTF string, for an event that spans time                  |
+| `sources`     | Links to library items, each with a link-type id                    |
+| `tags`        | Free-text strings                                                   |
+| `track`       | Optional sub-lane within the timeline; absent means its single lane |
 
 A source reference identifies its target as `{kind, libraryID, key}`. Keys are
 what Zotero syncs by; the numeric item ids you may see elsewhere are local to
 one machine, so all three fields are needed to identify an item. `kind` says
 whether the target is a regular item or one of your own notes, both of which
-can be sources; an attachment is cited through the item that owns it.
+can be sources; an attachment is cited through the item that owns it. Each
+reference also stores its link type's `typeId`, and may carry an optional
+free-text `name` for a distinction that fits only that one link.
 
 A link stores the type's `id` and never its label. Renaming a link type
 therefore needs no pass over your timelines, and deleting a type leaves the

@@ -16,8 +16,8 @@ per worktree, so this is once per worktree. Almost all of it is automatic.
    bridge into `~/.cache/zotero-mcp-bridge/plugin-v1.0.5/` on first use,
    installs it into this worktree's dev profile as a proxy file, assigns this
    worktree an RDP port, and writes that port into `.env` as
-   `ZOTERO_MCP_RDP_PORT`. It prints the port and the `claude mcp add` line for
-   it.
+   `ZOTERO_MCP_RDP_PORT`. It prints the port and the `zotero-timeline-N` entry
+   that answers on it.
 
    `zotero-plugin.config.ts` carries the other half: `server.prefs` writes
    `extensions.mcp-rdp.port` from that variable and arms
@@ -96,6 +96,12 @@ is sticky: a checkout keeps the port already in its `.env`, so the client entry
 you registered against it does not quietly start pointing somewhere else. Still
 confirm after every `npm start` that the data directory `zotero_ping` reports
 is the worktree you are actually working in.
+
+The same silence applies to a Zotero you use for your own library, if it
+carries the bridge: it listens on 6100 too. While it runs, the main checkout's
+dev Zotero cannot take 6100 and `zotero-timeline-0` answers from your own
+library. A seed script run through it on 2026-10-07 wrote its fixture items
+there. Use a worktree's port when that Zotero is open.
 
 ## What it will not tell you
 

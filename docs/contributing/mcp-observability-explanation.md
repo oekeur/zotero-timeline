@@ -102,7 +102,9 @@ from the case you intended. Per-worktree ports are what prevent it.
 `scripts/clean-dev-profile.mjs` kills one process by its `-profile` argument
 and rewrites `session.json`, and never touches `extensions/`. It does not
 survive a new worktree, since `worktree-init.sh` mints a fresh
-`.scaffold/dev-profile`, so installing it is a per-worktree step.
+`.scaffold/dev-profile`, so installing it is a per-worktree step. The
+worktree hook (`~/.claude/worktree-hooks/zoteroTimeline.sh`) now does that
+install itself, pinned to `plugin-v1.0.5`.
 
 **Installation needs nobody at the keyboard.** The trial expected a
 Tools > Plugins > Install Plugin From File. It is not necessary. Unpack the
@@ -128,15 +130,16 @@ The intended experiment was to screenshot the timeline, comment out
 bundled `styleInject` is dead in Zotero's bootstrap scope.
 
 **That experiment has no second state any more, and the reason is a finding
-about this repo rather than about the tools.** `./fixture` is imported
-dynamically at tab-open, deliberately, so Hammer sees a real window. By then
+about this repo rather than about the tools.** The canvas module (`./fixture`
+at the time of the trial, `./canvas` now) is imported dynamically at tab-open,
+deliberately, so Hammer sees a real window. By then
 `ensureWindowGlobals()` has installed `document` on `globalThis`. vis-timeline
 therefore evaluates with `typeof document === "object"`, `styleInject` runs,
 and the CSS is injected as `<style>` blocks regardless of `ensureStylesheet()`.
 Removing the call changed nothing, on a hot reload and on a cold start alike.
-The comment above `ensureStylesheet` still describes the older situation. It is
-recorded here and left alone; deciding what to do about a now-redundant call is
-separate work.
+The comment above the call has since been rewritten to say so and to give the
+reason the link is kept anyway (`timelineTab.ts`, in `ensureVisStylesheets`, above its
+`ensureStylesheet` calls).
 
 An equivalent failure was staged instead by deleting the injected `<style>`
 elements at runtime, which produces the same class of silent visual break. The

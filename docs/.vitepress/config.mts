@@ -70,6 +70,70 @@ export default defineConfig({
           text: "Start here",
           items: [
             { text: "Getting started", link: "/user-guide/getting-started" },
+            { text: "Your first timeline", link: "/user-guide/first-timeline" },
+          ],
+        },
+        {
+          text: "The Timeline tab",
+          collapsed: false,
+          items: [
+            {
+              text: "Manage timelines",
+              link: "/user-guide/manage-timelines-howto",
+            },
+            {
+              text: "Create and edit events",
+              link: "/user-guide/edit-events-howto",
+            },
+            {
+              text: "Attach source links",
+              link: "/user-guide/event-sources-howto",
+            },
+            {
+              text: "Duplicate an event",
+              link: "/user-guide/duplicate-event-howto",
+            },
+            { text: "Use sub-lanes", link: "/user-guide/sub-lanes-howto" },
+            { text: "Filter by tag", link: "/user-guide/filter-by-tag-howto" },
+            { text: "Navigate the axis", link: "/user-guide/navigate-howto" },
+            {
+              text: "Timeline tab reference",
+              link: "/user-guide/timeline-tab-reference",
+            },
+          ],
+        },
+        {
+          text: "In your library",
+          collapsed: false,
+          items: [
+            {
+              text: "Find events citing an item",
+              link: "/user-guide/item-pane-howto",
+            },
+            {
+              text: "Cite items from the context menu",
+              link: "/user-guide/library-context-menu-howto",
+            },
+            {
+              text: "Item pane section reference",
+              link: "/user-guide/item-pane-reference",
+            },
+            {
+              text: "Context menu reference",
+              link: "/user-guide/library-context-menu-reference",
+            },
+          ],
+        },
+        {
+          text: "Settings",
+          collapsed: false,
+          items: [
+            { text: "Edit link types", link: "/user-guide/link-types-howto" },
+            { text: "Change settings", link: "/user-guide/settings-howto" },
+            {
+              text: "Settings reference",
+              link: "/user-guide/settings-reference",
+            },
           ],
         },
         {
@@ -131,6 +195,16 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: "Storage design", link: "/internals/storage-explanation" },
+          ],
+        },
+        {
+          text: "The Timeline tab",
+          collapsed: false,
+          items: [
+            {
+              text: "How the Timeline tab redraws",
+              link: "/internals/timeline-tab-explanation",
+            },
           ],
         },
       ],

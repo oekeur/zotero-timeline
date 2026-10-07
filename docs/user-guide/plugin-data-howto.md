@@ -1,9 +1,8 @@
 # Recovering trashed plugin data
 
 ::: warning Pre-release
-The plugin does create these items now, but nothing is released yet and this
-procedure has not been exercised against a real loss. It is the recovery the
-storage design implies, written down before the failure can happen.
+Trashing and restoring the container and a single timeline note was walked on
+2026-10-07 against a test library, not against a real loss.
 :::
 
 Your timelines are stored as Zotero note items under one container item per
@@ -25,10 +24,11 @@ on.
 
 1. Click **Trash** in the left-hand pane of your Zotero library.
 2. Sort by **Date Modified** so recently trashed items come first.
-3. Look for an item named after this plugin. It is the container, and the
-   timeline notes are its children.
+3. Look for the item titled "Zotero Timeline (plugin data)". It is the
+   container, and the timeline notes are its children.
 4. Right-click it and choose **Restore to Library**.
-5. Restart Zotero, or reopen the timeline tab.
+5. Nothing else. An open timeline tab lists the restored timelines again on
+   its own; no restart or reopen is needed.
 
 If you only lost one timeline, restore the individual note rather than the
 container.

@@ -4,17 +4,22 @@ Every script defined in `package.json`, and what it actually runs.
 
 ## Build and run
 
-| Script          | Runs                                  | Notes                                                                         |
-| --------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| `start`         | `zotero-plugin serve`                 | Launches Zotero against the `.env` dev profile and reloads on change.         |
-| `prestart`      | `node scripts/clean-dev-profile.mjs`  | Runs automatically before `start`. See below.                                 |
-| `build`         | `zotero-plugin build && tsc --noEmit` | Produces the .xpi, `update.json` and `update-beta.json` in `.scaffold/build`. |
-| `release`       | `zotero-plugin release`               | Bumps the version and builds through `release.bumpp.execute`.                 |
-| `clean:profile` | `node scripts/clean-dev-profile.mjs`  | The same cleanup, on demand.                                                  |
+| Script           | Runs                                  | Notes                                                                         |
+| ---------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| `start`          | `zotero-plugin serve`                 | Launches Zotero against the `.env` dev profile and reloads on change.         |
+| `start:headless` | `node scripts/headless.mjs npm start` | `start` on a virtual display. See below.                                      |
+| `prestart`       | `node scripts/clean-dev-profile.mjs`  | Runs automatically before `start`. See below.                                 |
+| `build`          | `zotero-plugin build && tsc --noEmit` | Produces the .xpi, `update.json` and `update-beta.json` in `.scaffold/build`. |
+| `release`        | `zotero-plugin release`               | Bumps the version and builds through `release.bumpp.execute`.                 |
+| `clean:profile`  | `node scripts/clean-dev-profile.mjs`  | The same cleanup, on demand.                                                  |
 
 `build` type-checks `src/` but not `test/`, because `tsc --noEmit` here uses the
 root `tsconfig.json`. A changed export signature that breaks a test file is
-caught by the test stage, not the build.
+caught by `typecheck` or by the test stage, not the build.
+
+| Script      | Runs                                   |
+| ----------- | -------------------------------------- |
+| `typecheck` | `tsc --noEmit && tsc --noEmit -p test` |
 
 ## Lint
 
@@ -25,10 +30,15 @@ caught by the test stage, not the build.
 
 ## Test
 
-| Script      | Runs                         | Notes                                      |
-| ----------- | ---------------------------- | ------------------------------------------ |
-| `test`      | `zotero-plugin test`         | What CI runs.                              |
-| `test:fast` | `node scripts/run-tests.mjs` | The same suite, wrapped. Use this locally. |
+| Script      | Runs                                                   | Notes                                      |
+| ----------- | ------------------------------------------------------ | ------------------------------------------ |
+| `test`      | `node scripts/headless.mjs npx zotero-plugin test`     | What CI runs.                              |
+| `test:fast` | `node scripts/headless.mjs node scripts/run-tests.mjs` | The same suite, wrapped. Use this locally. |
+
+`scripts/headless.mjs` puts the run on a virtual display when the session
+would otherwise open a Zotero window on the real screen. Competing with the
+desktop was the suite's largest source of intermittent failures, so every
+entry point that launches Zotero goes through it.
 
 `test:fast` exists because `zotero-plugin test` starts a real Zotero GUI that
 does not reliably exit once the suite has finished. The wrapper watches stdout

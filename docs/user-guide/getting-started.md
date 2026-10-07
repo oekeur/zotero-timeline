@@ -1,9 +1,9 @@
 # Getting started
 
 ::: warning Pre-release
-There is no installable release yet. This page describes the intended first
-run so the shape of the plugin is on record; it will become a real walkthrough
-when the first feature lands. To try the current state, build it yourself from
+The plugin is below 1.0, so expect rough edges. Install the `.xpi` from
+[GitHub releases](https://github.com/oekeur/zotero-timeline/releases), or
+build the current state yourself from
 [Development setup](/contributing/development-setup).
 :::
 
@@ -100,3 +100,11 @@ The practical consequences are worth knowing before you start:
   plugin until you restore it. See
   [Recovering trashed plugin data](/user-guide/plugin-data-howto).
 - Events do not show up in Zotero's search, tag selector, or saved searches.
+
+## Where to go next
+
+[Your first timeline](/user-guide/first-timeline) walks from an empty library
+to a timeline with a cited event. After that, the
+[Timeline tab reference](/user-guide/timeline-tab-reference) lists every
+control on the tab, and the sidebar groups the how-tos by where you work: the
+tab, your library, and Settings.
