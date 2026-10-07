@@ -83,7 +83,9 @@ export async function attachItemsToEvent(
       let next = current;
       for (const item of items) {
         const result = addSource(next, eventId, {
-          kind: "item",
+          // The same rule the editor's picker applies (eventEditor.ts), so a
+          // note cited from either surface is one claim under isSameClaim.
+          kind: item.isNote() ? "note" : "item",
           libraryID: item.libraryID,
           key: item.key,
           typeId,

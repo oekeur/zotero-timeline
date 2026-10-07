@@ -166,6 +166,67 @@ describe("addSourcesDialog", function () {
       assert.deepEqual(outcome.attached, []);
       assert.deepEqual(outcome.alreadyCited, [labelForItem(cited)]);
     });
+
+    // A standalone note is a "note" source, the kind the editor's own picker
+    // writes for it. Stored as "item" instead, it never matched the editor's
+    // ref under isSameClaim, so the same note cited both ways counted as two
+    // sources and the dialog attached it a second time.
+    it("stores a standalone note as a note source, matching the editor's ref", async function () {
+      const standaloneNote = async (text: string) => {
+        const item = new Zotero.Item("note");
+        item.libraryID = libraryID;
+        item.setNote(`<p>${text}</p>`);
+        await item.saveTx();
+        return item;
+      };
+      const citedByEditor = await standaloneNote("Cited from the editor");
+      const fresh = await standaloneNote("Not cited yet");
+
+      const fixture: TimelineDocument = {
+        version: CURRENT_SCHEMA_VERSION,
+        id: "tl-notes",
+        name: "Note sources",
+        events: [
+          {
+            id: "e-target",
+            title: "Target event",
+            date: "1900",
+            sources: [
+              {
+                kind: "note",
+                libraryID,
+                key: citedByEditor.key,
+                typeId: "cites",
+              },
+            ],
+            tags: [],
+          },
+        ],
+      };
+      const note = await createDocumentNote(libraryID, STORAGE_TAG, fixture);
+
+      const outcome = await attachItemsToEvent(
+        fixture.id,
+        libraryID,
+        "e-target",
+        [citedByEditor, fresh],
+        "cites",
+      );
+
+      assert.deepEqual(outcome.alreadyCited, [labelForItem(citedByEditor)]);
+      assert.deepEqual(outcome.attached, [labelForItem(fresh)]);
+
+      await refreshNote(note);
+      const { doc: written } = readDocumentFromNote(note);
+      const target = written.events.find((event) => event.id === "e-target")!;
+      assert.deepEqual(
+        target.sources.map((source) => [source.key, source.kind]),
+        [
+          [citedByEditor.key, "note"],
+          [fresh.key, "note"],
+        ],
+      );
+    });
   });
 
   describe("the standalone dialog", function () {
